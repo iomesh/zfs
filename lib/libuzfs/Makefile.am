@@ -6,6 +6,8 @@ AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
 # Unconditionally enable ASSERTs
 AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
 
+pkgconfig_DATA = libuzfs.pc
+
 lib_LTLIBRARIES = libuzfs.la
 
 USER_C = libuzfs.c

@@ -172,6 +172,7 @@ AC_CONFIG_FILES([
 	lib/libzstd/Makefile
 	lib/libzutil/Makefile
 	lib/libuzfs/Makefile
+	lib/libuzfs/libuzfs.pc
 	man/Makefile
 	module/Kbuild
 	module/Makefile
