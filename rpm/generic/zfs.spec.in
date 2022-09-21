@@ -124,6 +124,7 @@ Requires:       libzpool5 = %{version}
 Requires:       libnvpair3 = %{version}
 Requires:       libuutil3 = %{version}
 Requires:       libzfs5 = %{version}
+Requires:       libuzfs = %{version}
 Requires:       %{name}-kmod = %{version}
 Provides:       %{name}-kmod-common = %{version}
 Obsoletes:      spl
@@ -190,6 +191,21 @@ for managing zpools
 %else
 %post -n libzpool5 -p /sbin/ldconfig
 %postun -n libzpool5 -p /sbin/ldconfig
+%endif
+
+%package -n libuzfs
+Summary:        Userland ZFS library for Linux
+Group:          System Environment/Kernel
+
+%description -n libuzfs
+This package contains the uzfs library, which provides support
+for managing zpool and zfs in userland
+
+%if %{defined ldconfig_scriptlets}
+%ldconfig_scriptlets -n libuzfs
+%else
+%post -n libuzfs -p /sbin/ldconfig
+%postun -n libuzfs -p /sbin/ldconfig
 %endif
 
 %package -n libnvpair3
@@ -262,6 +278,7 @@ Requires:       libuutil3 = %{version}
 Provides:       libzpool5-devel
 Provides:       libnvpair3-devel
 Provides:       libuutil3-devel
+Provides:       libuzfs-devel
 Obsoletes:      zfs-devel
 Obsoletes:      libzfs2-devel
 Obsoletes:      libzfs4-devel
@@ -484,6 +501,7 @@ systemctl --system daemon-reload >/dev/null || true
 # Core utilities
 %{_sbindir}/*
 %{_bindir}/raidz_test
+%{_bindir}/uzfs
 %{_sbindir}/zgenhostid
 %{_bindir}/zvol_wait
 # Optional Python 2/3 scripts
@@ -530,6 +548,9 @@ systemctl --system daemon-reload >/dev/null || true
 %files -n libzpool5
 %{_libdir}/libzpool.so.*
 
+%files -n libuzfs
+%{_libdir}/libuzfs.so.*
+
 %files -n libnvpair3
 %{_libdir}/libnvpair.so.*
 
@@ -543,6 +564,7 @@ systemctl --system daemon-reload >/dev/null || true
 %{_pkgconfigdir}/libzfs.pc
 %{_pkgconfigdir}/libzfsbootenv.pc
 %{_pkgconfigdir}/libzfs_core.pc
+%{_pkgconfigdir}/libuzfs.pc
 %{_libdir}/*.so
 %{_includedir}/*
 %doc AUTHORS COPYRIGHT LICENSE NOTICE README.md
