@@ -28,8 +28,8 @@
 #ifdef _KERNEL
 #include <sys/isa_defs.h>
 #include <sys/types32.h>
-#include <sys/xvattr.h>
 #endif
+#include <sys/xvattr.h>
 #include <sys/acl.h>
 #include <sys/dmu.h>
 #include <sys/zfs_fuid.h>
@@ -204,7 +204,6 @@ typedef struct zfs_acl_ids {
 struct znode;
 struct zfsvfs;
 
-#ifdef _KERNEL
 int zfs_acl_ids_create(struct znode *, int, vattr_t *,
     cred_t *, vsecattr_t *, zfs_acl_ids_t *);
 void zfs_acl_ids_free(zfs_acl_ids_t *);
@@ -239,8 +238,6 @@ uint64_t zfs_mode_compute(uint64_t, zfs_acl_t *,
     uint64_t *, uint64_t, uint64_t);
 int zfs_acl_node_read(struct znode *, boolean_t, zfs_acl_t **, boolean_t);
 int zfs_acl_chown_setattr(struct znode *);
-
-#endif
 
 #ifdef	__cplusplus
 }
