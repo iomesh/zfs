@@ -27,12 +27,13 @@
 #include <sys/avl.h>
 #include <sys/zap.h>
 #include <sys/nvpair.h>
-#ifdef _KERNEL
-#include <sys/sid.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
-#endif
 #include <sys/zfs_fuid.h>
+
+#ifdef _KERNEL
+#include <sys/sid.h>
+#endif
 
 /*
  * FUID Domain table(s).
@@ -184,7 +185,6 @@ zfs_fuid_idx_domain(avl_tree_t *idx_tree, uint32_t idx)
 	return (findnode ? findnode->f_ksid->kd_name : nulldomain);
 }
 
-#ifdef _KERNEL
 /*
  * Load the fuid table(s) into memory.
  */
@@ -808,4 +808,3 @@ zfs_id_to_fuidstr(zfsvfs_t *zfsvfs, const char *domain, uid_t rid,
 	(void) snprintf(buf, len, "%llx", (longlong_t)fuid);
 	return (0);
 }
-#endif

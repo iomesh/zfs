@@ -1396,3 +1396,8 @@ const struct file_operations zpl_file_operations = {};
 const struct file_operations zpl_dir_file_operations = {};
 const struct address_space_operations zpl_address_space_operations = {};
 
+// zfs_fuid.c
+int groupmember(gid_t gid, const cred_t *cr) {
+    dprintf("%s\n", __func__);
+    return 0;
+}
