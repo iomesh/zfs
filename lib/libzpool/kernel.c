@@ -1383,3 +1383,17 @@ void
 zfsvfs_update_fromname(const char *oldname, const char *newname)
 {
 }
+
+// zfs_znode.c
+const struct super_operations zpl_super_operations = {};
+const struct export_operations zpl_export_operations = {};
+const struct dentry_operations zpl_dentry_operations = {};
+const struct inode_operations zpl_inode_operations = {};
+const struct inode_operations zpl_dir_inode_operations = {};
+const struct inode_operations zpl_symlink_inode_operations = {};
+const struct inode_operations zpl_special_inode_operations = {};
+const struct file_operations zpl_file_operations = {};
+const struct file_operations zpl_dir_file_operations = {};
+const struct address_space_operations zpl_address_space_operations = {};
+
+

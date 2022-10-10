@@ -30,6 +30,7 @@
 #include <sys/zfs_acl.h>
 #include <sys/zil.h>
 #include <sys/zfs_project.h>
+#include <sys/xvattr.h>
 
 #ifdef	__cplusplus
 extern "C" {

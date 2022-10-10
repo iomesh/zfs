@@ -300,4 +300,30 @@ struct inode {
 	void			*i_private; /* fs or device private pointer */
 };
 
+// zfs_znode.c
+extern const struct inode_operations zpl_inode_operations;
+extern const struct inode_operations zpl_dir_inode_operations;
+extern const struct inode_operations zpl_symlink_inode_operations;
+extern const struct inode_operations zpl_special_inode_operations;
+extern const struct address_space_operations zpl_address_space_operations;
+extern const struct file_operations zpl_file_operations;
+extern const struct file_operations zpl_dir_file_operations;
+
+inline void inode_init_once(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    memset(inode, 0, sizeof(*inode));
+}
+
+#define container_of(ptr, type, member) ({          \
+    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+    (type *)( (char *)__mptr - offsetof(type,member) );})
+
+#define S_APPEND    4   /* Append-only file */
+#define S_IMMUTABLE 8   /* Immutable file */
+
+#define PAGE_SHIFT  12
+#define PAGE_SIZE   (1 << PAGE_SHIFT)
+#define PAGE_MASK   (~(PAGE_SIZE-1))
+
 #endif	/* _SYS_KERNEL_H */

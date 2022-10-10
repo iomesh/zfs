@@ -96,7 +96,6 @@ extern "C" {
 #include <pthread.h>
 #include <setjmp.h>
 #include <assert.h>
-#include <umem.h>
 #include <limits.h>
 #include <atomic.h>
 #include <dirent.h>
@@ -124,6 +123,10 @@ extern "C" {
 #include <sys/trace_zfs.h>
 
 #include <sys/zfs_context_os.h>
+
+#include <sys/vnode.h>
+#include <sys/kmem.h>
+#include <sys/kmem_cache.h>
 
 /*
  * Stack
@@ -403,42 +406,6 @@ void procfs_list_add(procfs_list_t *procfs_list, void *p);
 #endif
 
 /*
- * Kernel memory
- */
-#define	KM_SLEEP		UMEM_NOFAIL
-#define	KM_PUSHPAGE		KM_SLEEP
-#define	KM_NOSLEEP		UMEM_DEFAULT
-#define	KM_NORMALPRI		0	/* not needed with UMEM_DEFAULT */
-#define	KMC_NODEBUG		UMC_NODEBUG
-#define	KMC_KVMEM		0x0
-#define	kmem_alloc(_s, _f)	umem_alloc(_s, _f)
-#define	kmem_zalloc(_s, _f)	umem_zalloc(_s, _f)
-#define	kmem_free(_b, _s)	umem_free(_b, _s)
-#define	vmem_alloc(_s, _f)	kmem_alloc(_s, _f)
-#define	vmem_zalloc(_s, _f)	kmem_zalloc(_s, _f)
-#define	vmem_free(_b, _s)	kmem_free(_b, _s)
-#define	kmem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i) \
-	umem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i)
-#define	kmem_cache_destroy(_c)	umem_cache_destroy(_c)
-#define	kmem_cache_alloc(_c, _f) umem_cache_alloc(_c, _f)
-#define	kmem_cache_free(_c, _b)	umem_cache_free(_c, _b)
-#define	kmem_debugging()	0
-#define	kmem_cache_reap_now(_c)	umem_cache_reap_now(_c);
-#define	kmem_cache_set_move(_c, _cb)	/* nothing */
-#define	POINTER_INVALIDATE(_pp)		/* nothing */
-#define	POINTER_IS_VALID(_p)	0
-
-typedef umem_cache_t kmem_cache_t;
-
-typedef enum kmem_cbrc {
-	KMEM_CBRC_YES,
-	KMEM_CBRC_NO,
-	KMEM_CBRC_LATER,
-	KMEM_CBRC_DONT_NEED,
-	KMEM_CBRC_DONT_KNOW
-} kmem_cbrc_t;
-
-/*
  * Task queues
  */
 
@@ -519,69 +486,6 @@ extern void	system_taskq_fini(void);
 
 extern char *vn_dumpdir;
 #define	AV_SCANSTAMP_SZ	32		/* length of anti-virus scanstamp */
-
-typedef struct xoptattr {
-	inode_timespec_t xoa_createtime;	/* Create time of file */
-	uint8_t		xoa_archive;
-	uint8_t		xoa_system;
-	uint8_t		xoa_readonly;
-	uint8_t		xoa_hidden;
-	uint8_t		xoa_nounlink;
-	uint8_t		xoa_immutable;
-	uint8_t		xoa_appendonly;
-	uint8_t		xoa_nodump;
-	uint8_t		xoa_settable;
-	uint8_t		xoa_opaque;
-	uint8_t		xoa_av_quarantined;
-	uint8_t		xoa_av_modified;
-	uint8_t		xoa_av_scanstamp[AV_SCANSTAMP_SZ];
-	uint8_t		xoa_reparse;
-	uint8_t		xoa_offline;
-	uint8_t		xoa_sparse;
-} xoptattr_t;
-
-typedef struct vattr {
-	uint_t		va_mask;	/* bit-mask of attributes */
-	u_offset_t	va_size;	/* file size in bytes */
-} vattr_t;
-
-
-typedef struct xvattr {
-	vattr_t		xva_vattr;	/* Embedded vattr structure */
-	uint32_t	xva_magic;	/* Magic Number */
-	uint32_t	xva_mapsize;	/* Size of attr bitmap (32-bit words) */
-	uint32_t	*xva_rtnattrmapp;	/* Ptr to xva_rtnattrmap[] */
-	uint32_t	xva_reqattrmap[XVA_MAPSIZE];	/* Requested attrs */
-	uint32_t	xva_rtnattrmap[XVA_MAPSIZE];	/* Returned attrs */
-	xoptattr_t	xva_xoptattrs;	/* Optional attributes */
-} xvattr_t;
-
-typedef struct vsecattr {
-	uint_t		vsa_mask;	/* See below */
-	int		vsa_aclcnt;	/* ACL entry count */
-	void		*vsa_aclentp;	/* pointer to ACL entries */
-	int		vsa_dfaclcnt;	/* default ACL entry count */
-	void		*vsa_dfaclentp;	/* pointer to default ACL entries */
-	size_t		vsa_aclentsz;	/* ACE size in bytes of vsa_aclentp */
-} vsecattr_t;
-
-#define	AT_MODE		0x00002
-#define	AT_UID		0x00004
-#define	AT_GID		0x00008
-#define	AT_FSID		0x00010
-#define	AT_NODEID	0x00020
-#define	AT_NLINK	0x00040
-#define	AT_SIZE		0x00080
-#define	AT_ATIME	0x00100
-#define	AT_MTIME	0x00200
-#define	AT_CTIME	0x00400
-#define	AT_RDEV		0x00800
-#define	AT_BLKSIZE	0x01000
-#define	AT_NBLOCKS	0x02000
-#define	AT_SEQ		0x08000
-#define	AT_XVATTR	0x10000
-
-#define	CRCREAT		0
 
 #define	F_FREESP	11
 #define	FIGNORECASE	0x80000 /* request case-insensitive lookups */
