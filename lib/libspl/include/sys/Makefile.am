@@ -42,6 +42,7 @@ libspl_HEADERS = \
 	uio.h \
 	va_list.h \
 	varargs.h \
+	vfs.h \
 	vnode.h \
 	vtoc.h \
 	wmsum.h \

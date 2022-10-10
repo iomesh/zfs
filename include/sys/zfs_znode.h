@@ -159,7 +159,6 @@ extern "C" {
 
 extern int zfs_obj_to_path(objset_t *osp, uint64_t obj, char *buf, int len);
 
-#ifdef _KERNEL
 #include <sys/zfs_znode_impl.h>
 
 /*
@@ -289,7 +288,6 @@ extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
 extern void zfs_znode_update_vfs(struct znode *);
 
-#endif
 #ifdef	__cplusplus
 }
 #endif

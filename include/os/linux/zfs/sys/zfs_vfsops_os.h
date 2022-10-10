@@ -38,6 +38,10 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/objlist.h>
 
+#ifndef _KERNEL
+#define kstatfs statfs
+#endif
+
 #ifdef	__cplusplus
 extern "C" {
 #endif

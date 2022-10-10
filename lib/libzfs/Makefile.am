@@ -5,6 +5,10 @@ VPATH = \
 	$(top_srcdir)/module/zcommon \
 	$(top_srcdir)/lib/libzfs
 
+if BUILD_LINUX
+DEFAULT_INCLUDES += -I$(top_srcdir)/include/os/linux/zfs
+endif
+
 # Suppress unused but set variable warnings often due to ASSERTs
 AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
 AM_CFLAGS += $(LIBCRYPTO_CFLAGS) $(ZLIB_CFLAGS)

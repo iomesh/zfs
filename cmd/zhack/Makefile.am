@@ -1,5 +1,9 @@
 include $(top_srcdir)/config/Rules.am
 
+if BUILD_LINUX
+DEFAULT_INCLUDES += -I$(top_srcdir)/include/os/linux/zfs
+endif
+
 # Unconditionally enable debugging for zhack
 AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
 

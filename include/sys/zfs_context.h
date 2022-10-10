@@ -771,6 +771,8 @@ extern int __spl_pf_fstrans_check(void);
 extern int kmem_cache_reap_active(void);
 
 
+#include <sys/kernel.h>
+
 /*
  * Kernel modules
  */
