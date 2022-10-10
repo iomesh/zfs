@@ -27,28 +27,9 @@
 
 #ifdef _KERNEL
 #include <sys/types.h>
-#include <sys/param.h>
-#include <sys/time.h>
-#include <sys/sysmacros.h>
-#include <sys/mntent.h>
-#include <sys/u8_textprep.h>
-#include <sys/dsl_dataset.h>
-#include <sys/vfs.h>
-#include <sys/vnode.h>
-#include <sys/file.h>
-#include <sys/kmem.h>
-#include <sys/errno.h>
-#include <sys/atomic.h>
-#include <sys/zfs_dir.h>
-#include <sys/zfs_acl.h>
-#include <sys/zfs_ioctl.h>
-#include <sys/zfs_rlock.h>
-#include <sys/zfs_fuid.h>
-#include <sys/zfs_vnops.h>
-#include <sys/zfs_ctldir.h>
-#include <sys/dnode.h>
-#include <sys/fs/zfs.h>
-#include <sys/zpl.h>
+#include <sys/zfs_dir.h> // zfs_rmnode
+#include <sys/zfs_ctldir.h> //zfsctl_is_node
+#include <sys/zpl.h> // zpl_inode/file_operations
 #endif /* _KERNEL */
 
 #include <sys/dmu.h>
