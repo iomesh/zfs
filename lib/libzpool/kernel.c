@@ -833,31 +833,31 @@ kernel_fini(void)
 }
 
 uid_t
-crgetuid(cred_t *cr)
+crgetuid(const cred_t *cr)
 {
 	return (0);
 }
 
 uid_t
-crgetruid(cred_t *cr)
+crgetruid(const cred_t *cr)
 {
 	return (0);
 }
 
 gid_t
-crgetgid(cred_t *cr)
+crgetgid(const cred_t *cr)
 {
 	return (0);
 }
 
 int
-crgetngroups(cred_t *cr)
+crgetngroups(const cred_t *cr)
 {
 	return (0);
 }
 
 gid_t *
-crgetgroups(cred_t *cr)
+crgetgroups(const cred_t *cr)
 {
 	return (NULL);
 }
@@ -1395,5 +1395,4 @@ const struct inode_operations zpl_special_inode_operations = {};
 const struct file_operations zpl_file_operations = {};
 const struct file_operations zpl_dir_file_operations = {};
 const struct address_space_operations zpl_address_space_operations = {};
-
 

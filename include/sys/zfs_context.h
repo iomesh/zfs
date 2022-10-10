@@ -310,15 +310,6 @@ extern void rw_exit(krwlock_t *rwlp);
 #define	rw_downgrade(rwlp) do { } while (0)
 
 /*
- * Credentials
- */
-extern uid_t crgetuid(cred_t *cr);
-extern uid_t crgetruid(cred_t *cr);
-extern gid_t crgetgid(cred_t *cr);
-extern int crgetngroups(cred_t *cr);
-extern gid_t *crgetgroups(cred_t *cr);
-
-/*
  * Condition variables
  */
 typedef pthread_cond_t		kcondvar_t;
@@ -526,9 +517,6 @@ extern void delay(clock_t ticks);
 
 #define	CPU_SEQID	((uintptr_t)pthread_self() & (max_ncpus - 1))
 #define	CPU_SEQID_UNSTABLE	CPU_SEQID
-
-#define	kcred		NULL
-#define	CRED()		NULL
 
 #define	ptob(x)		((x) * PAGESIZE)
 

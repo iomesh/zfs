@@ -28,9 +28,10 @@
 
 #ifdef _KERNEL
 #include <sys/sid.h>
+#endif
+
 #include <sys/dmu.h>
 #include <sys/zfs_vfsops.h>
-#endif
 #include <sys/avl.h>
 
 #ifdef	__cplusplus
@@ -96,7 +97,6 @@ typedef struct zfs_fuid_info {
 	size_t	z_domain_str_sz; /* len of domain strings z_domain list */
 } zfs_fuid_info_t;
 
-#ifdef _KERNEL
 struct znode;
 extern uid_t zfs_fuid_map_id(zfsvfs_t *, uint64_t, cred_t *, zfs_fuid_type_t);
 extern void zfs_fuid_node_add(zfs_fuid_info_t **, const char *, uint32_t,
@@ -118,7 +118,6 @@ extern const char *zfs_fuid_find_by_idx(zfsvfs_t *zfsvfs, uint32_t idx);
 extern void zfs_fuid_txhold(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 extern int zfs_id_to_fuidstr(zfsvfs_t *zfsvfs, const char *domain, uid_t rid,
     char *buf, size_t len, boolean_t addok);
-#endif
 
 char *zfs_fuid_idx_domain(avl_tree_t *, uint32_t);
 void zfs_fuid_avl_tree_create(avl_tree_t *, avl_tree_t *);
