@@ -1560,4 +1560,13 @@ boolean_t inode_owner_or_capable(const struct inode *inode)
 
 
 
+// zfs_log.c
+// FIXME(hping): remove it after importing zfs_ioctl.c
+uint_t zfs_fsyncer_key;
+
+// FIXME(hping): remove it after importing zfs_znode.c
+int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
+{
+	return (0);
+}
 

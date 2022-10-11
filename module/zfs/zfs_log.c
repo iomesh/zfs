@@ -29,7 +29,6 @@
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
 #include <sys/kmem.h>
-#include <sys/thread.h>
 #include <sys/file.h>
 #include <sys/vfs.h>
 #include <sys/zfs_znode.h>
@@ -45,6 +44,10 @@
 #include <sys/spa.h>
 #include <sys/zfs_fuid.h>
 #include <sys/dsl_dataset.h>
+
+#ifdef _KERNEL
+#include <sys/thread.h>
+#endif
 
 /*
  * These zfs_log_* functions must be called within a dmu tx, in one

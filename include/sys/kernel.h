@@ -376,5 +376,8 @@ extern int write_inode_now(struct inode *inode, int sync);
 static inline void task_io_account_read(int64_t n) {}
 static inline void task_io_account_write(int64_t n) {}
 
+// zfs_log.c
+// remove it after importing zfs_ioctl.c
+extern uint_t zfs_fsyncer_key;
 
 #endif	/* _SYS_KERNEL_H */
