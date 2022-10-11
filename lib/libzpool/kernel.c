@@ -1565,14 +1565,6 @@ boolean_t inode_owner_or_capable(const struct inode *inode)
 // FIXME(hping): remove it after importing zfs_ioctl.c
 uint_t zfs_fsyncer_key;
 
-// FIXME(hping): remove it after importing zfs_znode.c
-int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp) { return (0); }
-
-// zfs_sa.c
-// FIXME(hping): remove these two after importing zfs_znode.c
-void zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx) {}
-void zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2], uint64_t ctime[2]) {}
-
 // zfs_acl.c
 // FIXME(hping): remove these two after importing zfs_vfsops.c
 boolean_t zfs_is_readonly(zfsvfs_t *zfsvfs) { return B_FALSE; }
@@ -1600,11 +1592,9 @@ struct inode * zfsctl_root(znode_t *zp) { return (NULL); }
 void zfs_zrele_async(znode_t *zp) {}
 
 
-// FIXME(hping): remove these two after importing zfs_znode.c
-void zfs_znode_dmu_fini(znode_t *zp) {}
-void zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr, uint_t flag, znode_t **zpp, zfs_acl_ids_t *acl_ids) {}
-void zfs_znode_delete(znode_t *zp, dmu_tx_t *tx) {}
-
 // FIXME(hping): remove it after importing dataset_kstats.c
 void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) {}
 void dataset_kstats_update_nunlinks_kstat(dataset_kstats_t *dk, int64_t delta) {}
+
+// zfs_znode.c
+boolean_t zfsctl_is_node(struct inode *ip) { return (ITOZ(ip)->z_is_ctldir); }
