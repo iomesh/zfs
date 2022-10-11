@@ -22,6 +22,7 @@
 #ifndef	_SYS_KERNEL_H
 #define	_SYS_KERNEL_H
 
+// zfs_znode.c
 typedef boolean_t bool;
 typedef unsigned int u32;
 typedef unsigned long int u64;
@@ -300,7 +301,6 @@ struct inode {
 	void			*i_private; /* fs or device private pointer */
 };
 
-// zfs_znode.c
 extern const struct inode_operations zpl_inode_operations;
 extern const struct inode_operations zpl_dir_inode_operations;
 extern const struct inode_operations zpl_symlink_inode_operations;
@@ -309,10 +309,32 @@ extern const struct address_space_operations zpl_address_space_operations;
 extern const struct file_operations zpl_file_operations;
 extern const struct file_operations zpl_dir_file_operations;
 
-inline void inode_init_once(struct inode *inode)
+extern void atomic_set(atomic_t *v, int i);
+
+extern void inode_init_once(struct inode *inode);
+extern struct inode *igrab(struct inode *inode);
+extern void iput(struct inode *inode);
+extern struct inode *new_inode(struct super_block *sb);
+extern void init_special_inode(struct inode *, umode_t, dev_t);
+extern void inode_set_flags(struct inode *inode, unsigned int flags, unsigned int mask);
+extern int insert_inode_locked(struct inode *inode);
+extern void unlock_new_inode(struct inode *inode);
+extern void mark_inode_dirty(struct inode *inode);
+extern void set_nlink(struct inode *inode, unsigned int nlink);
+extern void i_size_write(struct inode *inode, loff_t i_size);
+extern void truncate_setsize(struct inode *inode, loff_t newsize);
+extern void truncate_inode_pages_range(struct address_space *space, loff_t lstart, loff_t lend);
+
+extern int timespec_compare(const struct timespec *lhs, const struct timespec *rhs);
+
+static inline void zfs_uid_write(struct inode *ip, uid_t uid)
 {
-    dprintf("%s: %ld\n", __func__, inode->i_ino);
-    memset(inode, 0, sizeof(*inode));
+	ip->i_uid = make_kuid(ip->i_sb->s_user_ns, uid);
+}
+
+static inline void zfs_gid_write(struct inode *ip, gid_t gid)
+{
+	ip->i_gid = make_kgid(ip->i_sb->s_user_ns, gid);
 }
 
 #define container_of(ptr, type, member) ({          \

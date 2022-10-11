@@ -289,6 +289,9 @@ extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
 extern void zfs_znode_update_vfs(struct znode *);
 
+// FIXME(hping): definination is in kernel.c when compiling in userland
+extern void zfs_zero_partial_page(znode_t *zp, uint64_t start, uint64_t len);
+
 #ifdef	__cplusplus
 }
 #endif

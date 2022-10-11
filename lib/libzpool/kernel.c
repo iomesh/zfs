@@ -42,6 +42,7 @@
 #include <sys/zfs_context.h>
 #include <sys/zfs_onexit.h>
 #include <sys/zfs_vfsops.h>
+#include <sys/zfs_znode.h>
 #include <sys/zstd/zstd.h>
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
@@ -1384,10 +1385,157 @@ const struct file_operations zpl_file_operations = {};
 const struct file_operations zpl_dir_file_operations = {};
 const struct address_space_operations zpl_address_space_operations = {};
 
+void atomic_set(atomic_t *v, int i)
+{
+	atomic_store_int(&v->counter, i);
+}
+
+inline void inode_init_once(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	memset(inode, 0, sizeof(*inode));
+}
+
+struct inode *igrab(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	atomic_inc_32(&inode->i_count.counter);
+	return inode;
+}
+
+static int atomic_read(const atomic_t *v)
+{
+    return atomic_load_int(&v->counter);
+}
+
+static void destroy_inode(struct inode* inode) {
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    if (inode) {
+        if (inode->i_lock)
+            pthread_spin_destroy(&inode->i_lock);
+	// FIXME(hping): comment out after importing zfs_znode.c
+	//zfs_inode_destroy(inode);
+    }
+}
+
+void iput(struct inode *inode)
+{
+	if (inode) {
+		dprintf("%s: %ld\n", __func__, inode->i_ino);
+		atomic_dec_32(&inode->i_count.counter);
+		if (atomic_read(&inode->i_count) == 0) {
+			// FIXME(hping): comment out after importing zfs_vnops_os.c
+			//zfs_inactive(inode);
+			destroy_inode(inode);
+		}
+	}
+}
+
+static void inode_set_iversion(struct inode *ip, uint64_t val)
+{
+	ip->i_version = val;
+}
+
+struct inode *new_inode(struct super_block *sb) {
+	struct inode *ip = NULL;
+
+	// FIXME(hping): comment out after importing zfs_znode.c
+	//VERIFY3S(zfs_inode_alloc(sb, &ip), ==, 0);
+	inode_set_iversion(ip, 1);
+
+	ip->i_sb = sb;
+	ip->i_mapping = &ip->i_data;
+
+	pthread_spin_init(&ip->i_lock, PTHREAD_PROCESS_PRIVATE);
+
+	dprintf("%s: %ld\n", __func__, ip->i_ino);
+	return (ip);
+}
+
+void init_special_inode(struct inode *inode, umode_t mode, dev_t dev)
+{
+	dprintf("%s\n", __func__);
+}
+
+void inode_set_flags(struct inode *inode, unsigned int flags, unsigned int mask)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+int insert_inode_locked(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	atomic_inc_32(&inode->i_count.counter);
+	return 0;
+}
+
+void unlock_new_inode(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+void mark_inode_dirty(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+static void clear_nlink(struct inode *inode)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	if (inode->i_nlink) {
+		inode->__i_nlink = 0;
+	}
+}
+
+void set_nlink(struct inode *inode, unsigned int nlink)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	if (!nlink) {
+		clear_nlink(inode);
+	} else {
+		inode->__i_nlink = nlink;
+	}
+}
+
+void i_size_write(struct inode *inode, loff_t i_size)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	inode->i_size = i_size;
+}
+
+void truncate_setsize(struct inode *inode, loff_t newsize)
+{
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+void truncate_inode_pages_range(struct address_space *space, loff_t lstart, loff_t lend)
+{
+	dprintf("%s\n", __func__);
+}
+
+// FIXME(hping) called from zfs_free_range, only used in mmap which we doens't suppoprt
+void zfs_zero_partial_page(znode_t *zp, uint64_t start, uint64_t len)
+{
+	// never be called
+	dprintf("%s\n", __func__);
+	ASSERT(0);
+}
+
+int timespec_compare(const struct timespec *lhs, const struct timespec *rhs)
+{
+    dprintf("%s\n", __func__);
+	if (lhs->tv_sec < rhs->tv_sec)
+		return -1;
+	if (lhs->tv_sec > rhs->tv_sec)
+		return 1;
+	return lhs->tv_nsec - rhs->tv_nsec;
+}
+
+
 // zfs_fuid.c
 int groupmember(gid_t gid, const cred_t *cr) {
-    dprintf("%s\n", __func__);
-    return 0;
+	dprintf("%s\n", __func__);
+	return 0;
 }
 
 // policy.c
@@ -1396,18 +1544,18 @@ struct cred *kcred = &global_cred;
 
 boolean_t capable(int cap)
 {
-    return B_TRUE;
+	return B_TRUE;
 }
 
 boolean_t has_capability(proc_t *t, int cap)
 {
-    return B_FALSE;
+	return B_FALSE;
 }
 
 boolean_t inode_owner_or_capable(const struct inode *inode)
 {
-    dprintf("%s: %ld\n", __func__, inode->i_ino);
-    return B_FALSE;
+	dprintf("%s: %ld\n", __func__, inode->i_ino);
+	return B_FALSE;
 }
 
 

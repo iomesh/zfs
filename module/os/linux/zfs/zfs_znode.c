@@ -1541,7 +1541,7 @@ zfs_extend(znode_t *zp, uint64_t end)
  * Caller must acquire a range lock on the file for the region
  * being zeroed in order that the ARC and page cache stay in sync.
  */
-static void
+void
 zfs_zero_partial_page(znode_t *zp, uint64_t start, uint64_t len)
 {
 	struct address_space *mp = ZTOI(zp)->i_mapping;
