@@ -26,7 +26,6 @@
 #ifndef	_SYS_ZFS_SA_H
 #define	_SYS_ZFS_SA_H
 
-#ifdef _KERNEL
 #include <sys/types32.h>
 #include <sys/list.h>
 #include <sys/dmu.h>
@@ -36,7 +35,6 @@
 #include <sys/zil.h>
 
 
-#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -129,7 +127,6 @@ typedef struct znode_phys {
 	 */
 } znode_phys_t;
 
-#ifdef _KERNEL
 
 #define	DXATTR_MAX_ENTRY_SIZE	(32768)
 #define	DXATTR_MAX_SA_SIZE	(SPA_OLD_MAXBLOCKSIZE >> 1)
@@ -144,7 +141,6 @@ void zfs_sa_upgrade(struct sa_handle  *, dmu_tx_t *);
 void zfs_sa_upgrade_txholds(dmu_tx_t *, struct znode *);
 void zfs_sa_init(void);
 void zfs_sa_fini(void);
-#endif
 
 #ifdef	__cplusplus
 }
