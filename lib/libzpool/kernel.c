@@ -1570,3 +1570,12 @@ int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
 	return (0);
 }
 
+// zfs_sa.c
+// FIXME(hping): remove these two after importing zfs_znode.c
+void zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx) {}
+void zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2], uint64_t ctime[2]) {}
+
+// FIXME(hping): remove these three after importing zfs_acl.c
+void zfs_acl_data_locator(void **dataptr, uint32_t *length, uint32_t buflen, boolean_t start, void *userdata) {}
+void zfs_acl_xform(znode_t *zp, zfs_acl_t *aclp, cred_t *cr) {}
+uint64_t zfs_external_acl(znode_t *zp) { return (0); }
