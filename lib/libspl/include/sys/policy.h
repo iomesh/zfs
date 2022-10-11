@@ -23,4 +23,6 @@
 #ifndef	_LIBSYS_SYS_POLICY_H
 #define	_LIBSYS_SYS_POLICY_H
 
+#include_next <sys/policy.h>
+
 #endif	/* _LIBSYS_SYS_POLICY_H */
