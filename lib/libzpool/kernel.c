@@ -44,6 +44,8 @@
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
 #include <sys/zfs_dir.h>
+#include <sys/zfs_vnops.h>
+#include <sys/zfs_ctldir.h>
 #include <sys/zstd/zstd.h>
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
@@ -1404,7 +1406,7 @@ struct inode *igrab(struct inode *inode)
 	return inode;
 }
 
-static int atomic_read(const atomic_t *v)
+int atomic_read(const atomic_t *v)
 {
     return atomic_load_int(&v->counter);
 }
@@ -1480,7 +1482,7 @@ void mark_inode_dirty(struct inode *inode)
 	dprintf("%s: %ld\n", __func__, inode->i_ino);
 }
 
-static void clear_nlink(struct inode *inode)
+void clear_nlink(struct inode *inode)
 {
 	dprintf("%s: %ld\n", __func__, inode->i_ino);
 	if (inode->i_nlink) {
@@ -1566,10 +1568,7 @@ boolean_t inode_owner_or_capable(const struct inode *inode)
 uint_t zfs_fsyncer_key;
 
 // FIXME(hping): remove it after importing zfs_znode.c
-int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
-{
-	return (0);
-}
+int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp) { return (0); }
 
 // zfs_sa.c
 // FIXME(hping): remove these two after importing zfs_znode.c
@@ -1581,5 +1580,33 @@ void zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2], uint64
 boolean_t zfs_is_readonly(zfsvfs_t *zfsvfs) { return B_FALSE; }
 inline void zfs_exit_fs(zfsvfs_t *zfsvfs) {}
 
-// FIXME(hping): remove it after importing zfs_dir.c
-int zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr) { return (0); }
+// zfs_dir.c
+void drop_nlink(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    inode->__i_nlink--;
+}
+
+void inc_nlink(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    inode->__i_nlink++;
+}
+
+// FIXME(hping): remove these two after importing zfs_ctldir.c
+int zfsctl_root_lookup(struct inode *dip, const char *name, struct inode **ipp,
+    int flags, cred_t *cr, int *direntflags, pathname_t *realpnp) { return (0); }
+struct inode * zfsctl_root(znode_t *zp) { return (NULL); }
+
+// FIXME(hping): remove it after importing zfs_vnops_os.c
+void zfs_zrele_async(znode_t *zp) {}
+
+
+// FIXME(hping): remove these two after importing zfs_znode.c
+void zfs_znode_dmu_fini(znode_t *zp) {}
+void zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr, uint_t flag, znode_t **zpp, zfs_acl_ids_t *acl_ids) {}
+void zfs_znode_delete(znode_t *zp, dmu_tx_t *tx) {}
+
+// FIXME(hping): remove it after importing dataset_kstats.c
+void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) {}
+void dataset_kstats_update_nunlinks_kstat(dataset_kstats_t *dk, int64_t delta) {}

@@ -380,4 +380,11 @@ static inline void task_io_account_write(int64_t n) {}
 // remove it after importing zfs_ioctl.c
 extern uint_t zfs_fsyncer_key;
 
+// zfs_dir.c
+#define ED_CASE_CONFLICT        0x10
+extern int atomic_read(const atomic_t *v);
+extern void drop_nlink(struct inode *inode);
+extern void clear_nlink(struct inode *inode);
+extern void inc_nlink(struct inode *inode);
+
 #endif	/* _SYS_KERNEL_H */
