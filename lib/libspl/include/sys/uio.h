@@ -41,6 +41,8 @@
 #define	_LIBSPL_SYS_UIO_H
 
 #include <sys/types.h>
+#include <sys/debug.h>
+#include <string.h>
 #include_next <sys/uio.h>
 
 #ifdef __APPLE__
@@ -83,6 +85,7 @@ typedef struct zfs_uio {
 #define	zfs_uio_iovcnt(uio)		(uio)->uio_iovcnt
 #define	zfs_uio_iovlen(uio, idx)	(uio)->uio_iov[(idx)].iov_len
 #define	zfs_uio_iovbase(uio, idx)	(uio)->uio_iov[(idx)].iov_base
+#define	zfs_uio_fault_disable(u, set)	(u)->uio_fault_disable = set
 #define	zfs_uio_rlimit_fsize(z, u)	(0)
 #define	zfs_uio_fault_move(p, n, rw, u)	zfs_uiomove((p), (n), (rw), (u))
 
@@ -115,26 +118,6 @@ zfs_uio_advance(zfs_uio_t *uio, size_t size)
 {
 	uio->uio_resid -= size;
 	uio->uio_loffset += size;
-}
-
-static inline void
-zfs_uio_iov_at_index(zfs_uio_t *uio, uint_t idx, void **base, uint64_t *len)
-{
-	*base = zfs_uio_iovbase(uio, idx);
-	*len = zfs_uio_iovlen(uio, idx);
-}
-
-static inline offset_t
-zfs_uio_index_at_offset(zfs_uio_t *uio, offset_t off, uint_t *vec_idx)
-{
-	*vec_idx = 0;
-	while (*vec_idx < (uint_t)zfs_uio_iovcnt(uio) &&
-	    off >= (offset_t)zfs_uio_iovlen(uio, *vec_idx)) {
-		off -= zfs_uio_iovlen(uio, *vec_idx);
-		(*vec_idx)++;
-	}
-
-	return (off);
 }
 
 /*

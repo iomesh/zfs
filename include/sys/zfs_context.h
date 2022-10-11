@@ -111,7 +111,7 @@ extern "C" {
 #include <sys/byteorder.h>
 #include <sys/list.h>
 #include <sys/mod.h>
-#include <sys/uio.h>
+#include <sys/uio_impl.h>
 #include <sys/zfs_debug.h>
 #include <sys/kstat.h>
 #include <sys/u8_textprep.h>
