@@ -39,7 +39,6 @@
 #include <sys/errno.h>
 #include <sys/stat.h>
 #include <sys/sunddi.h>
-#include <sys/random.h>
 #include <sys/policy.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_acl.h>
@@ -47,7 +46,6 @@
 #include <sys/fs/zfs.h>
 #include <sys/zap.h>
 #include <sys/dmu.h>
-#include <sys/atomic.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_fuid.h>
 #include <sys/sa.h>
@@ -55,6 +53,10 @@
 #include <sys/dmu_objset.h>
 #include <sys/dsl_dir.h>
 
+#ifdef _KERNEL
+#include <sys/random.h>
+#include <sys/atomic.h>
+#endif
 /*
  * zfs_match_find() is used by zfs_dirent_lock() to perform zap lookups
  * of names after deciding which is the appropriate lookup interface.

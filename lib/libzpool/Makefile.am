@@ -180,7 +180,8 @@ KERNEL_C = \
 	policy.c \
 	zfs_quota.c \
 	zfs_log.c \
-	zfs_acl.c
+	zfs_acl.c \
+	zfs_dir.c
 
 LUA_C = \
 	lapi.c \
