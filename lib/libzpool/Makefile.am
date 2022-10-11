@@ -177,7 +177,8 @@ KERNEL_C = \
 	zle.c \
 	zrlock.c \
 	zthr.c \
-	policy.c
+	policy.c \
+	zfs_quota.c
 
 LUA_C = \
 	lapi.c \

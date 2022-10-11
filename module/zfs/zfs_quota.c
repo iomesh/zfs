@@ -467,6 +467,7 @@ zfs_id_overquota(zfsvfs_t *zfsvfs, uint64_t usedobj, uint64_t id)
 	    zfs_id_overobjquota(zfsvfs, usedobj, id));
 }
 
+#ifdef _KERNEL
 EXPORT_SYMBOL(zpl_get_file_info);
 EXPORT_SYMBOL(zfs_userspace_one);
 EXPORT_SYMBOL(zfs_userspace_many);
@@ -474,3 +475,4 @@ EXPORT_SYMBOL(zfs_set_userquota);
 EXPORT_SYMBOL(zfs_id_overblockquota);
 EXPORT_SYMBOL(zfs_id_overobjquota);
 EXPORT_SYMBOL(zfs_id_overquota);
+#endif
