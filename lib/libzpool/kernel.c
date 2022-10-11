@@ -43,6 +43,7 @@
 #include <sys/zfs_onexit.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
+#include <sys/zfs_dir.h>
 #include <sys/zstd/zstd.h>
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
@@ -1575,7 +1576,10 @@ int zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
 void zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx) {}
 void zfs_tstamp_update_setup(znode_t *zp, uint_t flag, uint64_t mtime[2], uint64_t ctime[2]) {}
 
-// FIXME(hping): remove these three after importing zfs_acl.c
-void zfs_acl_data_locator(void **dataptr, uint32_t *length, uint32_t buflen, boolean_t start, void *userdata) {}
-void zfs_acl_xform(znode_t *zp, zfs_acl_t *aclp, cred_t *cr) {}
-uint64_t zfs_external_acl(znode_t *zp) { return (0); }
+// zfs_acl.c
+// FIXME(hping): remove these two after importing zfs_vfsops.c
+boolean_t zfs_is_readonly(zfsvfs_t *zfsvfs) { return B_FALSE; }
+inline void zfs_exit_fs(zfsvfs_t *zfsvfs) {}
+
+// FIXME(hping): remove it after importing zfs_dir.c
+int zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr) { return (0); }
