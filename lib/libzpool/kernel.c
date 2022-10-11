@@ -1416,8 +1416,7 @@ static void destroy_inode(struct inode* inode) {
     if (inode) {
         if (inode->i_lock)
             pthread_spin_destroy(&inode->i_lock);
-	// FIXME(hping): comment out after importing zfs_znode.c
-	//zfs_inode_destroy(inode);
+	zfs_inode_destroy(inode);
     }
 }
 
@@ -1442,8 +1441,7 @@ static void inode_set_iversion(struct inode *ip, uint64_t val)
 struct inode *new_inode(struct super_block *sb) {
 	struct inode *ip = NULL;
 
-	// FIXME(hping): comment out after importing zfs_znode.c
-	//VERIFY3S(zfs_inode_alloc(sb, &ip), ==, 0);
+	VERIFY3S(zfs_inode_alloc(sb, &ip), ==, 0);
 	inode_set_iversion(ip, 1);
 
 	ip->i_sb = sb;

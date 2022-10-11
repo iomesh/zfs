@@ -25,12 +25,11 @@
 
 /* Portions Copyright 2007 Jeremy Teo */
 
-#ifdef _KERNEL
 #include <sys/types.h>
 #include <sys/zfs_dir.h> // zfs_rmnode
 #include <sys/zfs_ctldir.h> //zfsctl_is_node
-#include <sys/zpl.h> // zpl_inode/file_operations
-#endif /* _KERNEL */
+
+#include <sys/xvattr.h>
 
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
@@ -46,12 +45,15 @@
 #include "zfs_prop.h"
 #include "zfs_comutil.h"
 
+#ifdef _KERNEL
+#include <sys/zpl.h>
+#endif
+
 /*
  * Functions needed for userland (ie: libzpool) are not put under
  * #ifdef_KERNEL; the rest of the functions have dependencies
  * (such as VFS logic) that will not compile easily in userland.
  */
-#ifdef _KERNEL
 
 static kmem_cache_t *znode_cache = NULL;
 static kmem_cache_t *znode_hold_cache = NULL;
@@ -1531,6 +1533,7 @@ zfs_extend(znode_t *zp, uint64_t end)
 	return (0);
 }
 
+#ifdef _KERNEL
 /*
  * zfs_zero_partial_page - Modeled after update_pages() but
  * with different arguments and semantics for use by zfs_freesp().
@@ -1573,6 +1576,7 @@ zfs_zero_partial_page(znode_t *zp, uint64_t start, uint64_t len)
 		put_page(pp);
 	}
 }
+#endif /* _KERNEL */
 
 /*
  * Free space in a file.
@@ -1954,7 +1958,6 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	kmem_free(sb, sizeof (struct super_block));
 	kmem_free(zfsvfs, sizeof (zfsvfs_t));
 }
-#endif /* _KERNEL */
 
 static int
 zfs_sa_setup(objset_t *osp, sa_attr_type_t **sa_table)
