@@ -326,4 +326,19 @@ inline void inode_init_once(struct inode *inode)
 #define PAGE_SIZE   (1 << PAGE_SHIFT)
 #define PAGE_MASK   (~(PAGE_SIZE-1))
 
+// policy.c
+#define CAP_SYS_ADMIN        21
+#define CAP_DAC_OVERRIDE     1
+#define CAP_DAC_READ_SEARCH  2
+#define CAP_FOWNER           3
+#define CAP_FSETID           4
+#define CAP_SETGID           6
+
+extern struct cred *kcred;
+extern boolean_t has_capability(proc_t *t, int cap);
+extern boolean_t capable(int cap);
+
+#define zpl_inode_owner_or_capable(ns, ip)  inode_owner_or_capable(ip)
+extern boolean_t inode_owner_or_capable(const struct inode *inode);
+
 #endif	/* _SYS_KERNEL_H */

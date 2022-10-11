@@ -31,8 +31,14 @@
  */
 
 #include <sys/policy.h>
+
+#ifdef _KERNEL
 #include <linux/security.h>
 #include <linux/vfs_compat.h>
+#else
+#include <sys/zfs_context.h>
+#include <sys/xvattr.h>
+#endif
 
 /*
  * The passed credentials cannot be directly verified because Linux only

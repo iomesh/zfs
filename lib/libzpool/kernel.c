@@ -880,18 +880,6 @@ zfs_secpolicy_destroy_perms(const char *name, cred_t *cr)
 	return (0);
 }
 
-int
-secpolicy_zfs(const cred_t *cr)
-{
-	return (0);
-}
-
-int
-secpolicy_zfs_proc(const cred_t *cr, proc_t *proc)
-{
-	return (0);
-}
-
 ksiddomain_t *
 ksid_lookupdomain(const char *dom)
 {
@@ -1401,3 +1389,27 @@ int groupmember(gid_t gid, const cred_t *cr) {
     dprintf("%s\n", __func__);
     return 0;
 }
+
+// policy.c
+struct cred global_cred = {};
+struct cred *kcred = &global_cred;
+
+boolean_t capable(int cap)
+{
+    return B_TRUE;
+}
+
+boolean_t has_capability(proc_t *t, int cap)
+{
+    return B_FALSE;
+}
+
+boolean_t inode_owner_or_capable(const struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    return B_FALSE;
+}
+
+
+
+

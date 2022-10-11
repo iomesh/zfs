@@ -33,7 +33,6 @@ struct cred {
 
 typedef struct cred cred_t;
 
-#define	kcred		NULL
 #define	CRED()		NULL
 
 /* Linux 4.9 API change, GROUP_AT was removed */
