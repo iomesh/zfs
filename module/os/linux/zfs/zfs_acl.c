@@ -31,7 +31,6 @@
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #include <sys/vnode.h>
-#include <sys/sid.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/kmem.h>
@@ -50,7 +49,11 @@
 #include <sys/zap.h>
 #include <sys/sa.h>
 #include <sys/trace_acl.h>
+
+#ifdef _KERNEL
+#include <sys/sid.h>
 #include <sys/zpl.h>
+#endif
 
 #define	ALLOW	ACE_ACCESS_ALLOWED_ACE_TYPE
 #define	DENY	ACE_ACCESS_DENIED_ACE_TYPE
