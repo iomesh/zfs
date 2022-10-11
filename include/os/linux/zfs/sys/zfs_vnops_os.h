@@ -31,8 +31,11 @@
 #include <sys/cred.h>
 #include <sys/fcntl.h>
 #include <sys/pathname.h>
-#include <sys/zpl.h>
 #include <sys/zfs_file.h>
+
+#ifdef _KERNEL
+#include <sys/zpl.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -68,13 +71,16 @@ extern void zfs_inactive(struct inode *ip);
 extern int zfs_space(znode_t *zp, int cmd, flock64_t *bfp, int flag,
     offset_t offset, cred_t *cr);
 extern int zfs_fid(struct inode *ip, fid_t *fidp);
+extern int zfs_dirty_inode(struct inode *ip, int flags);
+extern void zfs_zrele_async(znode_t *zp);
+
+#ifdef _KERNEL
 extern int zfs_getpage(struct inode *ip, struct page *pl[], int nr_pages);
 extern int zfs_putpage(struct inode *ip, struct page *pp,
     struct writeback_control *wbc);
-extern int zfs_dirty_inode(struct inode *ip, int flags);
 extern int zfs_map(struct inode *ip, offset_t off, caddr_t *addrp,
     size_t len, unsigned long vm_flags);
-extern void zfs_zrele_async(znode_t *zp);
+#endif
 
 #ifdef	__cplusplus
 }

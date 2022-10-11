@@ -363,4 +363,18 @@ extern boolean_t capable(int cap);
 #define zpl_inode_owner_or_capable(ns, ip)  inode_owner_or_capable(ip)
 extern boolean_t inode_owner_or_capable(const struct inode *inode);
 
+#define mutex_owned(mp) MUTEX_HELD(mp)
+
+// zfs_vnops.c
+typedef struct zpl_dir_context {
+	void *dirent;
+	const filldir_t actor;
+	loff_t pos;
+} zpl_dir_context_t;
+
+extern int write_inode_now(struct inode *inode, int sync);
+static inline void task_io_account_read(int64_t n) {}
+static inline void task_io_account_write(int64_t n) {}
+
+
 #endif	/* _SYS_KERNEL_H */
