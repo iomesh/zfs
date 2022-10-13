@@ -38,10 +38,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/kmem.h>
-#include <sys/taskq.h>
 #include <sys/uio.h>
-#include <sys/vmsystm.h>
-#include <sys/atomic.h>
 #include <sys/pathname.h>
 #include <sys/cmn_err.h>
 #include <sys/errno.h>
@@ -58,7 +55,6 @@
 #include <sys/sa.h>
 #include <sys/policy.h>
 #include <sys/sunddi.h>
-#include <sys/sid.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_fuid.h>
 #include <sys/zfs_quota.h>
@@ -66,9 +62,16 @@
 #include <sys/zfs_vnops.h>
 #include <sys/zfs_rlock.h>
 #include <sys/cred.h>
-#include <sys/zpl.h>
 #include <sys/zil.h>
 #include <sys/sa_impl.h>
+
+#ifdef _KERNEL
+#include <sys/vmsystm.h>
+#include <sys/atomic.h>
+#include <sys/sid.h>
+#include <sys/taskq.h>
+#include <sys/zpl.h>
+#endif
 
 /*
  * Programming rules.
@@ -1661,9 +1664,15 @@ out:
  *	RETURN:	0 (always succeeds)
  */
 /* ARGSUSED */
+#ifdef _KERNEL
 int
 zfs_getattr_fast(struct user_namespace *user_ns, struct inode *ip,
     struct kstat *sp)
+#else
+int
+zfs_getattr_fast(struct user_namespace *user_ns, struct inode *ip,
+    struct linux_kstat *sp)
+#endif
 {
 	znode_t *zp = ITOZ(ip);
 	zfsvfs_t *zfsvfs = ITOZSB(ip);
@@ -3432,6 +3441,7 @@ top:
 	return (error);
 }
 
+#ifdef _KERNEL
 static void
 zfs_putpage_commit_cb(void *arg)
 {
@@ -3646,122 +3656,6 @@ zfs_putpage(struct inode *ip, struct page *pp, struct writeback_control *wbc)
 }
 
 /*
- * Update the system attributes when the inode has been dirtied.  For the
- * moment we only update the mode, atime, mtime, and ctime.
- */
-int
-zfs_dirty_inode(struct inode *ip, int flags)
-{
-	znode_t		*zp = ITOZ(ip);
-	zfsvfs_t	*zfsvfs = ITOZSB(ip);
-	dmu_tx_t	*tx;
-	uint64_t	mode, atime[2], mtime[2], ctime[2];
-	sa_bulk_attr_t	bulk[4];
-	int		error = 0;
-	int		cnt = 0;
-
-	if (zfs_is_readonly(zfsvfs) || dmu_objset_is_snapshot(zfsvfs->z_os))
-		return (0);
-
-	ZFS_ENTER(zfsvfs);
-	ZFS_VERIFY_ZP(zp);
-
-#ifdef I_DIRTY_TIME
-	/*
-	 * This is the lazytime semantic introduced in Linux 4.0
-	 * This flag will only be called from update_time when lazytime is set.
-	 * (Note, I_DIRTY_SYNC will also set if not lazytime)
-	 * Fortunately mtime and ctime are managed within ZFS itself, so we
-	 * only need to dirty atime.
-	 */
-	if (flags == I_DIRTY_TIME) {
-		zp->z_atime_dirty = B_TRUE;
-		goto out;
-	}
-#endif
-
-	tx = dmu_tx_create(zfsvfs->z_os);
-
-	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
-	zfs_sa_upgrade_txholds(tx, zp);
-
-	error = dmu_tx_assign(tx, TXG_WAIT);
-	if (error) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	mutex_enter(&zp->z_lock);
-	zp->z_atime_dirty = B_FALSE;
-
-	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MODE(zfsvfs), NULL, &mode, 8);
-	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_ATIME(zfsvfs), NULL, &atime, 16);
-	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MTIME(zfsvfs), NULL, &mtime, 16);
-	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_CTIME(zfsvfs), NULL, &ctime, 16);
-
-	/* Preserve the mode, mtime and ctime provided by the inode */
-	ZFS_TIME_ENCODE(&ip->i_atime, atime);
-	ZFS_TIME_ENCODE(&ip->i_mtime, mtime);
-	ZFS_TIME_ENCODE(&ip->i_ctime, ctime);
-	mode = ip->i_mode;
-
-	zp->z_mode = mode;
-
-	error = sa_bulk_update(zp->z_sa_hdl, bulk, cnt, tx);
-	mutex_exit(&zp->z_lock);
-
-	dmu_tx_commit(tx);
-out:
-	ZFS_EXIT(zfsvfs);
-	return (error);
-}
-
-/*ARGSUSED*/
-void
-zfs_inactive(struct inode *ip)
-{
-	znode_t	*zp = ITOZ(ip);
-	zfsvfs_t *zfsvfs = ITOZSB(ip);
-	uint64_t atime[2];
-	int error;
-	int need_unlock = 0;
-
-	/* Only read lock if we haven't already write locked, e.g. rollback */
-	if (!RW_WRITE_HELD(&zfsvfs->z_teardown_inactive_lock)) {
-		need_unlock = 1;
-		rw_enter(&zfsvfs->z_teardown_inactive_lock, RW_READER);
-	}
-	if (zp->z_sa_hdl == NULL) {
-		if (need_unlock)
-			rw_exit(&zfsvfs->z_teardown_inactive_lock);
-		return;
-	}
-
-	if (zp->z_atime_dirty && zp->z_unlinked == B_FALSE) {
-		dmu_tx_t *tx = dmu_tx_create(zfsvfs->z_os);
-
-		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
-		zfs_sa_upgrade_txholds(tx, zp);
-		error = dmu_tx_assign(tx, TXG_WAIT);
-		if (error) {
-			dmu_tx_abort(tx);
-		} else {
-			ZFS_TIME_ENCODE(&ip->i_atime, atime);
-			mutex_enter(&zp->z_lock);
-			(void) sa_update(zp->z_sa_hdl, SA_ZPL_ATIME(zfsvfs),
-			    (void *)&atime, sizeof (atime), tx);
-			zp->z_atime_dirty = B_FALSE;
-			mutex_exit(&zp->z_lock);
-			dmu_tx_commit(tx);
-		}
-	}
-
-	zfs_zinactive(zp);
-	if (need_unlock)
-		rw_exit(&zfsvfs->z_teardown_inactive_lock);
-}
-
-/*
  * Fill pages with data from the disk.
  */
 static int
@@ -3884,6 +3778,123 @@ zfs_map(struct inode *ip, offset_t off, caddr_t *addrp, size_t len,
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
+}
+#endif /* _KERNEL */
+
+/*
+ * Update the system attributes when the inode has been dirtied.  For the
+ * moment we only update the mode, atime, mtime, and ctime.
+ */
+int
+zfs_dirty_inode(struct inode *ip, int flags)
+{
+	znode_t		*zp = ITOZ(ip);
+	zfsvfs_t	*zfsvfs = ITOZSB(ip);
+	dmu_tx_t	*tx;
+	uint64_t	mode, atime[2], mtime[2], ctime[2];
+	sa_bulk_attr_t	bulk[4];
+	int		error = 0;
+	int		cnt = 0;
+
+	if (zfs_is_readonly(zfsvfs) || dmu_objset_is_snapshot(zfsvfs->z_os))
+		return (0);
+
+	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
+
+#ifdef I_DIRTY_TIME
+	/*
+	 * This is the lazytime semantic introduced in Linux 4.0
+	 * This flag will only be called from update_time when lazytime is set.
+	 * (Note, I_DIRTY_SYNC will also set if not lazytime)
+	 * Fortunately mtime and ctime are managed within ZFS itself, so we
+	 * only need to dirty atime.
+	 */
+	if (flags == I_DIRTY_TIME) {
+		zp->z_atime_dirty = B_TRUE;
+		goto out;
+	}
+#endif
+
+	tx = dmu_tx_create(zfsvfs->z_os);
+
+	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+	zfs_sa_upgrade_txholds(tx, zp);
+
+	error = dmu_tx_assign(tx, TXG_WAIT);
+	if (error) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	mutex_enter(&zp->z_lock);
+	zp->z_atime_dirty = B_FALSE;
+
+	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MODE(zfsvfs), NULL, &mode, 8);
+	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_ATIME(zfsvfs), NULL, &atime, 16);
+	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MTIME(zfsvfs), NULL, &mtime, 16);
+	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_CTIME(zfsvfs), NULL, &ctime, 16);
+
+	/* Preserve the mode, mtime and ctime provided by the inode */
+	ZFS_TIME_ENCODE(&ip->i_atime, atime);
+	ZFS_TIME_ENCODE(&ip->i_mtime, mtime);
+	ZFS_TIME_ENCODE(&ip->i_ctime, ctime);
+	mode = ip->i_mode;
+
+	zp->z_mode = mode;
+
+	error = sa_bulk_update(zp->z_sa_hdl, bulk, cnt, tx);
+	mutex_exit(&zp->z_lock);
+
+	dmu_tx_commit(tx);
+out:
+	ZFS_EXIT(zfsvfs);
+	return (error);
+}
+
+/*ARGSUSED*/
+void
+zfs_inactive(struct inode *ip)
+{
+	znode_t	*zp = ITOZ(ip);
+	zfsvfs_t *zfsvfs = ITOZSB(ip);
+	uint64_t atime[2];
+	int error;
+	int need_unlock = 0;
+
+	/* Only read lock if we haven't already write locked, e.g. rollback */
+	if (!RW_WRITE_HELD(&zfsvfs->z_teardown_inactive_lock)) {
+		need_unlock = 1;
+		rw_enter(&zfsvfs->z_teardown_inactive_lock, RW_READER);
+	}
+	if (zp->z_sa_hdl == NULL) {
+		if (need_unlock)
+			rw_exit(&zfsvfs->z_teardown_inactive_lock);
+		return;
+	}
+
+	if (zp->z_atime_dirty && zp->z_unlinked == B_FALSE) {
+		dmu_tx_t *tx = dmu_tx_create(zfsvfs->z_os);
+
+		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+		zfs_sa_upgrade_txholds(tx, zp);
+		error = dmu_tx_assign(tx, TXG_WAIT);
+		if (error) {
+			dmu_tx_abort(tx);
+		} else {
+			ZFS_TIME_ENCODE(&ip->i_atime, atime);
+			mutex_enter(&zp->z_lock);
+			(void) sa_update(zp->z_sa_hdl, SA_ZPL_ATIME(zfsvfs),
+			    (void *)&atime, sizeof (atime), tx);
+			zp->z_atime_dirty = B_FALSE;
+			mutex_exit(&zp->z_lock);
+			dmu_tx_commit(tx);
+		}
+	}
+
+	zfs_zinactive(zp);
+	if (need_unlock)
+		rw_exit(&zfsvfs->z_teardown_inactive_lock);
 }
 
 /*

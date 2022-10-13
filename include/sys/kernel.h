@@ -387,4 +387,33 @@ extern void drop_nlink(struct inode *inode);
 extern void clear_nlink(struct inode *inode);
 extern void inc_nlink(struct inode *inode);
 
+// zfs_vnops_os.c
+#define FMODE_WRITE     (0x2)
+
+#define	TIME_MAX			INT64_MAX
+#define	TIME_MIN			INT64_MIN
+
+#define	TIMESPEC_OVERFLOW(ts)		\
+	((ts)->tv_sec < TIME_MIN || (ts)->tv_sec > TIME_MAX)
+
+
+enum writeback_sync_modes {
+    WB_SYNC_NONE,   /* Don't wait on anything */
+    WB_SYNC_ALL,    /* Wait on every mapping */
+};
+
+extern int atomic_add_unless(atomic_t *v, int a, int u);
+extern void remove_inode_hash(struct inode *inode);
+extern bool zpl_dir_emit(zpl_dir_context_t *ctx, const char *name, int namelen,
+    uint64_t ino, unsigned type);
+extern loff_t i_size_read(const struct inode *inode);
+
+#define	zpl_generic_fillattr(user_ns, ip, sp)	 generic_fillattr(ip, sp)
+extern void generic_fillattr(struct inode *inode, struct linux_kstat *stat);
+
+#define	zpl_inode_timestamp_truncate(ts, ip)	timespec_trunc(ts, (ip)->i_sb->s_time_gran)
+extern struct timespec timespec_trunc(struct timespec t, unsigned gran);
+extern uid_t zfs_uid_read(struct inode *inode);
+extern gid_t zfs_gid_read(struct inode *inode);
+
 #endif	/* _SYS_KERNEL_H */

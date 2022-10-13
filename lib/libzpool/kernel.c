@@ -1426,8 +1426,7 @@ void iput(struct inode *inode)
 		dprintf("%s: %ld\n", __func__, inode->i_ino);
 		atomic_dec_32(&inode->i_count.counter);
 		if (atomic_read(&inode->i_count) == 0) {
-			// FIXME(hping): comment out after importing zfs_vnops_os.c
-			//zfs_inactive(inode);
+			zfs_inactive(inode);
 			destroy_inode(inode);
 		}
 	}
@@ -1588,9 +1587,6 @@ int zfsctl_root_lookup(struct inode *dip, const char *name, struct inode **ipp,
     int flags, cred_t *cr, int *direntflags, pathname_t *realpnp) { return (0); }
 struct inode * zfsctl_root(znode_t *zp) { return (NULL); }
 
-// FIXME(hping): remove it after importing zfs_vnops_os.c
-void zfs_zrele_async(znode_t *zp) {}
-
 
 // FIXME(hping): remove it after importing dataset_kstats.c
 void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) {}
@@ -1620,3 +1616,70 @@ int mappedread(znode_t *zp, int nbytes, zfs_uio_t *uio) {
 // FIXME(hping): remove these two after importing dataset_kstats.c
 void dataset_kstats_update_read_kstats(dataset_kstats_t *dk, int64_t nread) {}
 void dataset_kstats_update_write_kstats(dataset_kstats_t *dk, int64_t nwritten) {}
+
+// zfs_vnops_os.c
+int atomic_add_unless(atomic_t *v, int a, int u)
+{
+	int c, old;
+	c = atomic_read(v);
+	for (;;) {
+		if (unlikely(c == (u)))
+			break;
+		old = atomic_cas_32((volatile uint32_t*)(&v->counter), c, c + (a));
+		if (likely(old == c))
+			break;
+		c = old;
+	}
+	return c;
+}
+
+void remove_inode_hash(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+bool zpl_dir_emit(zpl_dir_context_t *ctx, const char *name, int namelen,
+    uint64_t ino, unsigned type)
+{
+	return (!ctx->actor(ctx->dirent, name, namelen, ctx->pos, ino, type));
+}
+
+loff_t i_size_read(const struct inode *inode)
+{
+    return inode->i_size;
+}
+
+void generic_fillattr(struct inode *inode, struct linux_kstat *stat)
+{
+//    stat->dev = inode->i_sb->s_dev;
+    stat->ino = inode->i_ino;
+    stat->mode = inode->i_mode;
+    stat->nlink = inode->i_nlink;
+    stat->uid = inode->i_uid;
+    stat->gid = inode->i_gid;
+//    stat->rdev = inode->i_rdev;
+    stat->size = i_size_read(inode);
+    stat->atime = inode->i_atime;
+    stat->mtime = inode->i_mtime;
+    stat->ctime = inode->i_ctime;
+    stat->blksize = (1 << inode->i_blkbits);
+    stat->blocks = inode->i_blocks;
+}
+
+struct timespec timespec_trunc(struct timespec t, unsigned gran)
+{
+    dprintf("%s\n", __func__);
+    return t;
+}
+
+uid_t zfs_uid_read(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    return 0;
+}
+
+gid_t zfs_gid_read(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    return 0;
+}
