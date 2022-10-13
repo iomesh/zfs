@@ -257,6 +257,7 @@ extern int zfs_prune(struct super_block *sb, unsigned long nr_to_scan,
 extern int zfs_get_temporary_prop(dsl_dataset_t *ds, zfs_prop_t zfs_prop,
     uint64_t *val, char *setpoint);
 
+extern int zfs_root(zfsvfs_t *zfsvfs, struct inode **ipp);
 #ifdef	__cplusplus
 }
 #endif

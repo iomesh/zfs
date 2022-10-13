@@ -442,4 +442,38 @@ extern const struct inode_operations zpl_ops_shares;
 extern const struct file_operations simple_dir_operations;
 extern const struct inode_operations simple_dir_inode_operations;
 
+// zfs_vfsops.c
+#define SB_RDONLY   MS_RDONLY
+#define SB_POSIXACL MS_POSIXACL
+#define SB_NOATIME  MS_NOATIME
+#define SB_MANDLOCK MS_MANDLOCK
+
+#define MAX_LFS_FILESIZE INT64_MAX
+extern const struct super_operations zpl_super_operations;
+
+// FIXME(hping): use clock functions
+#define jiffies (0)
+
+extern void shrink_dcache_sb(struct super_block *sb);
+extern void d_prune_aliases(struct inode *inode);
+
+#define printk printf
+
+extern int fls(int x);
+
+#define typecheck(type,x) \
+({  type __dummy; \
+    typeof(x) __dummy2; \
+    (void)(&__dummy == &__dummy2); \
+    1; \
+})
+
+#define time_after(a,b)     \
+    (typecheck(unsigned long, a) && \
+     typecheck(unsigned long, b) && \
+     ((long)((b) - (a)) < 0))
+#define time_before(a,b)    time_after(b,a)
+
+#undef HAVE_SINGLE_SHRINKER_CALLBACK
+
 #endif	/* _SYS_KERNEL_H */

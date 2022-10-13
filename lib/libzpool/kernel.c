@@ -1371,11 +1371,6 @@ zfs_file_put(zfs_file_t *fp)
 	abort();
 }
 
-void
-zfsvfs_update_fromname(const char *oldname, const char *newname)
-{
-}
-
 // zfs_znode.c
 const struct super_operations zpl_super_operations = {};
 const struct export_operations zpl_export_operations = {};
@@ -1564,11 +1559,6 @@ boolean_t inode_owner_or_capable(const struct inode *inode)
 // FIXME(hping): remove it after importing zfs_ioctl.c
 uint_t zfs_fsyncer_key;
 
-// zfs_acl.c
-// FIXME(hping): remove these two after importing zfs_vfsops.c
-boolean_t zfs_is_readonly(zfsvfs_t *zfsvfs) { return B_FALSE; }
-inline void zfs_exit_fs(zfsvfs_t *zfsvfs) {}
-
 // zfs_dir.c
 void drop_nlink(struct inode *inode)
 {
@@ -1737,3 +1727,25 @@ const struct file_operations zpl_fops_shares = {};
 const struct inode_operations zpl_ops_shares = {};
 const struct file_operations simple_dir_operations = {};
 const struct inode_operations simple_dir_inode_operations = {};
+
+// zfs_vfsops.c
+void shrink_dcache_sb(struct super_block *sb)
+{
+    dprintf("%s\n", __func__);
+}
+
+void d_prune_aliases(struct inode *inode) {
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+}
+
+int fls(int x)
+{
+    int r;
+
+    asm("bsrl %1,%0"
+        : "=r" (r)
+        : "rm" (x), "0" (-1));
+    return r + 1;
+}
+
+void dataset_kstats_destroy(dataset_kstats_t *dk) {}

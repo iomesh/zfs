@@ -28,7 +28,6 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/sysmacros.h>
-#include <sys/kmem.h>
 #include <sys/pathname.h>
 #include <sys/vnode.h>
 #include <sys/vfs.h>
@@ -48,7 +47,6 @@
 #include <sys/sa.h>
 #include <sys/sa_impl.h>
 #include <sys/policy.h>
-#include <sys/atomic.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_fuid.h>
@@ -58,9 +56,13 @@
 #include <sys/dsl_dir.h>
 #include <sys/spa_boot.h>
 #include <sys/objlist.h>
+#include "zfs_comutil.h"
+
+#ifdef _KERNEL
+#include <sys/atomic.h>
+#include <sys/kmem.h>
 #include <sys/zpl.h>
 #include <linux/vfs_compat.h>
-#include "zfs_comutil.h"
 
 enum {
 	TOKEN_RO,
@@ -108,6 +110,8 @@ static const match_table_t zpl_tokens = {
 	{ TOKEN_LAST,		NULL },
 };
 
+#endif /* _KERNEL */
+
 static void
 zfsvfs_vfs_free(vfs_t *vfsp)
 {
@@ -119,6 +123,7 @@ zfsvfs_vfs_free(vfs_t *vfsp)
 	}
 }
 
+#ifdef _KERNEL
 static int
 zfsvfs_parse_option(char *option, int token, substring_t *args, vfs_t *vfsp)
 {
@@ -249,6 +254,8 @@ zfsvfs_parse_options(char *mntopts, vfs_t **vfsp)
 
 	return (0);
 }
+
+#endif /* _KERNEL */
 
 boolean_t
 zfs_is_readonly(zfsvfs_t *zfsvfs)
@@ -1136,8 +1143,13 @@ zfs_statvfs(struct inode *ip, struct kstatfs *statp)
 	 */
 	statp->f_ffree = MIN(availobjs, availbytes >> DNODE_SHIFT);
 	statp->f_files = statp->f_ffree + usedobjs;
+#ifdef _KERNEL
 	statp->f_fsid.val[0] = (uint32_t)fsid;
 	statp->f_fsid.val[1] = (uint32_t)(fsid >> 32);
+#else
+	statp->f_fsid.__val[0] = (uint32_t)fsid;
+	statp->f_fsid.__val[1] = (uint32_t)(fsid >> 32);
+#endif
 	statp->f_type = ZFS_SUPER_MAGIC;
 	statp->f_namelen = MAXNAMELEN - 1;
 
@@ -1160,7 +1172,7 @@ zfs_statvfs(struct inode *ip, struct kstatfs *statp)
 	return (err);
 }
 
-static int
+int
 zfs_root(zfsvfs_t *zfsvfs, struct inode **ipp)
 {
 	znode_t *rootzp;
@@ -1244,11 +1256,18 @@ zfs_prune(struct super_block *sb, unsigned long nr_to_scan, int *objects)
 {
 	zfsvfs_t *zfsvfs = sb->s_fs_info;
 	int error = 0;
+
+#if defined(HAVE_SPLIT_SHRINKER_CALLBACK) && \
+	defined(SHRINK_CONTROL_HAS_NID) && \
+	defined(SHRINKER_NUMA_AWARE) || \
+	defined(HAVE_SPLIT_SHRINKER_CALLBACK) || \
+	defined(HAVE_SINGLE_SHRINKER_CALLBACK)
 	struct shrinker *shrinker = &sb->s_shrink;
 	struct shrink_control sc = {
 		.nr_to_scan = nr_to_scan,
 		.gfp_mask = GFP_KERNEL,
 	};
+#endif
 
 	ZFS_ENTER(zfsvfs);
 
@@ -1452,6 +1471,7 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 atomic_long_t zfs_bdi_seq = ATOMIC_LONG_INIT(0);
 #endif
 
+#ifdef _KERNEL
 int
 zfs_domount(struct super_block *sb, zfs_mnt_t *zm, int silent)
 {
@@ -1675,6 +1695,8 @@ zfs_remount(struct super_block *sb, int *flags, zfs_mnt_t *zm)
 	return (error);
 }
 
+#endif /* _KERNEL */
+
 int
 zfs_vget(struct super_block *sb, struct inode **ipp, fid_t *fidp)
 {
@@ -1897,6 +1919,7 @@ bail:
 	rw_exit(&zfsvfs->z_teardown_inactive_lock);
 	ZFS_TEARDOWN_EXIT(zfsvfs, FTAG);
 
+#ifdef _KERENL
 	if (err != 0) {
 		/*
 		 * Since we couldn't setup the sa framework, try to force
@@ -1905,6 +1928,7 @@ bail:
 		if (zfsvfs->z_os)
 			(void) zfs_umount(zfsvfs->z_sb);
 	}
+#endif
 	return (err);
 }
 
@@ -1934,11 +1958,13 @@ zfs_end_fs(zfsvfs_t *zfsvfs, dsl_dataset_t *ds)
 	rw_exit(&zfsvfs->z_teardown_inactive_lock);
 	ZFS_TEARDOWN_EXIT(zfsvfs, FTAG);
 
+#ifdef _KERENL
 	/*
 	 * Try to force unmount this file system.
 	 */
 	(void) zfs_umount(zfsvfs->z_sb);
 	zfsvfs->z_unmounted = B_TRUE;
+#endif
 	return (0);
 }
 
@@ -2152,7 +2178,9 @@ zfs_init(void)
 	zfsctl_init();
 	zfs_znode_init();
 	dmu_objset_register_type(DMU_OST_ZFS, zpl_get_file_info);
+#ifdef _KERNEL
 	register_filesystem(&zpl_fs_type);
+#endif
 }
 
 void
@@ -2163,7 +2191,9 @@ zfs_fini(void)
 	 */
 	taskq_wait(system_delay_taskq);
 	taskq_wait(system_taskq);
+#ifdef _KERNEL
 	unregister_filesystem(&zpl_fs_type);
+#endif
 	zfs_znode_fini();
 	zfsctl_fini();
 }
