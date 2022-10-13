@@ -41,10 +41,7 @@
 #include <sys/sa_impl.h>
 #include <sys/errno.h>
 #include <sys/zfs_context.h>
-
-#ifdef _KERNEL
 #include <sys/zfs_znode.h>
-#endif
 
 /*
  * ZFS System attributes:
@@ -1500,7 +1497,6 @@ sa_lookup(sa_handle_t *hdl, sa_attr_type_t attr, void *buf, uint32_t buflen)
 	return (error);
 }
 
-#ifdef _KERNEL
 int
 sa_lookup_uio(sa_handle_t *hdl, sa_attr_type_t attr, zfs_uio_t *uio)
 {
@@ -1688,7 +1684,6 @@ out:
 	kmem_free(bulk, sizeof (sa_bulk_attr_t) * ZPL_END);
 	return (err);
 }
-#endif
 
 static sa_idx_tab_t *
 sa_find_idx_tab(objset_t *os, dmu_object_type_t bonustype, sa_hdr_phys_t *hdr)
