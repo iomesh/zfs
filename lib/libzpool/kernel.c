@@ -1572,10 +1572,6 @@ void inc_nlink(struct inode *inode)
     inode->__i_nlink++;
 }
 
-// FIXME(hping): remove it after importing dataset_kstats.c
-void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) {}
-void dataset_kstats_update_nunlinks_kstat(dataset_kstats_t *dk, int64_t delta) {}
-
 // zfs_vnops.c
 int write_inode_now(struct inode *inode, int sync)
 {
@@ -1592,10 +1588,6 @@ int mappedread(znode_t *zp, int nbytes, zfs_uio_t *uio) {
     dprintf("%s: %ld\n", __func__, ZTOI(zp)->i_ino);
     return 0;
 }
-
-// FIXME(hping): remove these two after importing dataset_kstats.c
-void dataset_kstats_update_read_kstats(dataset_kstats_t *dk, int64_t nread) {}
-void dataset_kstats_update_write_kstats(dataset_kstats_t *dk, int64_t nwritten) {}
 
 // zfs_vnops_os.c
 int atomic_add_unless(atomic_t *v, int a, int u)
@@ -1747,5 +1739,3 @@ int fls(int x)
         : "rm" (x), "0" (-1));
     return r + 1;
 }
-
-void dataset_kstats_destroy(dataset_kstats_t *dk) {}
