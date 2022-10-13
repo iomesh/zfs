@@ -1597,4 +1597,26 @@ void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) 
 void dataset_kstats_update_nunlinks_kstat(dataset_kstats_t *dk, int64_t delta) {}
 
 // zfs_znode.c
+// FIXME(hping): remove it after importing zfs_ctldir.c
 boolean_t zfsctl_is_node(struct inode *ip) { return (ITOZ(ip)->z_is_ctldir); }
+
+// zfs_vnops.c
+int write_inode_now(struct inode *inode, int sync)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    return 0;
+}
+
+void update_pages(znode_t *zp, int64_t start, int len, objset_t *os)
+{
+    dprintf("%s: %ld\n", __func__, ZTOI(zp)->i_ino);
+}
+
+int mappedread(znode_t *zp, int nbytes, zfs_uio_t *uio) {
+    dprintf("%s: %ld\n", __func__, ZTOI(zp)->i_ino);
+    return 0;
+}
+
+// FIXME(hping): remove these two after importing dataset_kstats.c
+void dataset_kstats_update_read_kstats(dataset_kstats_t *dk, int64_t nread) {}
+void dataset_kstats_update_write_kstats(dataset_kstats_t *dk, int64_t nwritten) {}
