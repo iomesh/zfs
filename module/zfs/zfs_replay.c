@@ -29,7 +29,6 @@
 #include <sys/sysmacros.h>
 #include <sys/cmn_err.h>
 #include <sys/kmem.h>
-#include <sys/thread.h>
 #include <sys/file.h>
 #include <sys/fcntl.h>
 #include <sys/vfs.h>
@@ -44,9 +43,13 @@
 #include <sys/byteorder.h>
 #include <sys/stat.h>
 #include <sys/acl.h>
-#include <sys/atomic.h>
 #include <sys/cred.h>
+
+#ifdef _KERNEL
+#include <sys/thread.h>
+#include <sys/atomic.h>
 #include <sys/zpl.h>
+#endif
 
 /*
  * NB: FreeBSD expects to be able to do vnode locking in lookup and
