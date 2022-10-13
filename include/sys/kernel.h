@@ -416,4 +416,30 @@ extern struct timespec timespec_trunc(struct timespec t, unsigned gran);
 extern uid_t zfs_uid_read(struct inode *inode);
 extern gid_t zfs_gid_read(struct inode *inode);
 
+// zfs_ctldir.c
+#define LOOKUP_FOLLOW       0x0001
+#define LOOKUP_DIRECTORY    0x0002
+
+#define S_IRWXUGO   (S_IRWXU|S_IRWXG|S_IRWXO)
+
+#define IS_ERR(ptr) (B_FALSE)
+
+extern struct timespec current_time(struct inode *inode);
+extern struct inode *ilookup(struct super_block *sb, unsigned long ino);
+extern struct dentry * d_obtain_alias(struct inode *);
+extern boolean_t d_mountpoint(struct dentry *dentry);
+extern void dput(struct dentry *);
+extern int kern_path(const char *name, unsigned int flags, struct path *path);
+extern void path_put(const struct path *path);
+extern int zfsctl_snapshot_unmount(const char *snapname, int flags);
+
+extern const struct file_operations zpl_fops_root;
+extern const struct inode_operations zpl_ops_root;
+extern const struct file_operations zpl_fops_snapdir;
+extern const struct inode_operations zpl_ops_snapdir;
+extern const struct file_operations zpl_fops_shares;
+extern const struct inode_operations zpl_ops_shares;
+extern const struct file_operations simple_dir_operations;
+extern const struct inode_operations simple_dir_inode_operations;
+
 #endif	/* _SYS_KERNEL_H */

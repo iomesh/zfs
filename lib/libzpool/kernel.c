@@ -1582,19 +1582,9 @@ void inc_nlink(struct inode *inode)
     inode->__i_nlink++;
 }
 
-// FIXME(hping): remove these two after importing zfs_ctldir.c
-int zfsctl_root_lookup(struct inode *dip, const char *name, struct inode **ipp,
-    int flags, cred_t *cr, int *direntflags, pathname_t *realpnp) { return (0); }
-struct inode * zfsctl_root(znode_t *zp) { return (NULL); }
-
-
 // FIXME(hping): remove it after importing dataset_kstats.c
 void dataset_kstats_update_nunlinked_kstat(dataset_kstats_t *dk, int64_t delta) {}
 void dataset_kstats_update_nunlinks_kstat(dataset_kstats_t *dk, int64_t delta) {}
-
-// zfs_znode.c
-// FIXME(hping): remove it after importing zfs_ctldir.c
-boolean_t zfsctl_is_node(struct inode *ip) { return (ITOZ(ip)->z_is_ctldir); }
 
 // zfs_vnops.c
 int write_inode_now(struct inode *inode, int sync)
@@ -1683,3 +1673,67 @@ gid_t zfs_gid_read(struct inode *inode)
     dprintf("%s: %ld\n", __func__, inode->i_ino);
     return 0;
 }
+
+// zfs_ctldir.c
+static struct timespec current_kernel_time(void)
+{
+    dprintf("%s\n", __func__);
+    struct timespec now = {0};
+    return now;
+}
+
+struct timespec current_time(struct inode *inode)
+{
+    dprintf("%s: %ld\n", __func__, inode->i_ino);
+    return (timespec_trunc(current_kernel_time(), inode->i_sb->s_time_gran));
+}
+
+struct inode *ilookup(struct super_block *sb, unsigned long ino)
+{
+    dprintf("%s, ino: %ld\n", __func__, ino);
+    return NULL;
+}
+
+struct dentry * d_obtain_alias(struct inode *inode)
+{
+    dprintf("%s\n", __func__);
+    return NULL;
+}
+
+boolean_t d_mountpoint(struct dentry *dentry)
+{
+    dprintf("%s\n", __func__);
+    return B_TRUE;
+}
+
+void dput(struct dentry *dentry)
+{
+    dprintf("%s\n", __func__);
+}
+
+int kern_path(const char *name, unsigned int flags, struct path *path)
+{
+    dprintf("%s, name: %s\n", __func__, name);
+    return 0;
+}
+
+void path_put(const struct path *path)
+{
+    dprintf("%s\n", __func__);
+    ASSERT(0);
+}
+
+int zfsctl_snapshot_unmount(const char *snapname, int flags)
+{
+    dprintf("%s, snapname: %s\n", __func__, snapname);
+    return 0;
+}
+
+const struct file_operations zpl_fops_root = {};
+const struct inode_operations zpl_ops_root = {};
+const struct file_operations zpl_fops_snapdir = {};
+const struct inode_operations zpl_ops_snapdir = {};
+const struct file_operations zpl_fops_shares = {};
+const struct inode_operations zpl_ops_shares = {};
+const struct file_operations simple_dir_operations = {};
+const struct inode_operations simple_dir_inode_operations = {};

@@ -86,9 +86,12 @@
 #include <sys/dmu_objset.h>
 #include <sys/dsl_destroy.h>
 #include <sys/dsl_deleg.h>
-#include <sys/zpl.h>
 #include <sys/mntent.h>
 #include "zfs_namecheck.h"
+
+#ifdef _KERNEL
+#include <sys/zpl.h>
+#endif
 
 /*
  * Two AVL trees are maintained which contain all currently automounted
@@ -125,30 +128,6 @@ typedef struct {
 } zfs_snapentry_t;
 
 static void zfsctl_snapshot_unmount_delay_impl(zfs_snapentry_t *se, int delay);
-
-/*
- * Allocate a new zfs_snapentry_t being careful to make a copy of the
- * the snapshot name and provided mount point.  No reference is taken.
- */
-static zfs_snapentry_t *
-zfsctl_snapshot_alloc(const char *full_name, const char *full_path, spa_t *spa,
-    uint64_t objsetid, struct dentry *root_dentry)
-{
-	zfs_snapentry_t *se;
-
-	se = kmem_zalloc(sizeof (zfs_snapentry_t), KM_SLEEP);
-
-	se->se_name = kmem_strdup(full_name);
-	se->se_path = kmem_strdup(full_path);
-	se->se_spa = spa;
-	se->se_objsetid = objsetid;
-	se->se_root_dentry = root_dentry;
-	se->se_taskqid = TASKQID_INVALID;
-
-	zfs_refcount_create(&se->se_refcount);
-
-	return (se);
-}
 
 /*
  * Free a zfs_snapentry_t the caller must ensure there are no active
@@ -403,26 +382,6 @@ zfsctl_snapshot_unmount_delay(spa_t *spa, uint64_t objsetid, int delay)
 	rw_exit(&zfs_snapshot_lock);
 
 	return (error);
-}
-
-/*
- * Check if snapname is currently mounted.  Returned non-zero when mounted
- * and zero when unmounted.
- */
-static boolean_t
-zfsctl_snapshot_ismounted(const char *snapname)
-{
-	zfs_snapentry_t *se;
-	boolean_t ismounted = B_FALSE;
-
-	rw_enter(&zfs_snapshot_lock, RW_READER);
-	if ((se = zfsctl_snapshot_find_by_name(snapname)) != NULL) {
-		zfsctl_snapshot_rele(se);
-		ismounted = B_TRUE;
-	}
-	rw_exit(&zfs_snapshot_lock);
-
-	return (ismounted);
 }
 
 /*
@@ -979,6 +938,7 @@ out:
 	return (error);
 }
 
+#ifdef _KERNEL
 /*
  * Flush everything out of the kernel's export table and such.
  * This is needed as once the snapshot is used over NFS, its
@@ -1036,6 +996,50 @@ zfsctl_snapshot_unmount(const char *snapname, int flags)
 		error = SET_ERROR(EBUSY);
 
 	return (error);
+}
+
+/*
+ * Check if snapname is currently mounted.  Returned non-zero when mounted
+ * and zero when unmounted.
+ */
+static boolean_t
+zfsctl_snapshot_ismounted(const char *snapname)
+{
+	zfs_snapentry_t *se;
+	boolean_t ismounted = B_FALSE;
+
+	rw_enter(&zfs_snapshot_lock, RW_READER);
+	if ((se = zfsctl_snapshot_find_by_name(snapname)) != NULL) {
+		zfsctl_snapshot_rele(se);
+		ismounted = B_TRUE;
+	}
+	rw_exit(&zfs_snapshot_lock);
+
+	return (ismounted);
+}
+
+/*
+ * Allocate a new zfs_snapentry_t being careful to make a copy of the
+ * the snapshot name and provided mount point.  No reference is taken.
+ */
+static zfs_snapentry_t *
+zfsctl_snapshot_alloc(const char *full_name, const char *full_path, spa_t *spa,
+    uint64_t objsetid, struct dentry *root_dentry)
+{
+	zfs_snapentry_t *se;
+
+	se = kmem_zalloc(sizeof (zfs_snapentry_t), KM_SLEEP);
+
+	se->se_name = kmem_strdup(full_name);
+	se->se_path = kmem_strdup(full_path);
+	se->se_spa = spa;
+	se->se_objsetid = objsetid;
+	se->se_root_dentry = root_dentry;
+	se->se_taskqid = TASKQID_INVALID;
+
+	zfs_refcount_create(&se->se_refcount);
+
+	return (se);
 }
 
 int
@@ -1150,6 +1154,8 @@ error:
 	return (error);
 }
 
+#endif /* _KERNEL */
+
 /*
  * Get the snapdir inode from fid
  */
@@ -1254,8 +1260,10 @@ zfsctl_fini(void)
 	rw_destroy(&zfs_snapshot_lock);
 }
 
+#ifdef _KERNEL
 module_param(zfs_admin_snapshot, int, 0644);
 MODULE_PARM_DESC(zfs_admin_snapshot, "Enable mkdir/rmdir/mv in .zfs/snapshot");
 
 module_param(zfs_expire_snapshot, int, 0644);
 MODULE_PARM_DESC(zfs_expire_snapshot, "Seconds to expire .zfs/snapshot");
+#endif
