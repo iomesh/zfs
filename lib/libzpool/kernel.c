@@ -563,10 +563,10 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 	if (dprint) {
 		/* dprintf messages are printed immediately */
 
-		if (!dprintf_print_all &&
-		    !dprintf_find_string(newfile) &&
-		    !dprintf_find_string(func))
-			return;
+//		if (!dprintf_print_all &&
+//		    !dprintf_find_string(newfile) &&
+//		    !dprintf_find_string(func))
+//			return;
 
 		/* Print out just the function name if requested */
 		flockfile(stdout);
@@ -581,10 +581,11 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 			(void) printf("%llu ", gethrtime());
 		if (dprintf_find_string("long"))
 			(void) printf("%s, line %d: ", newfile, line);
-		(void) printf("dprintf: %s: ", func);
+		(void) fprintf(stderr, "dprintf: %s: ", func);
 		va_start(adx, fmt);
-		(void) vprintf(fmt, adx);
+		(void) vfprintf(stderr, fmt, adx);
 		va_end(adx);
+		(void) fprintf(stderr, "\n");
 		funlockfile(stdout);
 	} else {
 		/* zfs_dbgmsg is logged for dumping later */
