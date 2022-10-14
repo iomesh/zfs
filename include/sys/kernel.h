@@ -376,10 +376,6 @@ extern int write_inode_now(struct inode *inode, int sync);
 static inline void task_io_account_read(int64_t n) {}
 static inline void task_io_account_write(int64_t n) {}
 
-// zfs_log.c
-// remove it after importing zfs_ioctl.c
-extern uint_t zfs_fsyncer_key;
-
 // zfs_dir.c
 #define ED_CASE_CONFLICT        0x10
 extern int atomic_read(const atomic_t *v);
@@ -475,5 +471,12 @@ extern int fls(int x);
 #define time_before(a,b)    time_after(b,a)
 
 #undef HAVE_SINGLE_SHRINKER_CALLBACK
+
+// zfs_ioctl.c
+#define FKIOCTL				0x80000000
+#define is_system_labeled()             0
+#define zvol_tag(zv)			(NULL)
+
+static inline boolean_t zfs_proc_is_caller(proc_t *t) { return B_FALSE; }
 
 #endif	/* _SYS_KERNEL_H */

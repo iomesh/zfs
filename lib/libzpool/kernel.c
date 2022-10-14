@@ -46,6 +46,8 @@
 #include <sys/zfs_dir.h>
 #include <sys/zfs_vnops.h>
 #include <sys/zfs_ctldir.h>
+#include <sys/zfs_ioctl.h>
+#include <sys/zfs_ioctl_impl.h>
 #include <sys/zstd/zstd.h>
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
@@ -866,24 +868,6 @@ crgetgroups(const cred_t *cr)
 	return (NULL);
 }
 
-int
-zfs_secpolicy_snapshot_perms(const char *name, cred_t *cr)
-{
-	return (0);
-}
-
-int
-zfs_secpolicy_rename_perms(const char *from, const char *to, cred_t *cr)
-{
-	return (0);
-}
-
-int
-zfs_secpolicy_destroy_perms(const char *name, cred_t *cr)
-{
-	return (0);
-}
-
 ksiddomain_t *
 ksid_lookupdomain(const char *dom)
 {
@@ -971,8 +955,6 @@ kmem_cache_reap_active(void)
 {
 	return (0);
 }
-
-void *zvol_tag = "zvol_tag";
 
 void
 zvol_create_minor(const char *name)
@@ -1739,3 +1721,56 @@ int fls(int x)
         : "rm" (x), "0" (-1));
     return r + 1;
 }
+
+// zfs_ioctl.c
+
+boolean_t
+zfs_vfs_held(zfsvfs_t *zfsvfs)
+{
+	return (zfsvfs->z_sb != NULL);
+}
+
+int
+zfs_vfs_ref(zfsvfs_t **zfvp)
+{
+	if (*zfvp == NULL || (*zfvp)->z_sb == NULL ||
+	    !atomic_add_unless(&((*zfvp)->z_sb->s_active), 1, 0)) {
+		return (SET_ERROR(ESRCH));
+	}
+	return (0);
+}
+
+void
+zfs_vfs_rele(zfsvfs_t *zfsvfs)
+{
+}
+
+uint64_t
+zfs_max_nvlist_src_size_os(void)
+{
+	if (zfs_max_nvlist_src_size != 0)
+		return (zfs_max_nvlist_src_size);
+
+	return (128 * 1024 * 1024);
+}
+
+/* Update the VFS's cache of mountpoint properties */
+void
+zfs_ioctl_update_mount_cache(const char *dsname)
+{
+}
+
+void
+zfs_ioctl_init_os(void)
+{
+}
+
+int zvol_set_volsize(const char *name, uint64_t volsize) { return 0; }
+int zvol_set_snapdev(const char *ddname, zprop_source_t source, uint64_t snapdev) { return 0; }
+int zvol_set_volmode(const char *ddname, zprop_source_t source, uint64_t volmode) { return 0; }
+void zvol_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx) {}
+int zvol_get_stats(objset_t *os, nvlist_t *nv) { return 0; }
+zvol_state_handle_t *zvol_suspend(const char *name) { return NULL; }
+int zvol_resume(zvol_state_handle_t *zv) { return 0; }
+int zvol_check_volsize(uint64_t volsize, uint64_t blocksize) { return 0; }
+int zvol_check_volblocksize(const char *name, uint64_t volblocksize) { return 0; }

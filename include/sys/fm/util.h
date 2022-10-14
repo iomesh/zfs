@@ -70,8 +70,6 @@ typedef struct erpt_dump {
 	} ed_tod_base;
 } erpt_dump_t;
 
-#ifdef _KERNEL
-
 #define	ZEVENT_SHUTDOWN		0x1
 
 typedef void zevent_cb_t(nvlist_t *, nvlist_t *);
@@ -90,6 +88,8 @@ typedef struct zfs_zevent {
 	list_node_t	ze_node;	/* " */
 	uint64_t	ze_dropped;	/* " */
 } zfs_zevent_t;
+
+#ifdef _KERNEL
 
 extern void fm_init(void);
 extern void fm_fini(void);

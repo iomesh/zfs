@@ -24,7 +24,6 @@
 #define	_ZFS_IOCTL_IMPL_H_
 
 extern kmutex_t zfsdev_state_lock;
-extern zfsdev_state_t *zfsdev_state_list;
 extern unsigned long zfs_max_nvlist_src_size;
 
 typedef int zfs_ioc_legacy_func_t(zfs_cmd_t *);
@@ -88,11 +87,17 @@ void zfs_ioctl_init_os(void);
 boolean_t zfs_vfs_held(zfsvfs_t *);
 int zfs_vfs_ref(zfsvfs_t **);
 void zfs_vfs_rele(zfsvfs_t *);
-
 long zfsdev_ioctl_common(uint_t, zfs_cmd_t *, int);
+
+#ifdef _KERNEL
+extern zfsdev_state_t *zfsdev_state_list;
 int zfsdev_attach(void);
 void zfsdev_detach(void);
 int zfs_kmod_init(void);
 void zfs_kmod_fini(void);
+#else
+int uzfs_init(void);
+void uzfs_fini(void);
+#endif /* _KERNEL */
 
 #endif

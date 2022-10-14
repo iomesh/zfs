@@ -222,7 +222,6 @@
 #include <sys/zfs_ioctl_impl.h>
 
 kmutex_t zfsdev_state_lock;
-zfsdev_state_t *zfsdev_state_list;
 
 /*
  * Limit maximum nvlist size.  We don't want users passing in insane values
@@ -6198,6 +6197,7 @@ zfs_ioc_release(const char *pool, nvlist_t *holds, nvlist_t *errlist)
 	return (dsl_dataset_user_release(holds, errlist));
 }
 
+#ifdef _KERNEL
 /*
  * inputs:
  * zc_guid		flags (ZEVENT_NONBLOCK)
@@ -6281,6 +6281,8 @@ zfs_ioc_events_seek(zfs_cmd_t *zc)
 
 	return (error);
 }
+
+#endif /* _KERNEL */
 
 /*
  * inputs:
@@ -7238,12 +7240,14 @@ zfs_ioctl_init(void)
 	    zfs_ioc_tmp_snapshot, zfs_secpolicy_tmp_snapshot,
 	    POOL_CHECK_SUSPENDED | POOL_CHECK_READONLY);
 
+#ifdef _KERNEL
 	zfs_ioctl_register_legacy(ZFS_IOC_EVENTS_NEXT, zfs_ioc_events_next,
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 	zfs_ioctl_register_legacy(ZFS_IOC_EVENTS_CLEAR, zfs_ioc_events_clear,
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 	zfs_ioctl_register_legacy(ZFS_IOC_EVENTS_SEEK, zfs_ioc_events_seek,
 	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+#endif /* _KERNEL */
 
 	zfs_ioctl_init_os();
 }
@@ -7344,92 +7348,6 @@ pool_status_check(const char *name, zfs_ioc_namecheck_t type,
 		spa_close(spa, FTAG);
 	}
 	return (error);
-}
-
-int
-zfsdev_getminor(zfs_file_t *fp, minor_t *minorp)
-{
-	zfsdev_state_t *zs, *fpd;
-
-	ASSERT(!MUTEX_HELD(&zfsdev_state_lock));
-
-	fpd = zfs_file_private(fp);
-	if (fpd == NULL)
-		return (SET_ERROR(EBADF));
-
-	mutex_enter(&zfsdev_state_lock);
-
-	for (zs = zfsdev_state_list; zs != NULL; zs = zs->zs_next) {
-
-		if (zs->zs_minor == -1)
-			continue;
-
-		if (fpd == zs) {
-			*minorp = fpd->zs_minor;
-			mutex_exit(&zfsdev_state_lock);
-			return (0);
-		}
-	}
-
-	mutex_exit(&zfsdev_state_lock);
-
-	return (SET_ERROR(EBADF));
-}
-
-static void *
-zfsdev_get_state_impl(minor_t minor, enum zfsdev_state_type which)
-{
-	zfsdev_state_t *zs;
-
-	for (zs = zfsdev_state_list; zs != NULL; zs = zs->zs_next) {
-		if (zs->zs_minor == minor) {
-			smp_rmb();
-			switch (which) {
-			case ZST_ONEXIT:
-				return (zs->zs_onexit);
-			case ZST_ZEVENT:
-				return (zs->zs_zevent);
-			case ZST_ALL:
-				return (zs);
-			}
-		}
-	}
-
-	return (NULL);
-}
-
-void *
-zfsdev_get_state(minor_t minor, enum zfsdev_state_type which)
-{
-	void *ptr;
-
-	ptr = zfsdev_get_state_impl(minor, which);
-
-	return (ptr);
-}
-
-/*
- * Find a free minor number.  The zfsdev_state_list is expected to
- * be short since it is only a list of currently open file handles.
- */
-minor_t
-zfsdev_minor_alloc(void)
-{
-	static minor_t last_minor = 0;
-	minor_t m;
-
-	ASSERT(MUTEX_HELD(&zfsdev_state_lock));
-
-	for (m = last_minor + 1; m != last_minor; m++) {
-		if (m > ZFSDEV_MAX_MINOR)
-			m = 1;
-		if (zfsdev_get_state_impl(m, ZST_ALL) == NULL) {
-			last_minor = m;
-			return (m);
-		}
-	}
-
-	return (0);
 }
 
 long
@@ -7642,6 +7560,123 @@ out:
 	return (error);
 }
 
+#ifndef _KERNEL
+int
+uzfs_init(void)
+{
+	spa_init(SPA_MODE_READ | SPA_MODE_WRITE);
+	zfs_init();
+
+	zfs_ioctl_init();
+
+	tsd_create(&zfs_fsyncer_key, NULL);
+	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
+	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
+
+	return (0);
+}
+
+void
+uzfs_fini(void)
+{
+	zfs_fini();
+	spa_fini();
+
+	tsd_destroy(&zfs_fsyncer_key);
+	tsd_destroy(&rrw_tsd_key);
+	tsd_destroy(&zfs_allow_log_key);
+}
+
+
+#else
+zfsdev_state_t *zfsdev_state_list;
+
+int
+zfsdev_getminor(zfs_file_t *fp, minor_t *minorp)
+{
+	zfsdev_state_t *zs, *fpd;
+
+	ASSERT(!MUTEX_HELD(&zfsdev_state_lock));
+
+	fpd = zfs_file_private(fp);
+	if (fpd == NULL)
+		return (SET_ERROR(EBADF));
+
+	mutex_enter(&zfsdev_state_lock);
+
+	for (zs = zfsdev_state_list; zs != NULL; zs = zs->zs_next) {
+
+		if (zs->zs_minor == -1)
+			continue;
+
+		if (fpd == zs) {
+			*minorp = fpd->zs_minor;
+			mutex_exit(&zfsdev_state_lock);
+			return (0);
+		}
+	}
+
+	mutex_exit(&zfsdev_state_lock);
+
+	return (SET_ERROR(EBADF));
+}
+
+static void *
+zfsdev_get_state_impl(minor_t minor, enum zfsdev_state_type which)
+{
+	zfsdev_state_t *zs;
+
+	for (zs = zfsdev_state_list; zs != NULL; zs = zs->zs_next) {
+		if (zs->zs_minor == minor) {
+			smp_rmb();
+			switch (which) {
+			case ZST_ONEXIT:
+				return (zs->zs_onexit);
+			case ZST_ZEVENT:
+				return (zs->zs_zevent);
+			case ZST_ALL:
+				return (zs);
+			}
+		}
+	}
+
+	return (NULL);
+}
+
+void *
+zfsdev_get_state(minor_t minor, enum zfsdev_state_type which)
+{
+	void *ptr;
+
+	ptr = zfsdev_get_state_impl(minor, which);
+
+	return (ptr);
+}
+
+/*
+ * Find a free minor number.  The zfsdev_state_list is expected to
+ * be short since it is only a list of currently open file handles.
+ */
+minor_t
+zfsdev_minor_alloc(void)
+{
+	static minor_t last_minor = 0;
+	minor_t m;
+
+	ASSERT(MUTEX_HELD(&zfsdev_state_lock));
+
+	for (m = last_minor + 1; m != last_minor; m++) {
+		if (m > ZFSDEV_MAX_MINOR)
+			m = 1;
+		if (zfsdev_get_state_impl(m, ZST_ALL) == NULL) {
+			last_minor = m;
+			return (m);
+		}
+	}
+
+	return (0);
+}
+
 int
 zfs_kmod_init(void)
 {
@@ -7710,3 +7745,4 @@ ZFS_MODULE_PARAM(zfs, zfs_, max_nvlist_src_size, ULONG, ZMOD_RW,
 ZFS_MODULE_PARAM(zfs, zfs_, history_output_max, ULONG, ZMOD_RW,
     "Maximum size in bytes of ZFS ioctl output that will be logged");
 /* END CSTYLED */
+#endif /* _KERNEL */

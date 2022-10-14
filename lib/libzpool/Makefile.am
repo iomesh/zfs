@@ -187,7 +187,8 @@ KERNEL_C = \
 	zfs_replay.c \
 	zfs_ctldir.c \
 	zfs_vfsops.c \
-	dataset_kstats.c
+	dataset_kstats.c \
+	zfs_ioctl.c
 
 LUA_C = \
 	lapi.c \
