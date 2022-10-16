@@ -72,6 +72,14 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf);
 
+extern int libuzfs_fs_create(const char *fsname);
+extern void libuzfs_fs_destroy(const char *fsname);
+extern int libuzfs_fs_init(const char* fsname, uint64_t* fsid);
+extern int libuzfs_fs_fini(uint64_t fsid);
+extern int libuzfs_getroot(uint64_t fsid, uint64_t* ino);
+extern int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat);
+extern int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino);
+
 #ifdef	__cplusplus
 }
 #endif

@@ -1,5 +1,9 @@
 include $(top_srcdir)/config/Rules.am
 
+if BUILD_LINUX
+DEFAULT_INCLUDES += -I$(top_srcdir)/include/os/linux/zfs
+endif
+
 # Suppress unused but set variable warnings often due to ASSERTs
 AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
 

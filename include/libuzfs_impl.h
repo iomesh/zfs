@@ -36,17 +36,6 @@
 extern "C" {
 #endif
 
-/*
- * It would be better to use a rangelock_t per object.  Unfortunately
- * the rangelock_t is not a drop-in replacement for rl_t, because we
- * still need to map from object ID to rangelock_t.
- */
-typedef enum {
-	RL_READER,
-	RL_WRITER,
-	RL_APPEND
-} rl_type_t;
-
 struct libuzfs_zpool_handle {
 	char zpool_name[ZFS_MAX_DATASET_NAME_LEN];
 	spa_t *spa;

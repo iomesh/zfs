@@ -47,6 +47,10 @@
 #include <sys/fs/zfs.h>
 #include <libnvpair.h>
 #include <libzutil.h>
+#include <sys/zfs_vnops.h>
+#include <sys/zfs_znode.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/zfs_ioctl_impl.h>
 
 #include "libuzfs_impl.h"
 
@@ -455,7 +459,6 @@ libuzfs_objset_destroy_cb(const char *name, void *arg)
 	if (err != ENOENT) {
 		/* We could have crashed in the middle of destroying it */
 		ASSERT0(err);
-		ASSERT3U(doi.doi_type, ==, DMU_OT_ZAP_OTHER);
 		ASSERT3S(doi.doi_physical_blocks_512, >=, 0);
 	}
 	dmu_objset_disown(os, B_TRUE, FTAG);
@@ -746,4 +749,214 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		return (err);
 
 	return (0);
+}
+
+// FIXME(hping)
+#define MAX_NUM_FS (100)
+static zfsvfs_t *zfsvfs_array[MAX_NUM_FS];
+static int zfsvfs_idx = 0;
+static znode_t *rootzp = NULL;
+
+static void
+libuzfs_fs_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
+{
+	zfs_create_fs(os, NULL, NULL, tx);
+}
+
+int
+libuzfs_fs_create(const char *fsname)
+{
+	int err = 0;
+
+	err = dmu_objset_create(fsname, DMU_OST_ZFS, 0, NULL,
+	    libuzfs_fs_create_cb, NULL);
+	if (err)
+		return (err);
+
+	return (libuzfs_dsl_prop_set_uint64(fsname, ZFS_PROP_SYNC,
+	    ZFS_SYNC_ALWAYS, B_FALSE));
+}
+
+void
+libuzfs_fs_destroy(const char *fsname)
+{
+	(void) dmu_objset_find(fsname, libuzfs_objset_destroy_cb, NULL,
+	    DS_FIND_SNAPSHOTS | DS_FIND_CHILDREN);
+}
+
+int libuzfs_fs_init(const char* fsname, uint64_t *fsid)
+{
+	int error = 0;
+	vfs_t *vfs = NULL;
+	struct super_block *sb = NULL;
+	zfsvfs_t *zfsvfs = NULL;
+
+	vfs = kmem_zalloc(sizeof (vfs_t), KM_SLEEP);
+
+	error = zfsvfs_create(fsname, B_FALSE, &zfsvfs);
+	if (error) goto out;
+
+	vfs->vfs_data = zfsvfs;
+	zfsvfs->z_vfs = vfs;
+
+	sb = kmem_zalloc(sizeof(struct super_block), KM_SLEEP);
+	sb->s_fs_info = zfsvfs;
+
+	zfsvfs->z_sb = sb;
+
+	error = zfsvfs_setup(zfsvfs, B_TRUE);
+	if (error) goto out;
+
+	*fsid = zfsvfs_idx;
+
+	zfsvfs_array[zfsvfs_idx++] = zfsvfs;
+
+	return 0;
+
+out:
+	if (sb)
+		kmem_free(sb, sizeof (struct super_block));
+	if(vfs)
+		kmem_free(vfs, sizeof (vfs_t));
+	if(zfsvfs)
+		kmem_free(zfsvfs, sizeof (zfsvfs_t));
+	return -1;
+}
+
+int libuzfs_fs_fini(uint64_t fsid)
+{
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+	objset_t *os = zfsvfs->z_os;
+	vfs_t *vfs = zfsvfs->z_vfs;
+	struct super_block *sb = zfsvfs->z_sb;
+
+	struct inode* root_inode = NULL;
+	int error = zfs_root(zfsvfs, &root_inode);
+	if (error) return 1;
+	iput(root_inode);
+	iput(root_inode);
+	// sleep 1 second for zfsvfs draining, otherwise may hit first assert in zfs_unlinked_drain_task
+	sleep(1);
+	VERIFY(zfsvfs_teardown(zfsvfs, B_TRUE) == 0);
+
+	/*
+	 * z_os will be NULL if there was an error in
+	 * attempting to reopen zfsvfs.
+	 */
+	if (os != NULL) {
+		/*
+		 * Unset the objset user_ptr.
+		 */
+		mutex_enter(&os->os_user_ptr_lock);
+		dmu_objset_set_user(os, NULL);
+		mutex_exit(&os->os_user_ptr_lock);
+
+		/*
+		 * Finally release the objset
+		 */
+		dmu_objset_disown(os, B_TRUE, zfsvfs);
+	}
+
+	if (sb)
+		kmem_free(sb, sizeof (struct super_block));
+	if(vfs)
+		kmem_free(vfs, sizeof (vfs_t));
+	if(zfsvfs)
+		kmem_free(zfsvfs, sizeof (zfsvfs_t));
+
+	return 0;
+}
+
+int libuzfs_getroot(uint64_t fsid, uint64_t* ino)
+{
+	int error = 0;
+	struct inode* root_inode = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+	error = zfs_root(zfsvfs, &root_inode);
+	if (error) goto out;
+
+	rootzp = ITOZ(root_inode);
+	*ino = root_inode->i_ino;
+
+out:
+	return error;
+}
+
+static int cp_new_stat(struct linux_kstat *stat, struct stat *statbuf)
+{
+	struct stat tmp;
+
+	tmp.st_ino = stat->ino;
+	if (sizeof(tmp.st_ino) < sizeof(stat->ino) && tmp.st_ino != stat->ino)
+		return -EOVERFLOW;
+	tmp.st_mode = stat->mode;
+	tmp.st_nlink = stat->nlink;
+	if (tmp.st_nlink != stat->nlink)
+		return -EOVERFLOW;
+	tmp.st_uid = stat->uid;
+	tmp.st_gid = stat->gid;
+	tmp.st_size = stat->size;
+	tmp.st_atime = stat->atime.tv_sec;
+	tmp.st_mtime = stat->mtime.tv_sec;
+	tmp.st_ctime = stat->ctime.tv_sec;
+	tmp.st_blocks = stat->blocks;
+	tmp.st_blksize = stat->blksize;
+	memcpy(statbuf,&tmp,sizeof(tmp));
+	return 0;
+}
+
+int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat)
+{
+	int error = 0;
+	znode_t *zp = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+	ZFS_ENTER(zfsvfs);
+
+	error = zfs_zget(zfsvfs, ino, &zp);
+	if (error) goto out;
+
+	struct linux_kstat kstatbuf;
+	memset(&kstatbuf, 0, sizeof(struct linux_kstat));
+
+	error = zfs_getattr_fast(NULL, ZTOI(zp), &kstatbuf);
+	if (error) goto out;
+
+	cp_new_stat(&kstatbuf, stat);
+
+out:
+	if (zp)
+		iput(ZTOI(zp));
+
+	ZFS_EXIT(zfsvfs);
+	return error;
+}
+
+int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino)
+{
+	int error = 0;
+	znode_t *dzp = NULL;
+	znode_t *zp = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+	ZFS_ENTER(zfsvfs);
+
+	error = zfs_zget(zfsvfs, dino, &dzp);
+	if (error) goto out;
+
+	error = zfs_lookup(dzp, name, &zp, 0, NULL, NULL, NULL);
+	if (error) goto out;
+
+	*ino = ZTOI(zp)->i_ino;
+
+out:
+	if (zp)
+		iput(ZTOI(zp));
+
+	if (dzp)
+		iput(ZTOI(dzp));
+
+	ZFS_EXIT(zfsvfs);
+	return error;
 }

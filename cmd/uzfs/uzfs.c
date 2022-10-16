@@ -53,6 +53,11 @@ static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
 static int uzfs_object_write(int argc, char **argv);
 
+static int uzfs_fs_create(int argc, char **argv);
+static int uzfs_fs_destroy(int argc, char **argv);
+
+static int uzfs_stat(int argc, char **argv);
+
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
@@ -67,6 +72,9 @@ typedef enum {
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
 	HELP_OBJECT_WRITE,
+	HELP_FS_CREATE,
+	HELP_FS_DESTROY,
+	HELP_STAT,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -98,6 +106,9 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
+	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE },
+	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY},
+	{ "stat",		uzfs_stat,		HELP_STAT   },
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -134,6 +145,12 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\twrite-object ...\n"));
 	case HELP_OBJECT_CLAIM:
 		return (gettext("\tclaim-object ...\n"));
+	case HELP_FS_CREATE:
+		return (gettext("\tcreate-fs ...\n"));
+	case HELP_FS_DESTROY:
+		return (gettext("\tdestroy-fs ...\n"));
+	case HELP_STAT:
+		return (gettext("\tstat ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -599,3 +616,131 @@ uzfs_object_write(int argc, char **argv)
 	libuzfs_dataset_close(dhp);
 	return (0);
 }
+
+int
+uzfs_fs_create(int argc, char **argv)
+{
+	int err = 0;
+	char *fsname = argv[1];
+
+	printf("creating fs %s\n", fsname);
+
+	err = libuzfs_fs_create(fsname);
+	if (err)
+		printf("failed to create fs: %s\n", fsname);
+
+	return (err);
+}
+
+int
+uzfs_fs_destroy(int argc, char **argv)
+{
+	char *fsname = argv[1];
+
+	printf("destroying fs %s\n", fsname);
+
+	libuzfs_fs_destroy(fsname);
+
+	return (0);
+}
+
+
+static void print_stat(const char* name, struct stat* stat)
+{
+    const char* format =
+        "  File: %s(%s)\n"
+        "  Inode: %lld\n"
+        "  MODE: %x\n"
+        "  Links: %lld\n"
+        "  UID/GID: %d/%d\n"
+        "  SIZE: %d\n"
+        "  BLOCKSIZE: %d\n"
+        "  BLOCKS: %d\n";
+
+    const char* type = S_ISDIR(stat->st_mode) ? "DIR" : "REG FILE";
+
+    printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink, stat->st_uid, stat->st_gid,
+           stat->st_size, stat->st_blksize, stat->st_blocks);
+}
+
+static int
+uzfs_stat(int argc, char **argv)
+{
+    int error = 0;
+    char *path = argv[1];
+
+    char fsname[256] = "";
+    char target_path[256] = "";
+
+    char *fs_end = strstr(path, "://");
+    memcpy(fsname, path, fs_end - path);
+    memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+    printf("stat %s: %s\n", fsname, target_path);
+
+    uint64_t fsid = 0;
+    error = libuzfs_fs_init(fsname, &fsid);
+    if (error) goto out;
+
+    uint64_t root_ino = 0;
+
+    error = libuzfs_getroot(fsid, &root_ino);
+    if (error) goto out;
+
+    char *s = target_path;
+    if (*s != '/') {
+        printf("path %s must be started with /\n", target_path);
+        error = 1;
+        goto out;
+    }
+
+    s++;
+
+    char *e = strchr(s, '/');
+
+    uint64_t dino = root_ino;
+    uint64_t ino = 0;
+    boolean_t out_flag = B_FALSE;
+
+    while (s) {
+        if (e)
+            *e = '\0';
+        else
+            out_flag = B_TRUE;
+
+        error = libuzfs_lookup(fsid, dino, s, &ino);
+        if (error) goto out;
+
+        if (out_flag)
+            break;
+
+        s = e + 1;
+        e = strchr(s, '/');
+        dino = ino;
+    }
+
+    if (ino == 0) {
+        printf("Empty path\n");
+        error = 1;
+        goto out;
+    }
+
+    struct stat buf;
+    memset(&buf, 0, sizeof(struct stat));
+
+    error = libuzfs_getattr(fsid, ino, &buf);
+    if (error) {
+        printf("Failed to stat %s\n", path);
+        goto out;
+    }
+
+    print_stat(s, &buf);
+
+out:
+
+    libuzfs_fs_fini(fsid);
+
+    return error;
+}
+
+
