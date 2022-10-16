@@ -1,10 +1,10 @@
 include $(top_srcdir)/config/Shellcheck.am
 
-SUBDIRS  = zfs zpool zdb zhack zinject zstream ztest uzfs
+SUBDIRS  = zfs zpool zdb zhack zinject zstream ztest uzfs zfs_fuse
 SUBDIRS += fsck_zfs vdev_id raidz_test zfs_ids_to_path
 SUBDIRS += zpool_influxdb
 
-CPPCHECKDIRS  = zfs zpool zdb zhack zinject zstream ztest uzfs
+CPPCHECKDIRS  = zfs zpool zdb zhack zinject zstream ztest uzfs zfs_fuse
 CPPCHECKDIRS += raidz_test zfs_ids_to_path zpool_influxdb
 
 # TODO: #12084: SHELLCHECKDIRS = fsck_zfs vdev_id zpool
