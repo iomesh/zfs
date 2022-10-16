@@ -258,6 +258,9 @@ extern int zfs_get_temporary_prop(dsl_dataset_t *ds, zfs_prop_t zfs_prop,
     uint64_t *val, char *setpoint);
 
 extern int zfs_root(zfsvfs_t *zfsvfs, struct inode **ipp);
+extern int zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting);
+extern int zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting);
+
 #ifdef	__cplusplus
 }
 #endif

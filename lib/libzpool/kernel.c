@@ -822,12 +822,19 @@ kernel_init(int mode)
 
 	fletcher_4_init();
 
+	zfs_init();
+
+	zfs_ioctl_init();
+
+	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
+	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
 }
 
 void
 kernel_fini(void)
 {
+	zfs_fini();
 	fletcher_4_fini();
 	spa_fini();
 
@@ -837,6 +844,10 @@ kernel_fini(void)
 	system_taskq_fini();
 
 	random_fini();
+
+	tsd_destroy(&zfs_fsyncer_key);
+	tsd_destroy(&rrw_tsd_key);
+	tsd_destroy(&zfs_allow_log_key);
 }
 
 uid_t
@@ -1535,12 +1546,6 @@ boolean_t inode_owner_or_capable(const struct inode *inode)
 	dprintf("%s: %ld\n", __func__, inode->i_ino);
 	return B_FALSE;
 }
-
-
-
-// zfs_log.c
-// FIXME(hping): remove it after importing zfs_ioctl.c
-uint_t zfs_fsyncer_key;
 
 // zfs_dir.c
 void drop_nlink(struct inode *inode)

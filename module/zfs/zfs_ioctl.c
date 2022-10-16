@@ -4819,7 +4819,7 @@ extract_delay_props(nvlist_t *props)
 	return (delayprops);
 }
 
-static void
+void
 zfs_allow_log_destroy(void *arg)
 {
 	char *poolname = arg;
@@ -6941,7 +6941,7 @@ zfs_ioctl_register_dataset_modify(zfs_ioc_t ioc, zfs_ioc_legacy_func_t *func,
 	    DATASET_NAME, B_TRUE, POOL_CHECK_SUSPENDED | POOL_CHECK_READONLY);
 }
 
-static void
+void
 zfs_ioctl_init(void)
 {
 	zfs_ioctl_register("snapshot", ZFS_IOC_SNAPSHOT,

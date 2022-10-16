@@ -100,4 +100,7 @@ int uzfs_init(void);
 void uzfs_fini(void);
 #endif /* _KERNEL */
 
+extern void zfs_ioctl_init(void);
+extern void zfs_allow_log_destroy(void *arg);
+
 #endif

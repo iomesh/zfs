@@ -32,6 +32,7 @@
 #include <sys/fcntl.h>
 #include <sys/pathname.h>
 #include <sys/zfs_file.h>
+#include <sys/zfs_znode.h>
 
 #ifdef _KERNEL
 #include <sys/zpl.h>
