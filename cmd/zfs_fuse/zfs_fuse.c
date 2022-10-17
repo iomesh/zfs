@@ -45,6 +45,7 @@ fuse_ino_t root_ino = 0;
 /* FUSE handlers */
 static void zfs_fuse_init(void *userdata, struct fuse_conn_info *conn)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = 0;
 	libuzfs_set_zpool_cache_path("/tmp/zpool.cache");
 	libuzfs_init();
@@ -56,12 +57,14 @@ static void zfs_fuse_init(void *userdata, struct fuse_conn_info *conn)
 
 static void zfs_fuse_destroy(void *userdata)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	libuzfs_fs_fini(fsid);
 }
 
 static void zfs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 			     struct fuse_file_info *fi)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct stat stbuf;
 
 	(void) fi;
@@ -82,6 +85,7 @@ err:
 
 static void zfs_fuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct fuse_entry_param e;
 	int err = 0;
 
@@ -106,6 +110,7 @@ err:
 
 static void zfs_fuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char* name, mode_t mode)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct fuse_entry_param e;
 	int err = 0;
 
@@ -130,6 +135,7 @@ err:
 
 static void zfs_fuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char* name)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = 0;
 
 	if (parent == FUSE_ROOT_ID)
@@ -139,12 +145,7 @@ static void zfs_fuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char* name)
 	fuse_reply_err(req, err);
 }
 
-//static void zfs_fuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_file *fi) {
-//	ino = (ino == FUSE_ROOT_ID) ? root_ino : ino;
-//
-//}
-
-static struct dirents {
+struct dirents {
 	fuse_req_t req;
 	char *buf;
 	size_t bufsize;
@@ -154,6 +155,7 @@ static struct dirents {
 static int zfs_fuse_fill_dir(void *data, const char *name, int namelen,
 		loff_t off, uint64_t ino, unsigned type)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct dirents* ents = data;
 	char *buf = ents->buf;
 	size_t bufsize = ents->bufsize;
@@ -177,6 +179,7 @@ static int zfs_fuse_fill_dir(void *data, const char *name, int namelen,
 
 static void zfs_fuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t offset, struct fuse_file_info *fi)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = 0;
 	struct dirents ents;
 
@@ -207,6 +210,7 @@ err:
 static void zfs_fuse_create(fuse_req_t req, fuse_ino_t parent, const char *name,
 		mode_t mode, struct fuse_file_info *fi)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct fuse_entry_param e;
 	int err = 0;
 
@@ -231,6 +235,7 @@ err:
 
 static void zfs_fuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = 0;
 
 	if (parent == FUSE_ROOT_ID)
@@ -244,6 +249,7 @@ static void zfs_fuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 static void zfs_fuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
 		fuse_ino_t newparent, const char *newname, unsigned int flags)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = 0;
 	parent = (parent == FUSE_ROOT_ID) ? root_ino : parent;
 	newparent = (newparent == FUSE_ROOT_ID) ? root_ino : newparent;
@@ -256,14 +262,85 @@ static void zfs_fuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
 static void zfs_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
 		struct fuse_file_info *fi)
 {
+	dprintf("%s: %d\n", __func__, __LINE__);
 	struct stat orig_attr = {0};
 	int err = libuzfs_getattr(fsid, ino, &orig_attr);
-	fuse_reply_attr(req, &orig_attr, 1.0);
+	if (err)
+		fuse_reply_err(req, err);
+	else
+		fuse_reply_attr(req, &orig_attr, 1.0);
 }
 
 static void zfs_fuse_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
-	fuse_reply_err(req, 0);
+	dprintf("%s: %d\n", __func__, __LINE__);
+	int err = libuzfs_fsync(fsid, ino, 0);
+	fuse_reply_err(req, err);
+}
+
+static void zfs_fuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	dprintf("%s: %d\n", __func__, __LINE__);
+	ino = (ino == FUSE_ROOT_ID) ? root_ino : ino;
+	fuse_reply_open(req, fi);
+}
+
+static void zfs_fuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+		struct fuse_file_info *fi)
+{
+	dprintf("%s: %d\n", __func__, __LINE__);
+	assert(ino != FUSE_ROOT_ID);
+
+	int err = 0;
+	char *buf = calloc(size, 1);
+	if (!buf) {
+		err = ENOMEM;
+		goto err;
+	}
+
+	struct iovec iov;
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, off, UIO_USERSPACE, iov.iov_len, 0);
+
+	err = libuzfs_read(fsid, ino, &uio, 0);
+	if (err) {
+		goto err;
+	}
+
+	fuse_reply_buf(req, buf, size);
+	free(buf);
+	return;
+err:
+	fuse_reply_err(req, err);
+}
+
+static void zfs_fuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
+		off_t off, struct fuse_file_info *fi)
+{
+	dprintf("%s: %d\n", __func__, __LINE__);
+	assert(ino != FUSE_ROOT_ID);
+
+	int err = 0;
+
+	struct iovec iov;
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, off, UIO_USERSPACE, iov.iov_len, 0);
+
+	err = libuzfs_write(fsid, ino, &uio, 0);
+	if (err) {
+		goto err;
+	}
+
+	fuse_reply_write(req, size);
+	return;
+err:
+	fuse_reply_err(req, err);
 }
 
 static struct fuse_lowlevel_ops zfs_fuse_oper = {
@@ -281,6 +358,9 @@ static struct fuse_lowlevel_ops zfs_fuse_oper = {
 	.unlink		= zfs_fuse_unlink,
 	.rename		= zfs_fuse_rename,
 	.flush		= zfs_fuse_flush,
+	.open		= zfs_fuse_open,
+	.read		= zfs_fuse_read,
+	.write		= zfs_fuse_write,
 };
 
 int main(int argc, char *argv[])
@@ -296,7 +376,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	fprintf(stdout, "starting fuse[%d] %s\n", getpid(), fuse_conf.zfsname);
+	dprintf("starting fuse[%d] %s\n", getpid(), fuse_conf.zfsname);
 
 	if (fuse_parse_cmdline(&args, &opts) != 0)
 		return 1;
