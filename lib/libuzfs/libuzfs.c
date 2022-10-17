@@ -1147,3 +1147,69 @@ out:
 	ZFS_EXIT(zfsvfs);
 	return error;
 }
+
+int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
+{
+    int error = 0;
+    znode_t *zp = NULL;
+    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+    ZFS_ENTER(zfsvfs);
+
+    error = zfs_zget(zfsvfs, ino, &zp);
+    if (error) goto out;
+
+    error = zfs_read(zp, uio, ioflag, NULL);
+    if (error) goto out;
+
+out:
+    if (zp)
+        iput(ZTOI(zp));
+
+    ZFS_EXIT(zfsvfs);
+    return error;
+}
+
+int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
+{
+    int error = 0;
+    znode_t *zp = NULL;
+    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+    ZFS_ENTER(zfsvfs);
+
+    error = zfs_zget(zfsvfs, ino, &zp);
+    if (error) goto out;
+
+    error = zfs_write(zp, uio, ioflag, NULL);
+    if (error) goto out;
+
+out:
+    if (zp)
+        iput(ZTOI(zp));
+
+    ZFS_EXIT(zfsvfs);
+    return error;
+}
+
+int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag)
+{
+    int error = 0;
+    znode_t *zp = NULL;
+    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+
+    ZFS_ENTER(zfsvfs);
+
+    error = zfs_zget(zfsvfs, ino, &zp);
+    if (error) goto out;
+
+    error = zfs_fsync(zp, syncflag, NULL);
+    if (error) goto out;
+
+out:
+    if (zp)
+        iput(ZTOI(zp));
+
+    ZFS_EXIT(zfsvfs);
+    return error;
+}

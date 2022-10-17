@@ -63,6 +63,10 @@ static int uzfs_rm(int argc, char **argv);
 static int uzfs_ls(int argc, char **argv);
 static int uzfs_mv(int argc, char **argv);
 
+static int uzfs_read(int argc, char **argv);
+static int uzfs_write(int argc, char **argv);
+static int uzfs_fsync(int argc, char **argv);
+
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
@@ -85,6 +89,9 @@ typedef enum {
 	HELP_RM,
 	HELP_LS,
 	HELP_MV,
+	HELP_READ,
+	HELP_WRITE,
+	HELP_FSYNC,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -124,6 +131,9 @@ static uzfs_command_t command_table[] = {
 	{ "rm",			uzfs_rm,		HELP_RM             },
 	{ "ls",			uzfs_ls,		HELP_LS             },
 	{ "mv",			uzfs_mv,		HELP_MV             },
+	{ "read",		uzfs_read,		HELP_READ           },
+	{ "write",		uzfs_write,		HELP_WRITE          },
+	{ "fsync",		uzfs_fsync,		HELP_FSYNC          },
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -176,6 +186,12 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tls ...\n"));
 	case HELP_MV:
 		return (gettext("\tmv ...\n"));
+	case HELP_READ:
+		return (gettext("\tread ...\n"));
+	case HELP_WRITE:
+		return (gettext("\twrite ...\n"));
+	case HELP_FSYNC:
+		return (gettext("\tfsync ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -1172,4 +1188,245 @@ out:
 
     return error;
 
+}
+
+static int uzfs_read(int argc, char **argv)
+{
+	int error = 0;
+	char buf[4096] = "";
+	char *path = argv[1];
+	int offset = atoi(argv[2]);
+	int size = atoi(argv[3]);
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("read %s: %s, offset: %d, size: %d\n", fsname, target_path, offset, size);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	struct iovec iov;
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, iov.iov_len, 0);
+
+	error = libuzfs_read(fsid, ino, &uio, 0);
+	if (error) {
+		printf("Failed to read %s\n", path);
+		goto out;
+	}
+
+	printf("%s\n", buf);
+
+	libuzfs_fs_fini(fsid);
+
+out:
+	return error;
+}
+
+static int uzfs_write(int argc, char **argv)
+{
+	int error = 0;
+	char buf[4096] = "";
+	char *path = argv[1];
+	int offset = atoi(argv[2]);
+	int size = atoi(argv[3]);
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+	memcpy(buf, argv[4], strlen(argv[4]));
+
+	printf("write %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	struct iovec iov;
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, iov.iov_len, 0);
+
+	error = libuzfs_write(fsid, ino, &uio, 0);
+	if (error) {
+		printf("Failed to write %s\n", path);
+		goto out;
+	}
+
+	libuzfs_fs_fini(fsid);
+
+out:
+	return error;
+}
+
+static int uzfs_fsync(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("write %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	error = libuzfs_fsync(fsid, ino, 0);
+	if (error) {
+		printf("Failed to sync %s\n", path);
+		goto out;
+	}
+
+	libuzfs_fs_fini(fsid);
+out:
+	return error;
 }

@@ -88,6 +88,10 @@ extern int libuzfs_create(uint64_t fsid, uint64_t dino, char* name, umode_t mode
 extern int libuzfs_remove(uint64_t fsid, uint64_t dino, char* name);
 extern int libuzfs_rename(uint64_t fsid, uint64_t sdino, char* sname, uint64_t tdino, char* tname);
 
+extern int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag);
+extern int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag);
+extern int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag);
+
 #ifdef	__cplusplus
 }
 #endif
