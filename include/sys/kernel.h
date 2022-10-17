@@ -479,4 +479,8 @@ extern int fls(int x);
 
 static inline boolean_t zfs_proc_is_caller(proc_t *t) { return B_FALSE; }
 
+// libuzfs.c
+extern uid_t crgetfsuid(const cred_t *cr);
+extern gid_t crgetfsgid(const cred_t *cr);
+
 #endif	/* _SYS_KERNEL_H */

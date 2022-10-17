@@ -36,6 +36,8 @@ extern "C" {
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 
+typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
+
 extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
@@ -79,6 +81,12 @@ extern int libuzfs_fs_fini(uint64_t fsid);
 extern int libuzfs_getroot(uint64_t fsid, uint64_t* ino);
 extern int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat);
 extern int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino);
+extern int libuzfs_mkdir(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino);
+extern int libuzfs_rmdir(uint64_t fsid, uint64_t dino, char* name);
+extern int libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent, filldir_t filldir, loff_t pos);
+extern int libuzfs_create(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino);
+extern int libuzfs_remove(uint64_t fsid, uint64_t dino, char* name);
+extern int libuzfs_rename(uint64_t fsid, uint64_t sdino, char* sname, uint64_t tdino, char* tname);
 
 #ifdef	__cplusplus
 }

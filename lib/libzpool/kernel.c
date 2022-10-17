@@ -1780,3 +1780,18 @@ zvol_state_handle_t *zvol_suspend(const char *name) { return NULL; }
 int zvol_resume(zvol_state_handle_t *zv) { return 0; }
 int zvol_check_volsize(uint64_t volsize, uint64_t blocksize) { return 0; }
 int zvol_check_volblocksize(const char *name, uint64_t volblocksize) { return 0; }
+
+// libuzfs.c
+/* Return the filesystem user id */
+uid_t crgetfsuid(const cred_t *cr)
+{
+    dprintf("%s\n", __func__);
+    return 0;
+}
+
+/* Return the filesystem group id */
+gid_t crgetfsgid(const cred_t *cr)
+{
+    dprintf("%s\n", __func__);
+    return 0;
+}

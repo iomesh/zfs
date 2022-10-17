@@ -57,6 +57,11 @@ static int uzfs_fs_create(int argc, char **argv);
 static int uzfs_fs_destroy(int argc, char **argv);
 
 static int uzfs_stat(int argc, char **argv);
+static int uzfs_mkdir(int argc, char **argv);
+static int uzfs_create(int argc, char **argv);
+static int uzfs_rm(int argc, char **argv);
+static int uzfs_ls(int argc, char **argv);
+static int uzfs_mv(int argc, char **argv);
 
 typedef enum {
 	HELP_ZPOOL_CREATE,
@@ -75,6 +80,11 @@ typedef enum {
 	HELP_FS_CREATE,
 	HELP_FS_DESTROY,
 	HELP_STAT,
+	HELP_MKDIR,
+	HELP_CREATE,
+	HELP_RM,
+	HELP_LS,
+	HELP_MV,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -106,9 +116,14 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
-	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE },
-	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY},
-	{ "stat",		uzfs_stat,		HELP_STAT   },
+	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE      },
+	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY     },
+	{ "stat",		uzfs_stat,		HELP_STAT           },
+	{ "mkdir",		uzfs_mkdir,		HELP_MKDIR          },
+	{ "create",		uzfs_create,		HELP_CREATE         },
+	{ "rm",			uzfs_rm,		HELP_RM             },
+	{ "ls",			uzfs_ls,		HELP_LS             },
+	{ "mv",			uzfs_mv,		HELP_MV             },
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -151,6 +166,16 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tdestroy-fs ...\n"));
 	case HELP_STAT:
 		return (gettext("\tstat ...\n"));
+	case HELP_MKDIR:
+		return (gettext("\tmkdir ...\n"));
+	case HELP_CREATE:
+		return (gettext("\tcreate ...\n"));
+	case HELP_RM:
+		return (gettext("\trm ...\n"));
+	case HELP_LS:
+		return (gettext("\tls ...\n"));
+	case HELP_MV:
+		return (gettext("\tmv ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -663,20 +688,417 @@ static void print_stat(const char* name, struct stat* stat)
            stat->st_size, stat->st_blksize, stat->st_blocks);
 }
 
-static int
-uzfs_stat(int argc, char **argv)
+static int uzfs_stat(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("stat %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	struct stat buf;
+	memset(&buf, 0, sizeof(struct stat));
+
+	error = libuzfs_getattr(fsid, ino, &buf);
+	if (error) {
+		printf("Failed to stat %s\n", path);
+		goto out;
+	}
+
+	print_stat(s, &buf);
+
+out:
+
+	libuzfs_fs_fini(fsid);
+
+	return error;
+}
+
+static int uzfs_mkdir(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("mkdir %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+
+	while (e) {
+		*e = '\0';
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	error = libuzfs_mkdir(fsid, dino, s, 0, &ino);
+	if (error) {
+		printf("Failed to mkdir %s\n", path);
+		goto out;
+	}
+
+	printf("succeeded to mkdir %s\n", path);
+
+out:
+
+	libuzfs_fs_fini(fsid);
+
+	return error;
+
+}
+
+static int uzfs_create(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("create %s: %s\n", fsname, target_path);
+
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+
+	while (e) {
+		*e = '\0';
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	error = libuzfs_create(fsid, dino, s, 0, &ino);
+	if (error) {
+		printf("Failed to create file %s\n", path);
+		goto out;
+	}
+
+out:
+
+	libuzfs_fs_fini(fsid);
+
+	return error;
+}
+
+static int uzfs_rm(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("rm %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	struct stat buf;
+	memset(&buf, 0, sizeof(struct stat));
+
+	error = libuzfs_getattr(fsid, ino, &buf);
+	if (error) {
+		printf("Failed to stat %s\n", path);
+		goto out;
+	}
+
+	if (S_ISDIR(buf.st_mode)) {
+		error = libuzfs_rmdir(fsid, dino, s);
+		if (error) {
+			printf("Failed to rm dir %s\n", path);
+			goto out;
+		}
+	} else if (S_ISREG(buf.st_mode)) {
+		error = libuzfs_remove(fsid, dino, s);
+		if (error) {
+			printf("Failed to rm file %s\n", path);
+			goto out;
+		}
+	} else {
+		printf("Invalid file type\n");
+		error = 1;
+		goto out;
+	}
+
+out:
+
+	libuzfs_fs_fini(fsid);
+
+	return error;
+}
+
+static int uzfs_dir_emit(void *ctx, const char *name, int namelen, loff_t off, uint64_t ino, unsigned type)
+{
+	printf("\t%s\tobjnum: %ld\n", name, ino);
+	return 0;
+}
+
+static int uzfs_ls(int argc, char **argv)
+{
+	int error = 0;
+	char *path = argv[1];
+
+	char fsname[256] = "";
+	char target_path[256] = "";
+
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+	printf("ls %s: %s\n", fsname, target_path);
+
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
+
+	uint64_t root_ino = 0;
+
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
+
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		error = 1;
+		goto out;
+	}
+
+	s++;
+
+	char *e = strchr(s, '/');
+
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
+	boolean_t out_flag = B_FALSE;
+
+	while (s) {
+		if (e)
+			*e = '\0';
+		else
+			out_flag = B_TRUE;
+
+		error = libuzfs_lookup(fsid, dino, s, &ino);
+		if (error) goto out;
+
+		if (out_flag)
+			break;
+
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
+
+	if (ino == 0) {
+		printf("Empty path\n");
+		error = 1;
+		goto out;
+	}
+
+	struct stat buf;
+	memset(&buf, 0, sizeof(struct stat));
+
+	error = libuzfs_getattr(fsid, ino, &buf);
+	if (error) {
+		printf("Failed to stat %s\n", path);
+		goto out;
+	}
+
+	if (S_ISDIR(buf.st_mode)) {
+		error = libuzfs_readdir(fsid, ino, NULL, uzfs_dir_emit, 0);
+		if (error) {
+			printf("Failed to readdir %s\n", path);
+			goto out;
+		}
+	} else if (S_ISREG(buf.st_mode)) {
+		printf("%s\t%ld\n", s, buf.st_ino);
+	} else {
+		printf("Invalid file type\n");
+		error = 1;
+		goto out;
+	}
+
+out:
+
+	libuzfs_fs_fini(fsid);
+
+	return error;
+}
+
+static int uzfs_mv(int argc, char **argv)
 {
     int error = 0;
-    char *path = argv[1];
+    char *spath = argv[1];
+    char *dst_path = argv[2];
 
     char fsname[256] = "";
-    char target_path[256] = "";
+    char src_path[256] = "";
 
-    char *fs_end = strstr(path, "://");
-    memcpy(fsname, path, fs_end - path);
-    memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+    char *fs_end = strstr(spath, "://");
+    memcpy(fsname, spath, fs_end - spath);
+    memcpy(src_path, fs_end + 3, strlen(spath) - strlen(fsname) - 3);
 
-    printf("stat %s: %s\n", fsname, target_path);
+    printf("mv %s: %s %s\n", fsname, src_path, dst_path);
 
     uint64_t fsid = 0;
     error = libuzfs_fs_init(fsname, &fsid);
@@ -687,9 +1109,9 @@ uzfs_stat(int argc, char **argv)
     error = libuzfs_getroot(fsid, &root_ino);
     if (error) goto out;
 
-    char *s = target_path;
+    char *s = src_path;
     if (*s != '/') {
-        printf("path %s must be started with /\n", target_path);
+        printf("path %s must be started with /\n", src_path);
         error = 1;
         goto out;
     }
@@ -698,49 +1120,56 @@ uzfs_stat(int argc, char **argv)
 
     char *e = strchr(s, '/');
 
-    uint64_t dino = root_ino;
-    uint64_t ino = 0;
-    boolean_t out_flag = B_FALSE;
+    uint64_t sdino = root_ino;
+    uint64_t sino = 0;
 
-    while (s) {
-        if (e)
-            *e = '\0';
-        else
-            out_flag = B_TRUE;
+    while (e) {
+        *e = '\0';
 
-        error = libuzfs_lookup(fsid, dino, s, &ino);
+        error = libuzfs_lookup(fsid, sdino, s, &sino);
         if (error) goto out;
-
-        if (out_flag)
-            break;
 
         s = e + 1;
         e = strchr(s, '/');
-        dino = ino;
+        sdino = sino;
     }
 
-    if (ino == 0) {
-        printf("Empty path\n");
+    char *d = dst_path;
+    if (*d != '/') {
+        printf("path %s must be started with /\n", dst_path);
         error = 1;
         goto out;
     }
 
-    struct stat buf;
-    memset(&buf, 0, sizeof(struct stat));
+    d++;
 
-    error = libuzfs_getattr(fsid, ino, &buf);
-    if (error) {
-        printf("Failed to stat %s\n", path);
-        goto out;
+    e = strchr(d, '/');
+
+    uint64_t dst_dino = root_ino;
+    uint64_t dst_ino = 0;
+
+    while (e) {
+        *e = '\0';
+
+        error = libuzfs_lookup(fsid, dst_dino, d, &dst_ino);
+        if (error) goto out;
+
+        d = e + 1;
+        e = strchr(d, '/');
+        dst_dino = dst_ino;
     }
 
-    print_stat(s, &buf);
+
+    error = libuzfs_rename(fsid, sdino, s, dst_dino, d);
+    if (error) {
+        printf("Failed to mv %s %s\n", spath, dst_path);
+        goto out;
+    }
 
 out:
 
     libuzfs_fs_fini(fsid);
 
     return error;
+
 }
-
-
