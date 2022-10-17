@@ -1617,17 +1617,6 @@ zfs_readdir(struct inode *ip, zpl_dir_context_t *ctx, cred_t *cr)
 			type = ZFS_DIRENT_TYPE(zap.za_first_integer);
 		}
 
-		done = !zpl_dir_emit(ctx, zap.za_name, strlen(zap.za_name),
-		    objnum, type);
-		if (done)
-			break;
-
-		/* Prefetch znode */
-		if (prefetch) {
-			dmu_prefetch(os, objnum, 0, 0, 0,
-			    ZIO_PRIORITY_SYNC_READ);
-		}
-
 		/*
 		 * Move to the next entry, fill in the previous offset.
 		 */
@@ -1638,6 +1627,17 @@ zfs_readdir(struct inode *ip, zpl_dir_context_t *ctx, cred_t *cr)
 			offset += 1;
 		}
 		ctx->pos = offset;
+
+		done = !zpl_dir_emit(ctx, zap.za_name, strlen(zap.za_name),
+		    objnum, type);
+		if (done)
+			break;
+
+		/* Prefetch znode */
+		if (prefetch) {
+			dmu_prefetch(os, objnum, 0, 0, 0,
+			    ZIO_PRIORITY_SYNC_READ);
+		}
 	}
 	zp->z_zn_prefetch = B_FALSE; /* a lookup will re-enable pre-fetching */
 
