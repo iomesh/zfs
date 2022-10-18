@@ -4,7 +4,8 @@ include $(top_srcdir)/config/Rules.am
 DEFAULT_INCLUDES += -I/usr/include/fuse3
 
 # Unconditionally enable ASSERTs
-AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG $(FUSE3) -Wno-discarded-qualifiers
+#AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG $(FUSE3) -Wno-discarded-qualifiers
+AM_CPPFLAGS += $(FUSE3) -Wno-discarded-qualifiers
 
 bin_PROGRAMS = zfs_fuse
 

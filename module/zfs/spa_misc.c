@@ -252,7 +252,6 @@ spa_mode_t spa_mode_global = SPA_MODE_UNINIT;
  */
 int zfs_flags = ~(ZFS_DEBUG_DPRINTF | ZFS_DEBUG_SET_ERROR |
     ZFS_DEBUG_INDIRECT_REMAP);
-//int zfs_flags = -1;
 #else
 int zfs_flags = 0;
 #endif
