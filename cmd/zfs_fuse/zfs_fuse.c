@@ -53,6 +53,7 @@ static void zfs_fuse_init(void *userdata, struct fuse_conn_info *conn)
 	assert(err == 0);
 	err = libuzfs_getroot(fsid, &root_ino);
 	assert(err == 0);
+	conn->max_write = 1 << 20;
 }
 
 static void zfs_fuse_destroy(void *userdata)
