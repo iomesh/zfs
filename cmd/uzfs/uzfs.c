@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <sys/zfs_context.h>
 #include <libuzfs.h>
+#include <pthread.h>
 
 static int uzfs_zpool_create(int argc, char **argv);
 static int uzfs_zpool_destroy(int argc, char **argv);
@@ -67,6 +68,8 @@ static int uzfs_read(int argc, char **argv);
 static int uzfs_write(int argc, char **argv);
 static int uzfs_fsync(int argc, char **argv);
 
+static int uzfs_perf(int argc, char **argv);
+
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
@@ -92,6 +95,7 @@ typedef enum {
 	HELP_READ,
 	HELP_WRITE,
 	HELP_FSYNC,
+	HELP_PERF,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -134,6 +138,7 @@ static uzfs_command_t command_table[] = {
 	{ "read",		uzfs_read,		HELP_READ           },
 	{ "write",		uzfs_write,		HELP_WRITE          },
 	{ "fsync",		uzfs_fsync,		HELP_FSYNC          },
+	{ "perf",		uzfs_perf,		HELP_PERF           },
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -192,6 +197,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\twrite ...\n"));
 	case HELP_FSYNC:
 		return (gettext("\tfsync ...\n"));
+	case HELP_PERF:
+		return (gettext("\tperf ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -1429,4 +1436,224 @@ static int uzfs_fsync(int argc, char **argv)
 	libuzfs_fs_fini(fsid);
 out:
 	return error;
+}
+
+struct perf_args {
+    uint64_t fsid;
+    uint64_t dino;
+    int op;
+    int num;
+    int tid;
+};
+
+static void* do_perf(void* perf_args)
+{
+    struct perf_args* args = perf_args;
+    uint64_t fsid = args->fsid;
+    uint64_t root_ino = args->dino;
+    int op = args->op;
+    int num = args->num;
+    int tid = args->tid;
+    int error = 0;
+    int i = 0;
+    uint64_t ino;
+    uint64_t dino;
+    char name[20] = "";
+
+    printf("tid: %d\n", tid);
+    sprintf(name, "t%d", tid);
+
+    if (op == 1 || op == 3) {
+        error = libuzfs_mkdir(fsid, root_ino, name, 0, &ino);
+        if (error) {
+            printf("Failed to mkdir parent %s\n", name);
+            goto out;
+        }
+    } else {
+        error = libuzfs_lookup(fsid, root_ino, name, &ino);
+        if (error) {
+            printf("Failed to lookup parent dir %s\n", name);
+            goto out;
+        }
+    }
+
+    dino = ino;
+
+    int print_idx = num / 100;
+    for (i = 0; i < num; i++) {
+        sprintf(name, "%d", i);
+        if (op == 0) {
+            error = libuzfs_rmdir(fsid, dino, name);
+            if (error) {
+                printf("Failed to mkdir %s\n", name);
+                goto out;
+            }
+        } else if (op == 1) {
+            error = libuzfs_mkdir(fsid, dino, name, 0, &ino);
+            if (error) {
+                printf("Failed to rmdir %s\n", name);
+                goto out;
+            }
+        } else if (op == 2) {
+            error = libuzfs_remove(fsid, dino, name);
+            if (error) {
+                printf("Failed to remove file %s\n", name);
+                goto out;
+            }
+        } else if (op == 3) {
+            error = libuzfs_create(fsid, dino, name, 0, &ino);
+            if (error) {
+                printf("Failed to create file %s\n", name);
+                goto out;
+            }
+        } else if (op == 4) {
+            error = libuzfs_lookup(fsid, dino, name, &ino);
+            if (error) goto out;
+
+            struct stat buf;
+            memset(&buf, 0, sizeof(struct stat));
+
+            error = libuzfs_getattr(fsid, ino, &buf);
+            if (error) {
+                printf("Failed to stat %s\n", name);
+                goto out;
+            }
+            //print_stat(name, &buf);
+        }
+        if (print_idx != 0 && i % print_idx == 0) {
+            printf("tid %d: %d%%\n", tid, i / print_idx);
+        }
+    }
+
+    if (op == 0 || op == 2) {
+        sprintf(name, "t%d", tid);
+        error = libuzfs_rmdir(fsid, root_ino, name);
+        if (error) {
+            printf("Failed to rm parent dir %s\n", name);
+            goto out;
+        }
+    }
+
+    printf("tid: %d done\n", tid);
+
+out:
+    return NULL;
+}
+
+static int uzfs_perf(int argc, char **argv)
+{
+    int error = 0;
+    char *path = argv[1];
+    int op = atoi(argv[2]); // 0: rmdir, 1: mkdir, 2: remove file, 3: create file, 4: stat
+    int depth = atoi(argv[3]);
+    int branch = atoi(argv[4]);
+    int num = atoi(argv[5]);
+    int n_threads = atoi(argv[6]);
+
+    char fsname[256] = "";
+    char target_path[256] = "";
+    char *opstr = NULL;
+
+    char *fs_end = strstr(path, "://");
+    memcpy(fsname, path, fs_end - path);
+    memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+
+    switch (op) {
+        case 0:
+            opstr = "rmdir";
+            break;
+        case 1:
+            opstr = "mkdir";
+            break;
+        case 2:
+            opstr = "rm file";
+            break;
+        case 3:
+            opstr = "create file";
+            break;
+        case 4:
+            opstr = "stat";
+            break;
+        default:
+            printf("invalid op: %d\n", op);
+            return -1;
+    }
+
+    printf("%s %s: %s\n", opstr, fsname, target_path);
+
+    uint64_t fsid = 0;
+    error = libuzfs_fs_init(fsname, &fsid);
+    if (error) goto out;
+
+    uint64_t root_ino = 0;
+
+    error = libuzfs_getroot(fsid, &root_ino);
+    if (error) goto out;
+
+    char *s = target_path;
+    if (*s != '/') {
+        printf("path %s must be started with /\n", target_path);
+        error = 1;
+        goto out;
+    }
+
+    s++;
+
+    char *e = strchr(s, '/');
+
+    uint64_t dino = root_ino;
+    uint64_t ino = 0;
+
+    while (e) {
+        *e = '\0';
+
+        error = libuzfs_lookup(fsid, dino, s, &ino);
+        if (error) goto out;
+
+        s = e + 1;
+        e = strchr(s, '/');
+        dino = ino;
+    }
+
+    struct timeval t1,t2;
+    double timeuse;
+    gettimeofday(&t1,NULL);
+
+    int i;
+    clock_t start, end;
+    start = clock();
+    pthread_t ntids[100];
+    struct perf_args args[100];
+    for (i = 0; i < n_threads; i++) {
+        args[i].fsid = fsid;
+        args[i].dino = dino;
+        args[i].op = op;
+        args[i].num = num;
+        args[i].tid = i;
+        error = pthread_create(&ntids[i], NULL, do_perf, (void*)&args[i]);
+        if  (error != 0) {
+            printf("Failed to create thread: %s\n" ,  strerror (error));
+            goto out;
+        }
+
+    }
+    for (i = 0; i < n_threads; i++) {
+        pthread_join(ntids[i],NULL);
+    }
+
+    end = clock();
+    gettimeofday(&t2,NULL);
+    timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+
+    int totalnum = branch * depth * num * n_threads;
+    double clockuse = ((double)(end - start))/CLOCKS_PER_SEC;
+    double rate = totalnum / timeuse;
+    printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n", totalnum, timeuse, clockuse, rate);
+
+out:
+
+    libuzfs_fs_fini(fsid);
+
+    return error;
+
 }
