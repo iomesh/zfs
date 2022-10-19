@@ -272,7 +272,7 @@ static void zfs_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, 
 		fuse_reply_attr(req, &orig_attr, 1.0);
 }
 
-static void zfs_fuse_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+static void zfs_fuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct fuse_file_info *fi)
 {
 	dprintf("%s: %d\n", __func__, __LINE__);
 	int err = libuzfs_fsync(fsid, ino, 0);
@@ -358,7 +358,7 @@ static struct fuse_lowlevel_ops zfs_fuse_oper = {
 	.create		= zfs_fuse_create,
 	.unlink		= zfs_fuse_unlink,
 	.rename		= zfs_fuse_rename,
-	.flush		= zfs_fuse_flush,
+	.fsync		= zfs_fuse_fsync,
 	.open		= zfs_fuse_open,
 	.read		= zfs_fuse_read,
 	.write		= zfs_fuse_write,
