@@ -781,15 +781,7 @@ libuzfs_fs_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 int
 libuzfs_fs_create(const char *fsname)
 {
-	int err = 0;
-
-	err = dmu_objset_create(fsname, DMU_OST_ZFS, 0, NULL,
-	    libuzfs_fs_create_cb, NULL);
-	if (err)
-		return (err);
-
-	return (libuzfs_dsl_prop_set_uint64(fsname, ZFS_PROP_SYNC,
-	    ZFS_SYNC_ALWAYS, B_FALSE));
+	return dmu_objset_create(fsname, DMU_OST_ZFS, 0, NULL, libuzfs_fs_create_cb, NULL);
 }
 
 void
