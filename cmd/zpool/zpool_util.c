@@ -98,6 +98,7 @@ array64_max(uint64_t array[], unsigned int len)
 	return (max);
 }
 
+#ifndef _UZFS
 /*
  * Find highest one bit set.
  * Returns bit number + 1 of highest bit that is set, otherwise returns 0.
@@ -123,3 +124,4 @@ lowbit64(uint64_t i)
 
 	return (__builtin_ffsll(i));
 }
+#endif

@@ -533,9 +533,7 @@ dsl_pool_create(spa_t *spa, nvlist_t *zplprops __attribute__((unused)),
 	os = dmu_objset_create_impl(dp->dp_spa, ds,
 	    dsl_dataset_get_blkptr(ds), DMU_OST_ZFS, tx);
 	rrw_exit(&ds->ds_bp_rwlock, FTAG);
-#ifdef _KERNEL
 	zfs_create_fs(os, kcred, zplprops, tx);
-#endif
 	dsl_dataset_rele_flags(ds, DS_HOLD_FLAG_DECRYPT, FTAG);
 
 	dmu_tx_commit(tx);

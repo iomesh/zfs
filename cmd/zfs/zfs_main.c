@@ -1825,6 +1825,7 @@ zfs_do_destroy(int argc, char **argv)
 			goto out;
 		}
 
+#ifndef _UZFS
 		/*
 		 * Check for any dependents and/or clones.
 		 */
@@ -1846,6 +1847,7 @@ zfs_do_destroy(int argc, char **argv)
 			rv = 1;
 			goto out;
 		}
+#endif
 
 		/*
 		 * Do the real thing.  The callback will close the

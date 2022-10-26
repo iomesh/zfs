@@ -48,7 +48,11 @@
 int
 zfs_ioctl(libzfs_handle_t *hdl, int request, zfs_cmd_t *zc)
 {
+#ifdef _UZFS
+	return (uzfs_ioctl(request, zc));
+#else
 	return (ioctl(hdl->libzfs_fd, request, zc));
+#endif
 }
 
 const char *

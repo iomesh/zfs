@@ -1,7 +1,8 @@
 include $(top_srcdir)/config/Rules.am
 include $(top_srcdir)/config/Shellcheck.am
 
-AM_CFLAGS += $(LIBBLKID_CFLAGS) $(LIBUUID_CFLAGS)
+# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
+AM_CFLAGS += $(LIBBLKID_CFLAGS) $(LIBUUID_CFLAGS) -D_UZFS
 
 DEFAULT_INCLUDES += -I$(srcdir)
 

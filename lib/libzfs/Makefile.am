@@ -13,6 +13,9 @@ endif
 AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
 AM_CFLAGS += $(LIBCRYPTO_CFLAGS) $(ZLIB_CFLAGS)
 
+# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
+AM_CFLAGS += -D_UZFS
+
 pkgconfig_DATA = libzfs.pc
 
 lib_LTLIBRARIES = libzfs.la
@@ -77,6 +80,7 @@ libzfs_la_LIBADD = \
 	$(abs_top_builddir)/lib/libzfs_core/libzfs_core.la \
 	$(abs_top_builddir)/lib/libnvpair/libnvpair.la \
 	$(abs_top_builddir)/lib/libzutil/libzutil.la \
+	$(abs_top_builddir)/lib/libzpool/libzpool.la \
 	$(abs_top_builddir)/lib/libuutil/libuutil.la
 
 libzfs_la_LIBADD += -lm $(LIBCRYPTO_LIBS) $(ZLIB_LIBS) $(LIBFETCH_LIBS) $(LTLIBINTL)

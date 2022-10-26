@@ -29,6 +29,7 @@ libzfs_core_la_SOURCES = $(USER_C)
 
 libzfs_core_la_LIBADD = \
 	$(abs_top_builddir)/lib/libnvpair/libnvpair.la \
+	$(abs_top_builddir)/lib/libzpool/libzpool.la \
 	$(abs_top_builddir)/lib/libspl/libspl.la
 
 libzfs_core_la_LIBADD += $(LTLIBINTL)
@@ -42,6 +43,9 @@ endif
 if BUILD_FREEBSD
 libzfs_core_la_LIBADD += -lutil -lgeom
 endif
+
+# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
+AM_CFLAGS += -D_UZFS
 
 libzfs_core_la_LDFLAGS += -version-info 3:0:0
 

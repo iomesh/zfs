@@ -846,7 +846,11 @@ typedef struct zpool_load_policy {
  * userland.
  */
 #define	ZPOOL_CACHE_BOOT	"/boot/zfs/zpool.cache"
+#ifdef _KERNEL
 #define	ZPOOL_CACHE		"/etc/zfs/zpool.cache"
+#else
+#define	ZPOOL_CACHE		"/tmp/zpool.cache"
+#endif
 /*
  * Settings for zpool compatibility features files
  */

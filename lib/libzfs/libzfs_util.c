@@ -1085,12 +1085,19 @@ libzfs_init(void)
 		ftbl[SPA_FEATURE_LARGE_BLOCKS].fi_zfs_mod_supported = B_FALSE;
 	}
 
+#ifdef _UZFS
+	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
+#endif
+
 	return (hdl);
 }
 
 void
 libzfs_fini(libzfs_handle_t *hdl)
 {
+#ifdef _UZFS
+	kernel_fini();
+#endif
 	(void) close(hdl->libzfs_fd);
 	if (hdl->libzfs_mnttab)
 #ifdef HAVE_SETMNTENT

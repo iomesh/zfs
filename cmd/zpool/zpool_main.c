@@ -1748,6 +1748,7 @@ zpool_do_create(int argc, char **argv)
 		ret = 1;
 		if (zpool_create(g_zfs, poolname,
 		    nvroot, props, fsprops) == 0) {
+#ifndef _UZFS
 			zfs_handle_t *pool = zfs_open(g_zfs,
 			    tname ? tname : poolname, ZFS_TYPE_FILESYSTEM);
 			if (pool != NULL) {
@@ -1757,6 +1758,9 @@ zpool_do_create(int argc, char **argv)
 				}
 				zfs_close(pool);
 			}
+#else
+			ret = 0;
+#endif
 		} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
 			(void) fprintf(stderr, gettext("pool name may have "
 			    "been omitted\n"));

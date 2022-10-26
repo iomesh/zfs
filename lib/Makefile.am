@@ -57,7 +57,7 @@ SUBDIRS += libzutil libunicode
 
 # These five libraries, which are installed as the final build product,
 # incorporate the eight convenience libraries given above.
-DISTLIBS = libuutil libzfs_core libzfs libzpool libzfsbootenv libuzfs
+DISTLIBS = libuutil libzpool libzfs_core libzfs libzfsbootenv libuzfs
 SUBDIRS += $(DISTLIBS)
 DISTLIBS += libnvpair
 

@@ -55,6 +55,14 @@ extern "C" {
 #define	ZFS_MAXPROPLEN		MAXPATHLEN
 #define	ZPOOL_MAXPROPLEN	MAXPATHLEN
 
+
+#ifdef _UZFS
+#define zfs_open(a, b, c)	libzfs_open(a, b, c)
+#define zfs_close(a)		libzfs_close(a)
+#define zfs_create(a, b, c, d)	libzfs_create(a, b, c, d)
+#define zfs_rename(a, b, c)	libzfs_rename(a, b, c)
+#endif
+
 /*
  * libzfs errors
  */
