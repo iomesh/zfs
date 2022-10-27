@@ -1,8 +1,5 @@
 include $(top_srcdir)/config/Rules.am
 
-# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
-AM_CFLAGS += -D_UZFS
-
 sbin_PROGRAMS = zfs
 
 zfs_SOURCES = \

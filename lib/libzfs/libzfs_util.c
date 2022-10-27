@@ -1085,19 +1085,12 @@ libzfs_init(void)
 		ftbl[SPA_FEATURE_LARGE_BLOCKS].fi_zfs_mod_supported = B_FALSE;
 	}
 
-#ifdef _UZFS
-	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
-#endif
-
 	return (hdl);
 }
 
 void
 libzfs_fini(libzfs_handle_t *hdl)
 {
-#ifdef _UZFS
-	kernel_fini();
-#endif
 	(void) close(hdl->libzfs_fd);
 	if (hdl->libzfs_mnttab)
 #ifdef HAVE_SETMNTENT
@@ -1111,6 +1104,78 @@ libzfs_fini(libzfs_handle_t *hdl)
 	libzfs_core_fini();
 	regfree(&hdl->libzfs_urire);
 	fletcher_4_fini();
+#if LIBFETCH_DYNAMIC
+	if (hdl->libfetch != (void *)-1 && hdl->libfetch != NULL)
+		(void) dlclose(hdl->libfetch);
+	free(hdl->libfetch_load_error);
+#endif
+	free(hdl);
+}
+
+libzfs_handle_t *
+libzfs_uzfs_init(void)
+{
+	libzfs_handle_t *hdl;
+	int error;
+	char *env;
+
+	if ((hdl = calloc(1, sizeof (libzfs_handle_t))) == NULL) {
+		return (NULL);
+	}
+
+	if (regcomp(&hdl->libzfs_urire, URI_REGEX, 0) != 0) {
+		free(hdl);
+		return (NULL);
+	}
+
+	// this is used at zfs_ioctl
+	hdl->libzfs_fd = 0;
+
+	(void) libzfs_core_uzfs_init();
+
+	if (getenv("ZFS_PROP_DEBUG") != NULL) {
+		hdl->libzfs_prop_debug = B_TRUE;
+	}
+	if ((env = getenv("ZFS_SENDRECV_MAX_NVLIST")) != NULL) {
+		if ((error = zfs_nicestrtonum(hdl, env,
+		    &hdl->libzfs_max_nvlist))) {
+			errno = error;
+			free(hdl);
+			return (NULL);
+		}
+	} else {
+		hdl->libzfs_max_nvlist = (SPA_MAXBLOCKSIZE * 4);
+	}
+
+	/*
+	 * For testing, remove some settable properties and features
+	 */
+	if (libzfs_envvar_is_set("ZFS_SYSFS_PROP_SUPPORT_TEST")) {
+		zprop_desc_t *proptbl;
+
+		proptbl = zpool_prop_get_table();
+		proptbl[ZPOOL_PROP_COMMENT].pd_zfs_mod_supported = B_FALSE;
+
+		proptbl = zfs_prop_get_table();
+		proptbl[ZFS_PROP_DNODESIZE].pd_zfs_mod_supported = B_FALSE;
+
+		zfeature_info_t *ftbl = spa_feature_table;
+		ftbl[SPA_FEATURE_LARGE_BLOCKS].fi_zfs_mod_supported = B_FALSE;
+	}
+
+	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
+
+	return (hdl);
+}
+
+void
+libzfs_uzfs_fini(libzfs_handle_t *hdl)
+{
+	kernel_fini();
+	libzfs_core_uzfs_fini();
+	zpool_free_handles(hdl);
+	namespace_clear(hdl);
+	regfree(&hdl->libzfs_urire);
 #if LIBFETCH_DYNAMIC
 	if (hdl->libfetch != (void *)-1 && hdl->libfetch != NULL)
 		(void) dlclose(hdl->libfetch);

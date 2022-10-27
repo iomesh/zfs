@@ -44,9 +44,6 @@ if BUILD_FREEBSD
 libzfs_core_la_LIBADD += -lutil -lgeom
 endif
 
-# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
-AM_CFLAGS += -D_UZFS
-
 libzfs_core_la_LDFLAGS += -version-info 3:0:0
 
 include $(top_srcdir)/config/CppCheck.am

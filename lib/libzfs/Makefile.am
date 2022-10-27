@@ -13,9 +13,6 @@ endif
 AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
 AM_CFLAGS += $(LIBCRYPTO_CFLAGS) $(ZLIB_CFLAGS)
 
-# FIXME(hping): add a ENABLE_UZFS macro to determine if add -D_UZFS
-AM_CFLAGS += -D_UZFS
-
 pkgconfig_DATA = libzfs.pc
 
 lib_LTLIBRARIES = libzfs.la

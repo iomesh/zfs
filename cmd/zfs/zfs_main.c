@@ -82,6 +82,7 @@
 #include "zfs_projectutil.h"
 
 libzfs_handle_t *g_zfs;
+static boolean_t uzfs = B_FALSE;
 
 static FILE *mnttab_file;
 static char history_str[HIS_MAX_RECORD_LEN];
@@ -782,7 +783,7 @@ zfs_mount_and_share(libzfs_handle_t *hdl, const char *dataset, zfs_type_t type)
 	 * skip the mount/share step
 	 */
 	if (zfs_prop_valid_for_type(ZFS_PROP_CANMOUNT, type, B_FALSE) &&
-	    zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_ON) {
+	    zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_ON && !uzfs) {
 		if (zfs_mount_delegation_check()) {
 			(void) fprintf(stderr, gettext("filesystem "
 			    "successfully created, but it may only be "
@@ -1066,7 +1067,7 @@ zfs_do_create(int argc, char **argv)
 		nomem();
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":PV:b:nso:puv")) != -1) {
+	while ((c = getopt(argc, argv, ":PUV:b:nso:puv")) != -1) {
 		switch (c) {
 		case 'V':
 			type = ZFS_TYPE_VOLUME;
@@ -1118,6 +1119,8 @@ zfs_do_create(int argc, char **argv)
 			break;
 		case 'v':
 			verbose = B_TRUE;
+			break;
+		case 'U':
 			break;
 		case ':':
 			(void) fprintf(stderr, gettext("missing size "
@@ -1469,7 +1472,7 @@ destroy_callback(zfs_handle_t *zhp, void *data)
 	} else {
 		error = destroy_batched(cb);
 		if (error != 0 ||
-		    zfs_unmount(zhp, NULL, cb->cb_force ? MS_FORCE : 0) != 0 ||
+		    (!uzfs && zfs_unmount(zhp, NULL, cb->cb_force ? MS_FORCE : 0) != 0) ||
 		    zfs_destroy(zhp, cb->cb_defer_destroy) != 0) {
 			zfs_close(zhp);
 			/*
@@ -1642,7 +1645,7 @@ zfs_do_destroy(int argc, char **argv)
 	zfs_type_t type = ZFS_TYPE_DATASET;
 
 	/* check options */
-	while ((c = getopt(argc, argv, "vpndfrR")) != -1) {
+	while ((c = getopt(argc, argv, "vpndfrRU")) != -1) {
 		switch (c) {
 		case 'v':
 			cb.cb_verbose = B_TRUE;
@@ -1667,6 +1670,8 @@ zfs_do_destroy(int argc, char **argv)
 		case 'R':
 			cb.cb_recurse = B_TRUE;
 			cb.cb_doclones = B_TRUE;
+			break;
+		case 'U':
 			break;
 		case '?':
 		default:
@@ -1825,29 +1830,29 @@ zfs_do_destroy(int argc, char **argv)
 			goto out;
 		}
 
-#ifndef _UZFS
-		/*
-		 * Check for any dependents and/or clones.
-		 */
-		cb.cb_first = B_TRUE;
-		if (!cb.cb_doclones &&
-		    zfs_iter_dependents(zhp, B_TRUE, destroy_check_dependent,
-		    &cb) != 0) {
-			rv = 1;
-			goto out;
-		}
+		if (!uzfs) {
+			/*
+			 * Check for any dependents and/or clones.
+			 */
+			cb.cb_first = B_TRUE;
+			if (!cb.cb_doclones &&
+					zfs_iter_dependents(zhp, B_TRUE, destroy_check_dependent,
+						&cb) != 0) {
+				rv = 1;
+				goto out;
+			}
 
-		if (cb.cb_error) {
-			rv = 1;
-			goto out;
+			if (cb.cb_error) {
+				rv = 1;
+				goto out;
+			}
+			cb.cb_batchedsnaps = fnvlist_alloc();
+			if (zfs_iter_dependents(zhp, B_FALSE, destroy_callback,
+						&cb) != 0) {
+				rv = 1;
+				goto out;
+			}
 		}
-		cb.cb_batchedsnaps = fnvlist_alloc();
-		if (zfs_iter_dependents(zhp, B_FALSE, destroy_callback,
-		    &cb) != 0) {
-			rv = 1;
-			goto out;
-		}
-#endif
 
 		/*
 		 * Do the real thing.  The callback will close the
@@ -2041,7 +2046,7 @@ zfs_do_get(int argc, char **argv)
 	cb.cb_type = ZFS_TYPE_DATASET;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":d:o:s:rt:Hp")) != -1) {
+	while ((c = getopt(argc, argv, ":d:o:s:rt:HUp")) != -1) {
 		switch (c) {
 		case 'p':
 			cb.cb_literal = B_TRUE;
@@ -2195,7 +2200,8 @@ zfs_do_get(int argc, char **argv)
 				}
 			}
 			break;
-
+		case 'U':
+			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
 			    optopt);
@@ -3619,7 +3625,7 @@ zfs_do_list(int argc, char **argv)
 	int flags = ZFS_ITER_PROP_LISTSNAPS | ZFS_ITER_ARGS_CAN_BE_PATHS;
 
 	/* check options */
-	while ((c = getopt(argc, argv, "HS:d:o:prs:t:")) != -1) {
+	while ((c = getopt(argc, argv, "HUS:d:o:prs:t:")) != -1) {
 		switch (c) {
 		case 'o':
 			fields = optarg;
@@ -3693,6 +3699,8 @@ zfs_do_list(int argc, char **argv)
 			(void) fprintf(stderr, gettext("missing argument for "
 			    "'%c' option\n"), optopt);
 			usage(B_FALSE);
+			break;
+		case 'U':
 			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
@@ -4212,7 +4220,7 @@ zfs_do_set(int argc, char **argv)
 	int i;
 
 	/* check for options */
-	if (argc > 1 && argv[1][0] == '-') {
+	if (argc > 1 && argv[1][0] == '-' && !uzfs) {
 		(void) fprintf(stderr, gettext("invalid option '%c'\n"),
 		    argv[1][1]);
 		usage(B_FALSE);
@@ -4235,7 +4243,7 @@ zfs_do_set(int argc, char **argv)
 	}
 
 	/* validate argument order:  prop=val args followed by dataset args */
-	for (i = 1; i < argc; i++) {
+	for (i = uzfs ? 2 : 1; i < argc; i++) {
 		if (strchr(argv[i], '=') != NULL) {
 			if (ds_start > 0) {
 				/* out-of-order prop=val argument */
@@ -4255,7 +4263,7 @@ zfs_do_set(int argc, char **argv)
 	/* Populate a list of property settings */
 	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
 		nomem();
-	for (i = 1; i < ds_start; i++) {
+	for (i = uzfs ? 2 : 1; i < ds_start; i++) {
 		if (!parseprop(props, argv[i])) {
 			ret = -1;
 			goto error;
@@ -8684,7 +8692,15 @@ main(int argc, char **argv)
 	if ((strcmp(cmdname, "-V") == 0) || (strcmp(cmdname, "--version") == 0))
 		return (zfs_do_version(argc, argv));
 
-	if ((g_zfs = libzfs_init()) == NULL) {
+	if (argc > 2 && (strcmp(argv[2], "-U") == 0))
+		uzfs = B_TRUE;
+
+	if (uzfs)
+		g_zfs = libzfs_uzfs_init();
+	else
+		g_zfs = libzfs_init();
+
+	if (g_zfs == NULL) {
 		(void) fprintf(stderr, "%s\n", libzfs_error_init(errno));
 		return (1);
 	}
@@ -8729,7 +8745,10 @@ main(int argc, char **argv)
 	if (ret == 0 && log_history)
 		(void) zpool_log_history(g_zfs, history_str);
 
-	libzfs_fini(g_zfs);
+	if (uzfs)
+		libzfs_uzfs_fini(g_zfs);
+	else
+		libzfs_fini(g_zfs);
 
 	/*
 	 * The 'ZFS_ABORT' environment variable causes us to dump core on exit

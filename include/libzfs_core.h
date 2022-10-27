@@ -41,6 +41,9 @@ extern "C" {
 int libzfs_core_init(void);
 void libzfs_core_fini(void);
 
+int libzfs_core_uzfs_init(void);
+void libzfs_core_uzfs_fini(void);
+
 struct zfs_cmd;
 _LIBZFS_CORE_H int lzc_ioctl_fd(int, unsigned long, struct zfs_cmd *);
 

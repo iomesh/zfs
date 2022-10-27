@@ -483,4 +483,7 @@ static inline boolean_t zfs_proc_is_caller(proc_t *t) { return B_FALSE; }
 extern uid_t crgetfsuid(const cred_t *cr);
 extern gid_t crgetfsgid(const cred_t *cr);
 
+// libzfs
+extern long uzfs_ioctl(unsigned cmd, unsigned long arg);
+
 #endif	/* _SYS_KERNEL_H */

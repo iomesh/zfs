@@ -56,12 +56,13 @@ extern "C" {
 #define	ZPOOL_MAXPROPLEN	MAXPATHLEN
 
 
-#ifdef _UZFS
-#define zfs_open(a, b, c)	libzfs_open(a, b, c)
-#define zfs_close(a)		libzfs_close(a)
-#define zfs_create(a, b, c, d)	libzfs_create(a, b, c, d)
-#define zfs_rename(a, b, c)	libzfs_rename(a, b, c)
-#endif
+/*
+ * These APIs' names are conflict with libzpool
+ */
+#define zfs_open(a, b, c)	libzfs_zfs_open(a, b, c)
+#define zfs_close(a)		libzfs_zfs_close(a)
+#define zfs_create(a, b, c, d)	libzfs_zfs_create(a, b, c, d)
+#define zfs_rename(a, b, c)	libzfs_zfs_rename(a, b, c)
 
 /*
  * libzfs errors
@@ -213,6 +214,9 @@ extern int zpool_wait_status(zpool_handle_t *, zpool_wait_activity_t,
  */
 extern libzfs_handle_t *libzfs_init(void);
 extern void libzfs_fini(libzfs_handle_t *);
+
+extern libzfs_handle_t *libzfs_uzfs_init(void);
+extern void libzfs_uzfs_fini(libzfs_handle_t *);
 
 extern libzfs_handle_t *zpool_get_handle(zpool_handle_t *);
 extern libzfs_handle_t *zfs_get_handle(zfs_handle_t *);

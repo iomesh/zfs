@@ -2183,7 +2183,7 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zprop_source_t *src,
 	 * calculation until we're looking up a property which requires
 	 * its presence.
 	 */
-	if (!zhp->zfs_mntcheck &&
+	if (zhp->zfs_hdl->libzfs_fd && !zhp->zfs_mntcheck &&
 	    (mntopt_on != NULL || prop == ZFS_PROP_MOUNTED)) {
 		libzfs_handle_t *hdl = zhp->zfs_hdl;
 		struct mnttab entry;

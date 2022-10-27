@@ -78,6 +78,7 @@
 #include "statcommon.h"
 
 libzfs_handle_t *g_zfs;
+static boolean_t uzfs = B_FALSE;
 
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
@@ -1446,7 +1447,7 @@ zpool_do_create(int argc, char **argv)
 	char *propval;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":fndR:m:o:O:t:")) != -1) {
+	while ((c = getopt(argc, argv, ":fnUdR:m:o:O:t:")) != -1) {
 		switch (c) {
 		case 'f':
 			force = B_TRUE;
@@ -1546,6 +1547,8 @@ zpool_do_create(int argc, char **argv)
 			tname = optarg;
 			break;
 		case ':':
+		case 'U':
+			break;
 			(void) fprintf(stderr, gettext("missing argument for "
 			    "'%c' option\n"), optopt);
 			goto badusage;
@@ -1748,19 +1751,20 @@ zpool_do_create(int argc, char **argv)
 		ret = 1;
 		if (zpool_create(g_zfs, poolname,
 		    nvroot, props, fsprops) == 0) {
-#ifndef _UZFS
-			zfs_handle_t *pool = zfs_open(g_zfs,
-			    tname ? tname : poolname, ZFS_TYPE_FILESYSTEM);
-			if (pool != NULL) {
-				if (zfs_mount(pool, NULL, 0) == 0) {
-					ret = zfs_shareall(pool);
-					zfs_commit_all_shares();
+			if (uzfs)
+				ret = 0;
+			else {
+				zfs_handle_t *pool = zfs_open(g_zfs,
+						tname ? tname : poolname,
+						ZFS_TYPE_FILESYSTEM);
+				if (pool != NULL) {
+					if (zfs_mount(pool, NULL, 0) == 0) {
+						ret = zfs_shareall(pool);
+						zfs_commit_all_shares();
+					}
+					zfs_close(pool);
 				}
-				zfs_close(pool);
 			}
-#else
-			ret = 0;
-#endif
 		} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
 			(void) fprintf(stderr, gettext("pool name may have "
 			    "been omitted\n"));
@@ -1796,10 +1800,12 @@ zpool_do_destroy(int argc, char **argv)
 	int ret;
 
 	/* check options */
-	while ((c = getopt(argc, argv, "f")) != -1) {
+	while ((c = getopt(argc, argv, "fU")) != -1) {
 		switch (c) {
 		case 'f':
 			force = B_TRUE;
+			break;
+		case 'U':
 			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
@@ -1834,7 +1840,7 @@ zpool_do_destroy(int argc, char **argv)
 		return (1);
 	}
 
-	if (zpool_disable_datasets(zhp, force) != 0) {
+	if (!uzfs && zpool_disable_datasets(zhp, force) != 0) {
 		(void) fprintf(stderr, gettext("could not destroy '%s': "
 		    "could not unmount datasets\n"), zpool_get_name(zhp));
 		zpool_close(zhp);
@@ -6330,7 +6336,7 @@ zpool_do_list(int argc, char **argv)
 	boolean_t first = B_TRUE;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":gHLo:pPT:v")) != -1) {
+	while ((c = getopt(argc, argv, ":gHULo:pPT:v")) != -1) {
 		switch (c) {
 		case 'g':
 			cb.cb_name_flags |= VDEV_NAME_GUID;
@@ -6361,6 +6367,8 @@ zpool_do_list(int argc, char **argv)
 			(void) fprintf(stderr, gettext("missing argument for "
 			    "'%c' option\n"), optopt);
 			usage(B_FALSE);
+			break;
+		case 'U':
 			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
@@ -9963,7 +9971,7 @@ zpool_do_get(int argc, char **argv)
 	cb.cb_type = ZFS_TYPE_POOL;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":Hpo:")) != -1) {
+	while ((c = getopt(argc, argv, ":HU:po:")) != -1) {
 		switch (c) {
 		case 'p':
 			cb.cb_literal = B_TRUE;
@@ -10021,6 +10029,8 @@ zpool_do_get(int argc, char **argv)
 					usage(B_FALSE);
 				}
 			}
+			break;
+		case 'U':
 			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
@@ -10146,7 +10156,7 @@ zpool_do_set(int argc, char **argv)
 	set_cbdata_t cb = { 0 };
 	int error;
 
-	if (argc > 1 && argv[1][0] == '-') {
+	if (argc > 1 && argv[1][0] == '-' && !uzfs) {
 		(void) fprintf(stderr, gettext("invalid option '%c'\n"),
 		    argv[1][1]);
 		usage(B_FALSE);
@@ -10163,12 +10173,12 @@ zpool_do_set(int argc, char **argv)
 		usage(B_FALSE);
 	}
 
-	if (argc > 3) {
+	if ((!uzfs && argc > 3) || (uzfs && argc > 4)) {
 		(void) fprintf(stderr, gettext("too many pool names\n"));
 		usage(B_FALSE);
 	}
 
-	cb.cb_propname = argv[1];
+	cb.cb_propname = uzfs ? argv[2] : argv[1];
 	cb.cb_value = strchr(cb.cb_propname, '=');
 	if (cb.cb_value == NULL) {
 		(void) fprintf(stderr, gettext("missing value in "
@@ -10179,7 +10189,9 @@ zpool_do_set(int argc, char **argv)
 	*(cb.cb_value) = '\0';
 	cb.cb_value++;
 
-	error = for_each_pool(argc - 2, argv + 2, B_TRUE, NULL, B_FALSE,
+	int idx = uzfs ? 3 : 2;
+
+	error = for_each_pool(argc - idx, argv + idx, B_TRUE, NULL, B_FALSE,
 	    set_callback, &cb);
 
 	return (error);
@@ -10715,7 +10727,15 @@ main(int argc, char **argv)
 	if ((strcmp(cmdname, "-V") == 0) || (strcmp(cmdname, "--version") == 0))
 		return (zpool_do_version(argc, argv));
 
-	if ((g_zfs = libzfs_init()) == NULL) {
+	if (argc > 2 && (strcmp(argv[2], "-U") == 0))
+		uzfs = B_TRUE;
+
+	if (uzfs)
+		g_zfs = libzfs_uzfs_init();
+	else
+		g_zfs = libzfs_init();
+
+	if (g_zfs == NULL) {
 		(void) fprintf(stderr, "%s\n", libzfs_error_init(errno));
 		return (1);
 	}
@@ -10773,7 +10793,10 @@ main(int argc, char **argv)
 	if (ret == 0 && log_history)
 		(void) zpool_log_history(g_zfs, history_str);
 
-	libzfs_fini(g_zfs);
+	if (uzfs)
+		libzfs_uzfs_fini(g_zfs);
+	else
+		libzfs_fini(g_zfs);
 
 	/*
 	 * The 'ZFS_ABORT' environment variable causes us to dump core on exit

@@ -26,10 +26,9 @@
 int
 lzc_ioctl_fd(int fd, unsigned long request, zfs_cmd_t *zc)
 {
-#ifdef _UZFS
-	return (uzfs_ioctl(request, zc));
-#else
-	return (ioctl(fd, request, zc));
-#endif
+	// fd == 0 means it's in uzfs context
+	if (fd != 0)
+		return (ioctl(fd, request, zc));
 
+	return (uzfs_ioctl((unsigned)request, (unsigned long)zc));
 }

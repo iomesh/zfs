@@ -168,6 +168,36 @@ libzfs_core_fini(void)
 	(void) pthread_mutex_unlock(&g_lock);
 }
 
+int
+libzfs_core_uzfs_init(void)
+{
+	(void) pthread_mutex_lock(&g_lock);
+	if (g_refcount == 0)
+		g_fd = 0;
+	g_refcount++;
+
+#ifdef ZFS_DEBUG
+	libzfs_core_debug_ioc();
+#endif
+	(void) pthread_mutex_unlock(&g_lock);
+	return (0);
+}
+
+void
+libzfs_core_uzfs_fini(void)
+{
+	(void) pthread_mutex_lock(&g_lock);
+	ASSERT3S(g_refcount, >, 0);
+
+	if (g_refcount > 0)
+		g_refcount--;
+
+	if (g_refcount == 0 && g_fd != -1) {
+		g_fd = -1;
+	}
+	(void) pthread_mutex_unlock(&g_lock);
+}
+
 static int
 lzc_ioctl(zfs_ioc_t ioc, const char *name,
     nvlist_t *source, nvlist_t **resultp)

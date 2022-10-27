@@ -676,7 +676,7 @@ delay(clock_t ticks)
  * Returns bit number + 1 of highest bit that is set, otherwise returns 0.
  * The __builtin_clzll() function is supported by both GCC and Clang.
  */
-int
+__attribute__((weak))int
 highbit64(uint64_t i)
 {
 	if (i == 0)
@@ -690,7 +690,7 @@ highbit64(uint64_t i)
  * Returns bit number + 1 of lowest bit that is set, otherwise returns 0.
  * The __builtin_ffsll() function is supported by both GCC and Clang.
  */
-int
+__attribute__((weak))int
 lowbit64(uint64_t i)
 {
 	if (i == 0)
