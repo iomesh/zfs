@@ -751,6 +751,187 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	return (0);
 }
 
+int
+libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	dmu_buf_t *db = NULL;
+	objset_t *os = dhp->os;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	int dnodesize = dmu_objset_dnodesize(os);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+
+	*obj = zap_create_dnsize(os, DMU_OT_ZAP_OTHER,
+	    DMU_OT_UINT64_OTHER, bonuslen, dnodesize, tx);
+
+	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
+	dmu_buf_will_dirty(db, tx);
+	dmu_buf_rele(db, FTAG);
+	dmu_tx_commit(tx);
+	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_free(tx, obj, 0, DMU_OBJECT_END);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	VERIFY0(zap_destroy(os, obj, tx));
+
+	dmu_tx_commit(tx);
+	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
+		uint64_t num_integers, const void *val)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+	char data[20];
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_zap(tx, obj, B_TRUE, NULL);
+
+	err = zap_lookup(os, obj, key, integer_size, num_integers, data);
+	if (err && err != ENOENT)
+		goto out;
+	else if (err != ENOENT) {
+		err = EEXIST;
+		goto out;
+	}
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	err = zap_add(os, obj, key, integer_size, num_integers, val, tx);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	dmu_tx_commit(tx);
+	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_zap(tx, obj, B_TRUE, NULL);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	err = zap_remove(os, obj, key, tx);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	dmu_tx_commit(tx);
+	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
+		   uint64_t num_integers, const void *val)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+	char data[20];
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_zap(tx, obj, B_TRUE, NULL);
+
+	err = zap_lookup(os, obj, key, integer_size, num_integers, data);
+	if (err)
+		goto out;
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	err = zap_update(os, obj, key, integer_size, num_integers, val, tx);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	dmu_tx_commit(tx);
+	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
+		   uint64_t num_integers, void *val)
+{
+	return zap_lookup(dhp->os, obj, key, integer_size, num_integers, val);
+
+}
+
+int
+libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
+{
+	return zap_count(dhp->os, obj, count);
+}
+
+
 // FIXME(hping)
 #define MAX_NUM_FS (100)
 static zfsvfs_t *zfsvfs_array[MAX_NUM_FS];

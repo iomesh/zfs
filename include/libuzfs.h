@@ -74,6 +74,18 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf);
 
+
+extern int libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj);
+extern int libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
+extern int libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+		int integer_size, uint64_t num_integers, const void *val);
+extern int libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key);
+extern int libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+		int integer_size, uint64_t num_integers, const void *val);
+extern int libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+		int integer_size, uint64_t num_integers, void *val);
+extern int libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count);
+
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);
 extern int libuzfs_fs_init(const char* fsname, uint64_t* fsid);

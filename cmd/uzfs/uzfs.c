@@ -54,6 +54,14 @@ static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
 static int uzfs_object_write(int argc, char **argv);
 
+static int uzfs_zap_create(int argc, char **argv);
+static int uzfs_zap_delete(int argc, char **argv);
+static int uzfs_zap_add(int argc, char **argv);
+static int uzfs_zap_remove(int argc, char **argv);
+static int uzfs_zap_update(int argc, char **argv);
+static int uzfs_zap_lookup(int argc, char **argv);
+static int uzfs_zap_count(int argc, char **argv);
+
 static int uzfs_fs_create(int argc, char **argv);
 static int uzfs_fs_destroy(int argc, char **argv);
 
@@ -84,6 +92,13 @@ typedef enum {
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
 	HELP_OBJECT_WRITE,
+	HELP_ZAP_CREATE,
+	HELP_ZAP_DELETE,
+	HELP_ZAP_ADD,
+	HELP_ZAP_REMOVE,
+	HELP_ZAP_UPDATE,
+	HELP_ZAP_LOOKUP,
+	HELP_ZAP_COUNT,
 	HELP_FS_CREATE,
 	HELP_FS_DESTROY,
 	HELP_STAT,
@@ -127,6 +142,13 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
+	{ "create-zap",		uzfs_zap_create, 	HELP_ZAP_CREATE     },
+	{ "delete-zap",		uzfs_zap_delete, 	HELP_ZAP_DELETE     },
+	{ "add-zap"	,	uzfs_zap_add,	 	HELP_ZAP_ADD        },
+	{ "remove-zap"	,	uzfs_zap_remove, 	HELP_ZAP_REMOVE     },
+	{ "update-zap"	,	uzfs_zap_update, 	HELP_ZAP_UPDATE     },
+	{ "lookup-zap"	,	uzfs_zap_lookup, 	HELP_ZAP_LOOKUP     },
+	{ "count-zap"	,	uzfs_zap_count, 	HELP_ZAP_COUNT      },
 	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE      },
 	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY     },
 	{ "stat",		uzfs_stat,		HELP_STAT           },
@@ -175,6 +197,20 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\twrite-object ...\n"));
 	case HELP_OBJECT_CLAIM:
 		return (gettext("\tclaim-object ...\n"));
+	case HELP_ZAP_CREATE:
+		return (gettext("\tcreate-zap ...\n"));
+	case HELP_ZAP_DELETE:
+		return (gettext("\tdelete-zap ...\n"));
+	case HELP_ZAP_ADD:
+		return (gettext("\tadd-zap ...\n"));
+	case HELP_ZAP_REMOVE:
+		return (gettext("\tremove-zap ...\n"));
+	case HELP_ZAP_UPDATE:
+		return (gettext("\tupdate-zap ...\n"));
+	case HELP_ZAP_LOOKUP:
+		return (gettext("\tlookup-zap ...\n"));
+	case HELP_ZAP_COUNT:
+		return (gettext("\tcount-zap ...\n"));
 	case HELP_FS_CREATE:
 		return (gettext("\tcreate-fs ...\n"));
 	case HELP_FS_DESTROY:
@@ -661,6 +697,183 @@ uzfs_object_write(int argc, char **argv)
 		printf("failed to write object: %s:%ld\n", dsname, obj);
 
 	umem_free(buf, size);
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_create(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+
+	printf("creating zap object %s\n", dsname);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t obj = 0;
+
+	err = libuzfs_zap_create(dhp, &obj);
+	if (err)
+		printf("failed to create zap object on dataset: %s\n", dsname);
+	else
+		printf("created zap object %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_zap_delete(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+
+	printf("destroying zap object %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_delete(dhp, obj);
+	if (err)
+		printf("failed to delete object: %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_add(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+	uint64_t value = atoi(argv[4]);
+
+	printf("add entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_add(dhp, obj, key, 8, 1, &value);
+	if (err)
+		printf("failed to add entry to zap object: %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_remove(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+
+	printf("remove entry %s from zap object %s:%ld\n", key, dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_remove(dhp, obj, key);
+	if (err)
+		printf("failed to remove entry from zap object: %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_update(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+	uint64_t value = atoi(argv[4]);
+
+	printf("update entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_update(dhp, obj, key, 8, 1, &value);
+	if (err)
+		printf("failed to update entry to zap object: %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_lookup(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+	uint64_t value = 0;
+
+	printf("lookup entry %s from zap object %s:%ld\n", key, dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_lookup(dhp, obj, key, 8, 1, &value);
+	if (err)
+		printf("failed to lookup entry to zap object: %s:%ld\n", dsname, obj);
+	else
+		printf("lookup entry to zap object: %s:%ld, %s:%ld\n", dsname, obj, key, value);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_zap_count(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	uint64_t count = 0;
+
+	printf("count entry from zap object %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_zap_count(dhp, obj, &count);
+	if (err)
+		printf("failed to count entry to zap object: %s:%ld\n", dsname, obj);
+	else
+		printf("zap object: %s:%ld, count: %ld\n", dsname, obj, count);
+
 	libuzfs_dataset_close(dhp);
 	return (0);
 }
