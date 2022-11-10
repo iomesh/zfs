@@ -720,6 +720,8 @@ dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 				    (u_longlong_t)dsobj);
 			}
 		}
+
+		ds->ds_synced_max_opid = dsl_dataset_phys(ds)->ds_max_synced_opid;
 	}
 
 	ASSERT3P(ds->ds_dbuf, ==, dbuf);
@@ -2062,6 +2064,8 @@ dsl_dataset_snapshot_tmp(const char *fsname, const char *snapname,
 void
 dsl_dataset_sync(dsl_dataset_t *ds, zio_t *zio, dmu_tx_t *tx)
 {
+	uint64_t max_opid = atomic_load_64(&ds->ds_max_opid[tx->tx_txg & TXG_MASK]);
+
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT(ds->ds_objset != NULL);
 	ASSERT(dsl_dataset_phys(ds)->ds_next_snap_obj == 0);
@@ -2072,6 +2076,9 @@ dsl_dataset_sync(dsl_dataset_t *ds, zio_t *zio, dmu_tx_t *tx)
 	 */
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 	dsl_dataset_phys(ds)->ds_fsid_guid = ds->ds_fsid_guid;
+
+	if (dsl_dataset_phys(ds)->ds_max_synced_opid < max_opid)
+		dsl_dataset_phys(ds)->ds_max_synced_opid = max_opid;
 
 	if (ds->ds_resume_bytes[tx->tx_txg & TXG_MASK] != 0) {
 		VERIFY0(zap_update(tx->tx_pool->dp_meta_objset,
@@ -4953,6 +4960,32 @@ dsl_dataset_activate_redaction(dsl_dataset_t *ds, uint64_t *redact_snaps,
 	dsl_dataset_activate_feature(dsobj, SPA_FEATURE_REDACTED_DATASETS,
 	    ftuaa, tx);
 	ds->ds_feature[SPA_FEATURE_REDACTED_DATASETS] = ftuaa;
+}
+
+uint64_t
+dsl_dataset_get_max_synced_opid(dsl_dataset_t *ds)
+{
+	return atomic_load_64(&ds->ds_synced_max_opid);
+}
+
+void
+dsl_dataset_update_max_opid(dsl_dataset_t *ds, uint64_t opid, dmu_tx_t *tx)
+{
+	// FIXME(hping): use Per-CPU counter to avoid cacheline contention
+	volatile uint64_t *ptr = &ds->ds_max_opid[tx->tx_txg & TXG_MASK];
+	uint64_t old_id = 0;
+
+	do {
+		old_id = atomic_load_64(ptr);
+		if (old_id >= opid)
+			return;
+	} while (atomic_cas_64(ptr, old_id, opid) == old_id);
+}
+
+void dsl_dataset_dump_txg_opids(dsl_dataset_t *ds)
+{
+	for (int i = 0; i < TXG_SIZE; i++)
+		zfs_dbgmsg("txg[%d].max_opid: %ld", i, ds->ds_max_opid[i]);
 }
 
 /* BEGIN CSTYLED */

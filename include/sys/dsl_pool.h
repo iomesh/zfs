@@ -128,6 +128,7 @@ typedef struct dsl_pool {
 	/* Has its own locking */
 	tx_state_t dp_tx;
 	txg_list_t dp_dirty_datasets;
+	txg_list_t dp_update_max_opid_datasets;
 	txg_list_t dp_dirty_zilogs;
 	txg_list_t dp_dirty_dirs;
 	txg_list_t dp_sync_tasks;

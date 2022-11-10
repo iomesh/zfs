@@ -168,7 +168,8 @@ typedef struct dsl_dataset_phys {
 	uint64_t ds_next_clones_obj;	/* DMU_OT_DSL_CLONES */
 	uint64_t ds_props_obj;		/* DMU_OT_DSL_PROPS for snaps */
 	uint64_t ds_userrefs_obj;	/* DMU_OT_USERREFS */
-	uint64_t ds_pad[5]; /* pad out to 320 bytes for good measure */
+	uint64_t ds_max_synced_opid;	/* max synced op id */
+	uint64_t ds_pad[4]; /* pad out to 320 bytes for good measure */
 } dsl_dataset_phys_t;
 
 typedef struct dsl_dataset {
@@ -250,6 +251,12 @@ typedef struct dsl_dataset {
 	uint64_t ds_resume_object[TXG_SIZE];
 	uint64_t ds_resume_offset[TXG_SIZE];
 	uint64_t ds_resume_bytes[TXG_SIZE];
+
+	/*
+	 * track in-core max opid in each txg
+	 */
+	volatile uint64_t ds_max_opid[TXG_SIZE];
+	volatile uint64_t ds_synced_max_opid;
 
 	/* Protected by our dsl_dir's dd_lock */
 	list_t ds_prop_cbs;
@@ -488,6 +495,11 @@ boolean_t dsl_dataset_get_uint64_array_feature(dsl_dataset_t *ds,
 
 void dsl_dataset_activate_redaction(dsl_dataset_t *ds, uint64_t *redact_snaps,
     uint64_t num_redact_snaps, dmu_tx_t *tx);
+
+uint64_t dsl_dataset_get_max_synced_opid(dsl_dataset_t *ds);
+void dsl_dataset_update_max_opid(dsl_dataset_t *ds, uint64_t opid,
+    dmu_tx_t *tx);
+void dsl_dataset_dump_txg_opids(dsl_dataset_t *ds);
 
 #ifdef ZFS_DEBUG
 #define	dprintf_ds(ds, fmt, ...) do { \

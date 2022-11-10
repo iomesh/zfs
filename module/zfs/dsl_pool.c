@@ -198,6 +198,8 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 
 	txg_list_create(&dp->dp_dirty_datasets, spa,
 	    offsetof(dsl_dataset_t, ds_dirty_link));
+	txg_list_create(&dp->dp_update_max_opid_datasets, spa,
+	    offsetof(dsl_dataset_t, ds_dirty_link));
 	txg_list_create(&dp->dp_dirty_zilogs, spa,
 	    offsetof(zilog_t, zl_dirty_link));
 	txg_list_create(&dp->dp_dirty_dirs, spa,
@@ -392,6 +394,7 @@ dsl_pool_close(dsl_pool_t *dp)
 		dmu_objset_evict(dp->dp_meta_objset);
 
 	txg_list_destroy(&dp->dp_dirty_datasets);
+	txg_list_destroy(&dp->dp_update_max_opid_datasets);
 	txg_list_destroy(&dp->dp_dirty_zilogs);
 	txg_list_destroy(&dp->dp_sync_tasks);
 	txg_list_destroy(&dp->dp_early_sync_tasks);
@@ -657,6 +660,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		 */
 		ASSERT(!list_link_active(&ds->ds_synced_link));
 		list_insert_tail(&synced_datasets, ds);
+		(void)txg_list_add(&dp->dp_update_max_opid_datasets, ds, txg);
 		dsl_dataset_sync(ds, zio, tx);
 	}
 	VERIFY0(zio_wait(zio));
@@ -800,6 +804,7 @@ void
 dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg)
 {
 	zilog_t *zilog;
+	dsl_dataset_t *ds;
 
 	while ((zilog = txg_list_head(&dp->dp_dirty_zilogs, txg))) {
 		dsl_dataset_t *ds = dmu_objset_ds(zilog->zl_os);
@@ -814,6 +819,11 @@ dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg)
 		ASSERT(!dmu_objset_is_dirty(zilog->zl_os, txg));
 		dmu_buf_rele(ds->ds_dbuf, zilog);
 	}
+
+	while ((ds = txg_list_remove(&dp->dp_update_max_opid_datasets, txg)) != NULL) {
+		ds->ds_synced_max_opid = dsl_dataset_phys(ds)->ds_max_synced_opid;
+	}
+
 	ASSERT(!dmu_objset_is_dirty(dp->dp_meta_objset, txg));
 }
 
