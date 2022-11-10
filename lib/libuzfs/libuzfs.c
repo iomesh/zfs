@@ -491,6 +491,7 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 	dhp->os = os;
 	dhp->zilog = dmu_objset_zil(os);
 	dmu_objset_name(os, dhp->name);
+	dhp->opid = dsl_dataset_get_max_sync_opid(dmu_objset_ds(os));
 }
 
 static void
@@ -575,8 +576,23 @@ libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	return (0);
 }
 
+uint64_t libuzfs_get_max_sync_opid(libuzfs_dataset_handle_t *dhp)
+{
+	return dsl_dataset_get_max_synced_opid(dmu_objset_ds(dhp->os));
+}
+
+uint64_t libuzfs_get_max_dhp_opid(libuzfs_dataset_handle_t *dhp)
+{
+	return dhp->opid;
+}
+
+void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp)
+{
+	dsl_dataset_dump_txg_opids(dmu_objset_ds(dhp->os));
+}
+
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -605,15 +621,19 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
 	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
 	dmu_buf_rele(db, FTAG);
+
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
 }
 
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -631,15 +651,18 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 
 	VERIFY0(dmu_object_free(os, obj, tx));
 
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
 }
 
 int
-libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -672,8 +695,12 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
 	dmu_buf_rele(db, FTAG);
+
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);

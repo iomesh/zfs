@@ -54,6 +54,8 @@ static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
 static int uzfs_object_write(int argc, char **argv);
 
+static int uzfs_object_perf(int argc, char **argv);
+
 static int uzfs_zap_create(int argc, char **argv);
 static int uzfs_zap_delete(int argc, char **argv);
 static int uzfs_zap_add(int argc, char **argv);
@@ -92,6 +94,7 @@ typedef enum {
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
 	HELP_OBJECT_WRITE,
+	HELP_OBJECT_PERF,
 	HELP_ZAP_CREATE,
 	HELP_ZAP_DELETE,
 	HELP_ZAP_ADD,
@@ -142,6 +145,7 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
+	{ "perf-object",	uzfs_object_perf, 	HELP_OBJECT_PERF   },
 	{ "create-zap",		uzfs_zap_create, 	HELP_ZAP_CREATE     },
 	{ "delete-zap",		uzfs_zap_delete, 	HELP_ZAP_DELETE     },
 	{ "add-zap"	,	uzfs_zap_add,	 	HELP_ZAP_ADD        },
@@ -195,6 +199,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tread-object ...\n"));
 	case HELP_OBJECT_WRITE:
 		return (gettext("\twrite-object ...\n"));
+	case HELP_OBJECT_PERF:
+		return (gettext("\tperf-object ...\n"));
 	case HELP_OBJECT_CLAIM:
 		return (gettext("\tclaim-object ...\n"));
 	case HELP_ZAP_CREATE:
@@ -500,7 +506,7 @@ uzfs_object_create(int argc, char **argv)
 
 	uint64_t obj = 0;
 
-	err = libuzfs_object_create(dhp, &obj);
+	err = libuzfs_object_create(dhp, &obj, B_TRUE);
 	if (err)
 		printf("failed to create object on dataset: %s\n", dsname);
 	else
@@ -526,7 +532,7 @@ uzfs_object_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	err = libuzfs_object_delete(dhp, obj);
+	err = libuzfs_object_delete(dhp, obj, B_TRUE);
 	if (err)
 		printf("failed to delete object: %s:%ld\n", dsname, obj);
 
@@ -549,7 +555,7 @@ uzfs_object_claim(int argc, char **argv)
 		return (-1);
 	}
 
-	err = libuzfs_object_claim(dhp, obj);
+	err = libuzfs_object_claim(dhp, obj, B_TRUE);
 	if (err)
 		printf("failed to claim object on dataset: %s\n", dsname);
 
@@ -1869,4 +1875,138 @@ out:
 
     return error;
 
+}
+
+struct object_perf_args {
+	libuzfs_dataset_handle_t *dhp;
+	int op;
+	int num;
+	int tid;
+};
+
+static void* do_object_perf(void* object_perf_args)
+{
+	struct object_perf_args* args = object_perf_args;
+	libuzfs_dataset_handle_t *dhp = args->dhp;
+	int op = args->op;
+	int num = args->num;
+	uint64_t tid = args->tid + 1;
+	int error = 0;
+	int i = 0;
+	uint64_t obj = 0;
+
+	printf("tid: %ld\n", tid);
+
+	int print_idx = num / 100;
+	for (i = 0; i < num; i++) {
+		obj = tid << 32 | i;
+		if (op == 0) {
+			error = libuzfs_object_delete(dhp, obj, B_FALSE);
+			if (error) {
+				printf("Failed to rm obj %ld\n", obj);
+				goto out;
+			}
+		} else if (op == 1) {
+			error = libuzfs_object_claim(dhp, obj, B_FALSE);
+			if (error) {
+				printf("Failed to claim obj %ld\n", obj);
+				goto out;
+			}
+		} else if (op == 2) {
+			dmu_object_info_t doi;
+			error = libuzfs_object_stat(dhp, obj, &doi);
+			if (error) {
+				printf("Failed to stat obj %ld\n", obj);
+				goto out;
+			}
+		}
+		if (print_idx != 0 && i % print_idx == 0) {
+			printf("tid %ld: %d%%\n", tid, i / print_idx);
+			libuzfs_dump_txg_opids(dhp);
+			printf("max_dhp_opid: %ld\n", libuzfs_get_max_dhp_opid(dhp));
+			printf("max_sync_opid: %ld\n", libuzfs_get_max_sync_opid(dhp));
+		}
+	}
+	printf("tid: %ld done\n", tid);
+
+out:
+	return NULL;
+}
+
+static int uzfs_object_perf(int argc, char **argv)
+{
+	int error = 0;
+	char *dsname = argv[1];
+	int op = atoi(argv[2]); // 0: rm, 1: create, 2: stat
+	int num = atoi(argv[3]);
+	int n_threads = atoi(argv[4]);
+
+	char *opstr = NULL;
+
+	switch (op) {
+		case 0:
+			opstr = "remove";
+			break;
+		case 1:
+			opstr = "create";
+			break;
+		case 2:
+			opstr = "stat";
+			break;
+		default:
+			printf("invalid op: %d\n", op);
+			return -1;
+	}
+
+	printf("%s %s\n", opstr, dsname);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	printf("max_dhp_opid: %ld\n", libuzfs_get_max_dhp_opid(dhp));
+	printf("max_sync_opid: %ld\n", libuzfs_get_max_sync_opid(dhp));
+
+	struct timeval t1,t2;
+	double timeuse;
+	gettimeofday(&t1,NULL);
+
+	int i;
+	clock_t start, end;
+	start = clock();
+	pthread_t ntids[100];
+	struct object_perf_args args[100];
+	for (i = 0; i < n_threads; i++) {
+		args[i].dhp = dhp;
+		args[i].op = op;
+		args[i].num = num;
+		args[i].tid = i;
+		error = pthread_create(&ntids[i], NULL, do_object_perf, (void*)&args[i]);
+		if  (error != 0) {
+			printf("Failed to create thread: %s\n" ,  strerror (error));
+			goto out;
+		}
+
+	}
+	for (i = 0; i < n_threads; i++) {
+		pthread_join(ntids[i],NULL);
+	}
+
+	end = clock();
+	gettimeofday(&t2,NULL);
+	timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+
+	int totalnum = num * n_threads;
+	double clockuse = ((double)(end - start))/CLOCKS_PER_SEC;
+	double rate = totalnum / timeuse;
+	printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n", totalnum, timeuse, clockuse, rate);
+	printf("max_dhp_opid: %ld\n", libuzfs_get_max_dhp_opid(dhp));
+	printf("max_sync_opid: %ld\n", libuzfs_get_max_sync_opid(dhp));
+	sleep(10);
+out:
+
+	libuzfs_dataset_close(dhp);
+	return error;
 }
