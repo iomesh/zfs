@@ -1365,17 +1365,6 @@ zfs_file_put(zfs_file_t *fp)
 }
 
 // zfs_znode.c
-const struct super_operations zpl_super_operations = {};
-const struct export_operations zpl_export_operations = {};
-const struct dentry_operations zpl_dentry_operations = {};
-const struct inode_operations zpl_inode_operations = {};
-const struct inode_operations zpl_dir_inode_operations = {};
-const struct inode_operations zpl_symlink_inode_operations = {};
-const struct inode_operations zpl_special_inode_operations = {};
-const struct file_operations zpl_file_operations = {};
-const struct file_operations zpl_dir_file_operations = {};
-const struct address_space_operations zpl_address_space_operations = {};
-
 void atomic_set(atomic_t *v, int i)
 {
 	atomic_store_int(&v->counter, i);
@@ -1432,7 +1421,6 @@ struct inode *new_inode(struct super_block *sb) {
 	inode_set_iversion(ip, 1);
 
 	ip->i_sb = sb;
-	ip->i_mapping = &ip->i_data;
 
 	pthread_spin_init(&ip->i_lock, PTHREAD_PROCESS_PRIVATE);
 
@@ -1494,19 +1482,6 @@ void i_size_write(struct inode *inode, loff_t i_size)
 void truncate_setsize(struct inode *inode, loff_t newsize)
 {
 	dprintf("%s: %ld\n", __func__, inode->i_ino);
-}
-
-void truncate_inode_pages_range(struct address_space *space, loff_t lstart, loff_t lend)
-{
-	dprintf("%s\n", __func__);
-}
-
-// FIXME(hping) called from zfs_free_range, only used in mmap which we doens't suppoprt
-void zfs_zero_partial_page(znode_t *zp, uint64_t start, uint64_t len)
-{
-	// never be called
-	dprintf("%s\n", __func__);
-	ASSERT(0);
 }
 
 int timespec_compare(const struct timespec *lhs, const struct timespec *rhs)

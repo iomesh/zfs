@@ -384,6 +384,7 @@ zfs_inode_destroy(struct inode *ip)
 	kmem_cache_free(znode_cache, zp);
 }
 
+#ifdef _KERNEL
 static void
 zfs_inode_set_ops(zfsvfs_t *zfsvfs, struct inode *ip)
 {
@@ -432,6 +433,7 @@ zfs_inode_set_ops(zfsvfs_t *zfsvfs, struct inode *ip)
 		break;
 	}
 }
+#endif
 
 static void
 zfs_set_inode_flags(znode_t *zp, struct inode *ip)
@@ -584,7 +586,10 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 
 	ip->i_ino = zp->z_id;
 	zfs_znode_update_vfs(zp);
+
+#ifdef _KERNEL
 	zfs_inode_set_ops(zfsvfs, ip);
+#endif
 
 	/*
 	 * The only way insert_inode_locked() can fail is if the ip->i_ino
@@ -1612,6 +1617,7 @@ zfs_free_range(znode_t *zp, uint64_t off, uint64_t len)
 
 	error = dmu_free_long_range(zfsvfs->z_os, zp->z_id, off, len);
 
+#ifdef _KERNEL
 	/*
 	 * Zero partial page cache entries.  This must be done under a
 	 * range lock in order to keep the ARC and page cache in sync.
@@ -1653,6 +1659,8 @@ zfs_free_range(znode_t *zp, uint64_t off, uint64_t len)
 				    page_len);
 		}
 	}
+#endif
+
 	zfs_rangelock_exit(lr);
 
 	return (error);
