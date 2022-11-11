@@ -45,7 +45,6 @@ struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	objset_t *os;
 	zilog_t	*zilog;
-	volatile uint64_t opid;
 };
 
 

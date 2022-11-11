@@ -491,7 +491,6 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 	dhp->os = os;
 	dhp->zilog = dmu_objset_zil(os);
 	dmu_objset_name(os, dhp->name);
-	dhp->opid = dsl_dataset_get_max_sync_opid(dmu_objset_ds(os));
 }
 
 static void
@@ -581,18 +580,13 @@ uint64_t libuzfs_get_max_sync_opid(libuzfs_dataset_handle_t *dhp)
 	return dsl_dataset_get_max_synced_opid(dmu_objset_ds(dhp->os));
 }
 
-uint64_t libuzfs_get_max_dhp_opid(libuzfs_dataset_handle_t *dhp)
-{
-	return dhp->opid;
-}
-
 void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp)
 {
 	dsl_dataset_dump_txg_opids(dmu_objset_ds(dhp->os));
 }
 
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, boolean_t sync)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -614,15 +608,16 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, boolean_t sy
 	int blocksize = 0;
 	int ibshift = 0;
 
-	*obj = dmu_object_alloc_dnsize(os, DMU_OT_UINT64_OTHER, 0,
-	    DMU_OT_UINT64_OTHER, bonuslen, dnodesize, tx);
+	*obj = dmu_object_alloc_dnsize(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
+	    DMU_OT_SA, bonuslen, dnodesize, tx);
 
 	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
+
 	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
 	dmu_buf_rele(db, FTAG);
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
 
 	if (sync)
@@ -633,7 +628,7 @@ out:
 }
 
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t sync)
+libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -651,7 +646,7 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t syn
 
 	VERIFY0(dmu_object_free(os, obj, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
 
 	if (sync)
@@ -662,7 +657,7 @@ out:
 }
 
 int
-libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t sync)
+libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -692,11 +687,12 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, boolean_t sync
 		goto out;
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
+
 	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
 	dmu_buf_rele(db, FTAG);
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), atomic_inc_64_nv(&dhp->opid), tx);
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
 
 	if (sync)
@@ -779,7 +775,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 }
 
 int
-libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
+libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -799,21 +795,25 @@ libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
 
-	*obj = zap_create_dnsize(os, DMU_OT_ZAP_OTHER,
-	    DMU_OT_UINT64_OTHER, bonuslen, dnodesize, tx);
+	*obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
+	    DMU_OT_SA, bonuslen, dnodesize, tx);
 
 	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
 	dmu_buf_rele(db, FTAG);
+
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
 }
 
 int
-libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -831,8 +831,11 @@ libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 
 	VERIFY0(zap_destroy(os, obj, tx));
 
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
@@ -840,7 +843,7 @@ out:
 
 int
 libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		uint64_t num_integers, const void *val)
+		uint64_t num_integers, const void *val, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -871,15 +874,19 @@ libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, in
 		goto out;
 	}
 
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
 }
 
 int
-libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key)
+libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, uint64_t opid,
+		   boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -901,8 +908,11 @@ libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key)
 		goto out;
 	}
 
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
@@ -910,7 +920,7 @@ out:
 
 int
 libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		   uint64_t num_integers, const void *val)
+		   uint64_t num_integers, const void *val, uint64_t opid, boolean_t sync)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -937,8 +947,11 @@ libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 		goto out;
 	}
 
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
@@ -958,6 +971,48 @@ libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 	return zap_count(dhp->os, obj, count);
 }
 
+// type = 0: reguler file
+// type = 1: dir
+int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, int type, uint64_t opid,
+    boolean_t sync)
+{
+	if (type == 0)
+		return libuzfs_object_create(dhp, ino, opid, sync);
+
+	if (type == 1)
+		return libuzfs_zap_create(dhp, ino, opid, sync);
+
+	return EINVAL;
+}
+
+int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, int type, uint64_t opid,
+    boolean_t sync)
+{
+	if (type == 0)
+		return libuzfs_object_delete(dhp, ino, opid, sync);
+
+	if (type == 1)
+		return libuzfs_zap_delete(dhp, ino, opid, sync);
+
+	return EINVAL;
+}
+
+int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, char *name, uint64_t ino,
+    uint64_t opid, boolean_t sync)
+{
+	return libuzfs_zap_add(dhp, dino, name, 8, 1, &ino, opid, sync);
+}
+
+int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino, char *name, uint64_t opid,
+    boolean_t sync)
+{
+	return libuzfs_zap_remove(dhp, dino, name, opid, sync);
+}
+
+int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino, char *name, uint64_t *ino)
+{
+	return libuzfs_zap_lookup(dhp, dino, name, 8, 1, ino);
+}
 
 // FIXME(hping)
 #define MAX_NUM_FS (100)
@@ -1350,66 +1405,66 @@ out:
 
 int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
 {
-    int error = 0;
-    znode_t *zp = NULL;
-    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+	int error = 0;
+	znode_t *zp = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
 
-    ZFS_ENTER(zfsvfs);
+	ZFS_ENTER(zfsvfs);
 
-    error = zfs_zget(zfsvfs, ino, &zp);
-    if (error) goto out;
+	error = zfs_zget(zfsvfs, ino, &zp);
+	if (error) goto out;
 
-    error = zfs_read(zp, uio, ioflag, NULL);
-    if (error) goto out;
+	error = zfs_read(zp, uio, ioflag, NULL);
+	if (error) goto out;
 
 out:
-    if (zp)
-        iput(ZTOI(zp));
+	if (zp)
+		iput(ZTOI(zp));
 
-    ZFS_EXIT(zfsvfs);
-    return error;
+	ZFS_EXIT(zfsvfs);
+	return error;
 }
 
 int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
 {
-    int error = 0;
-    znode_t *zp = NULL;
-    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+	int error = 0;
+	znode_t *zp = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
 
-    ZFS_ENTER(zfsvfs);
+	ZFS_ENTER(zfsvfs);
 
-    error = zfs_zget(zfsvfs, ino, &zp);
-    if (error) goto out;
+	error = zfs_zget(zfsvfs, ino, &zp);
+	if (error) goto out;
 
-    error = zfs_write(zp, uio, ioflag, NULL);
-    if (error) goto out;
+	error = zfs_write(zp, uio, ioflag, NULL);
+	if (error) goto out;
 
 out:
-    if (zp)
-        iput(ZTOI(zp));
+	if (zp)
+		iput(ZTOI(zp));
 
-    ZFS_EXIT(zfsvfs);
-    return error;
+	ZFS_EXIT(zfsvfs);
+	return error;
 }
 
 int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag)
 {
-    int error = 0;
-    znode_t *zp = NULL;
-    zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
+	int error = 0;
+	znode_t *zp = NULL;
+	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
 
-    ZFS_ENTER(zfsvfs);
+	ZFS_ENTER(zfsvfs);
 
-    error = zfs_zget(zfsvfs, ino, &zp);
-    if (error) goto out;
+	error = zfs_zget(zfsvfs, ino, &zp);
+	if (error) goto out;
 
-    error = zfs_fsync(zp, syncflag, NULL);
-    if (error) goto out;
+	error = zfs_fsync(zp, syncflag, NULL);
+	if (error) goto out;
 
 out:
-    if (zp)
-        iput(ZTOI(zp));
+	if (zp)
+		iput(ZTOI(zp));
 
-    ZFS_EXIT(zfsvfs);
-    return error;
+	ZFS_EXIT(zfsvfs);
+	return error;
 }
