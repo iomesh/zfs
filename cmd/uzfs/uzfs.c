@@ -82,6 +82,13 @@ static int uzfs_perf(int argc, char **argv);
 
 static int uzfs_inode_create(int argc, char **argv);
 static int uzfs_inode_delete(int argc, char **argv);
+static int uzfs_inode_getattr(int argc, char **argv);
+static int uzfs_inode_setattr(int argc, char **argv);
+static int uzfs_inode_get_kvobj(int argc, char **argv);
+static int uzfs_inode_get_kvattr(int argc, char **argv);
+static int uzfs_inode_set_kvattr(int argc, char **argv);
+static int uzfs_inode_rm_kvattr(int argc, char **argv);
+
 static int uzfs_dentry_create(int argc, char **argv);
 static int uzfs_dentry_delete(int argc, char **argv);
 static int uzfs_dentry_lookup(int argc, char **argv);
@@ -122,6 +129,12 @@ typedef enum {
 	HELP_PERF,
 	HELP_INODE_CREATE,
 	HELP_INODE_DELETE,
+	HELP_INODE_GETATTR,
+	HELP_INODE_SETATTR,
+	HELP_INODE_GET_KVOBJ,
+	HELP_INODE_GET_KVATTR,
+	HELP_INODE_SET_KVATTR,
+	HELP_INODE_RM_KVATTR,
 	HELP_DENTRY_CREATE,
 	HELP_DENTRY_DELETE,
 	HELP_DENTRY_LOOKUP,
@@ -178,6 +191,12 @@ static uzfs_command_t command_table[] = {
 	{ "perf",		uzfs_perf,		HELP_PERF           },
 	{ "create-inode",	uzfs_inode_create, 	HELP_INODE_CREATE   },
 	{ "delete-inode",	uzfs_inode_delete, 	HELP_INODE_DELETE   },
+	{ "getattr-inode",	uzfs_inode_getattr, 	HELP_INODE_GETATTR  },
+	{ "setattr-inode",	uzfs_inode_setattr, 	HELP_INODE_SETATTR  },
+	{ "getkvobj-inode",	uzfs_inode_get_kvobj, 	HELP_INODE_GET_KVOBJ  },
+	{ "getkvattr-inode",	uzfs_inode_get_kvattr, 	HELP_INODE_GET_KVATTR  },
+	{ "setkvattr-inode",	uzfs_inode_set_kvattr, 	HELP_INODE_SET_KVATTR  },
+	{ "rmkvattr-inode",	uzfs_inode_rm_kvattr, 	HELP_INODE_RM_KVATTR  },
 	{ "create-dentry",	uzfs_dentry_create, 	HELP_DENTRY_CREATE  },
 	{ "delete-dentry",	uzfs_dentry_delete, 	HELP_DENTRY_DELETE  },
 	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_DELETE  },
@@ -261,6 +280,18 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tcreate-inode ...\n"));
 	case HELP_INODE_DELETE:
 		return (gettext("\tdelete-inode ...\n"));
+	case HELP_INODE_GETATTR:
+		return (gettext("\tgetattr-inode ...\n"));
+	case HELP_INODE_SETATTR:
+		return (gettext("\tsetattr-inode ...\n"));
+	case HELP_INODE_GET_KVOBJ:
+		return (gettext("\tgetkvobj-inode ...\n"));
+	case HELP_INODE_GET_KVATTR:
+		return (gettext("\tgetkvattr-inode ...\n"));
+	case HELP_INODE_SET_KVATTR:
+		return (gettext("\tsetkvattr-inode ...\n"));
+	case HELP_INODE_RM_KVATTR:
+		return (gettext("\trmkvattr-inode ...\n"));
 	case HELP_DENTRY_CREATE:
 		return (gettext("\tcreate-dentry ...\n"));
 	case HELP_DENTRY_DELETE:
@@ -312,6 +343,24 @@ usage(boolean_t requested)
 	}
 
 	exit(requested ? 0 : 2);
+}
+
+static void print_stat(const char* name, struct stat* stat)
+{
+    const char* format =
+        "  File: %s(%s)\n"
+        "  Inode: %lld\n"
+        "  MODE: %x\n"
+        "  Links: %lld\n"
+        "  UID/GID: %d/%d\n"
+        "  SIZE: %d\n"
+        "  BLOCKSIZE: %d\n"
+        "  BLOCKS: %d\n";
+
+    const char* type = S_ISDIR(stat->st_mode) ? "DIR" : "REG FILE";
+
+    printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink, stat->st_uid, stat->st_gid,
+           stat->st_size, stat->st_blksize, stat->st_blocks);
 }
 
 static int
@@ -983,6 +1032,187 @@ uzfs_inode_delete(int argc, char **argv)
 }
 
 int
+uzfs_inode_getattr(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+
+	printf("getting attr inode %s, obj: %ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	struct stat buf;
+	memset(&buf, 0, sizeof(struct stat));
+
+	err = libuzfs_inode_getattr(dhp, obj, &buf);
+	if (err)
+		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
+	else
+		print_stat(NULL, &buf);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_inode_setattr(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+
+	printf("setting attr inode %s, obj: %ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	struct stat buf;
+	memset(&buf, 0, sizeof(struct stat));
+
+	buf.st_ino = obj;
+	buf.st_mode = 0x1;
+	buf.st_nlink = 1;
+	buf.st_uid = 0;
+	buf.st_gid = 0;
+	buf.st_size = 4096;
+//	buf.st_atime.tv_sec = 0;
+//	buf.st_mtime.tv_sec = 0;
+//	buf.st_ctime.tv_sec = 0;
+	buf.st_blocks = 8;
+	buf.st_blksize = 512;
+
+	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	err = libuzfs_inode_setattr(dhp, obj, &buf, opid, B_TRUE);
+	if (err)
+		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
+	else
+		print_stat(NULL, &buf);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_inode_get_kvobj(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+
+	printf("getting kvobj %s, obj: %ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t kvobj = 0;
+	err = libuzfs_inode_get_kvobj(dhp, obj, &kvobj);
+	if (err)
+		printf("failed to get kvattr inode %ld on dataset: %s\n", obj, dsname);
+	else
+		printf("%s/%ld:: kvobj: %ld\n", dsname, obj, kvobj);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_inode_get_kvattr(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+
+	printf("getting kvattr inode %s, obj: %ld, key: %s\n", dsname, obj, key);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t value = 0;
+	err = libuzfs_inode_get_kvattr(dhp, obj, key, &value, 8, 0);
+	if (err)
+		printf("failed to get kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
+	else
+		printf("%s/%ld:: key: %s, value: %ld\n", dsname, obj, key, value);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_inode_set_kvattr(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+	uint64_t value = atoi(argv[4]);
+
+
+	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %ld\n", dsname, obj, key, value);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 8, 0, opid, B_TRUE);
+	if (err)
+		printf("failed to set attr inode %ld on dataset: %s\n", obj, dsname);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
+uzfs_inode_rm_kvattr(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoi(argv[2]);
+	char *key = argv[3];
+
+
+	printf("removing kvattr inode %s, obj: %ld, key: %s\n", dsname, obj, key);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	err = libuzfs_inode_remove_kvattr(dhp, obj, key, opid, B_TRUE);
+	if (err)
+		printf("failed to rm kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
+
+	libuzfs_dataset_close(dhp);
+
+	return (err);
+}
+
+int
 uzfs_dentry_create(int argc, char **argv)
 {
 	int err = 0;
@@ -1091,25 +1321,6 @@ uzfs_fs_destroy(int argc, char **argv)
 	libuzfs_fs_destroy(fsname);
 
 	return (0);
-}
-
-
-static void print_stat(const char* name, struct stat* stat)
-{
-    const char* format =
-        "  File: %s(%s)\n"
-        "  Inode: %lld\n"
-        "  MODE: %x\n"
-        "  Links: %lld\n"
-        "  UID/GID: %d/%d\n"
-        "  SIZE: %d\n"
-        "  BLOCKSIZE: %d\n"
-        "  BLOCKS: %d\n";
-
-    const char* type = S_ISDIR(stat->st_mode) ? "DIR" : "REG FILE";
-
-    printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink, stat->st_uid, stat->st_gid,
-           stat->st_size, stat->st_blksize, stat->st_blocks);
 }
 
 static int uzfs_stat(int argc, char **argv)

@@ -727,6 +727,57 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 }
 
 int
+libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, struct stat *sp)
+{
+	objset_t *os = dhp->os;
+	dmu_buf_t *db;
+
+	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
+	bcopy(db->db_data, sp, sizeof(*sp));
+	dmu_buf_rele(db, FTAG);
+
+	return 0;
+}
+
+int
+libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, struct stat *sp,
+    uint64_t opid, boolean_t sync)
+{
+	int err = 0;
+	objset_t *os = dhp->os;
+	dmu_buf_t *db;
+	dmu_tx_t *tx;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_bonus(tx, obj);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_buf_rele(db, FTAG);
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
+	dmu_buf_will_dirty(db, tx);
+
+	// add extra 8 Bytes for kv obj
+	VERIFY0(dmu_set_bonus(db, sizeof(*sp) + 8, tx));
+	bcopy(sp, db->db_data, sizeof(*sp));
+	dmu_buf_rele(db, FTAG);
+
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	dmu_tx_commit(tx);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return err;
+}
+
+int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf)
 {
@@ -985,16 +1036,189 @@ int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, int type,
 	return EINVAL;
 }
 
-int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, int type, uint64_t opid,
-    boolean_t sync)
+static int
+libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, int type,
+    uint64_t kvobj, uint64_t opid, boolean_t sync)
 {
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_free(tx, kvobj, 0, DMU_OBJECT_END);
+	dmu_tx_hold_free(tx, obj, 0, DMU_OBJECT_END);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	VERIFY0(zap_destroy(os, kvobj, tx));
+
 	if (type == 0)
-		return libuzfs_object_delete(dhp, ino, opid, sync);
+		VERIFY0(dmu_object_free(os, obj, tx));
+	else if (type == 1)
+		VERIFY0(zap_destroy(os, obj, tx));
 
-	if (type == 1)
-		return libuzfs_zap_delete(dhp, ino, opid, sync);
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	dmu_tx_commit(tx);
 
-	return EINVAL;
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, int type,
+    uint64_t opid, boolean_t sync)
+{
+	if (type != 0 && type != 1)
+		return EINVAL;
+
+	uint64_t kvobj = 0;
+	VERIFY0(libuzfs_inode_get_kvobj(dhp, ino, &kvobj));
+
+	if (kvobj == 0) {
+		if (type == 0)
+			return libuzfs_object_delete(dhp, ino, opid, sync);
+		if (type == 1)
+			return libuzfs_zap_delete(dhp, ino, opid, sync);
+	}
+
+	return libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, opid, sync);
+}
+
+int
+libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, struct stat *sp)
+{
+	return libuzfs_object_getattr(dhp, obj, sp);
+}
+
+int
+libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, struct stat *sp,
+    uint64_t opid, boolean_t sync)
+{
+	return libuzfs_object_setattr(dhp, obj, sp, opid, sync);
+}
+
+static int
+libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    const char *key, int integer_size, uint64_t num_integers, const void *val,
+    uint64_t opid, boolean_t sync)
+{
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+	dmu_buf_t *db;
+	uint64_t kvobj = 0;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
+	dmu_tx_hold_bonus(tx, obj);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	int dnodesize = dmu_objset_dnodesize(os);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+
+	kvobj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
+	    DMU_OT_SA, bonuslen, dnodesize, tx);
+
+	err = zap_add(os, kvobj, key, integer_size, num_integers, val, tx);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
+	dmu_buf_will_dirty(db, tx);
+	bcopy(&kvobj, db->db_data + sizeof(struct stat), sizeof(kvobj));
+	dmu_buf_rele(db, FTAG);
+
+	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	dmu_tx_commit(tx);
+
+	if (sync)
+		txg_wait_synced(spa_get_dsl(os->os_spa), 0);
+
+out:
+	return (err);
+}
+
+int
+libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *kvobj)
+{
+	dmu_buf_t *db;
+
+	VERIFY0(dmu_bonus_hold(dhp->os, obj, FTAG, &db));
+	bcopy(db->db_data + sizeof(struct stat), kvobj, sizeof(*kvobj));
+	dmu_buf_rele(db, FTAG);
+
+	return 0;
+}
+
+int
+libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, char *name,
+    void *value, size_t size, int flags)
+{
+	int err = 0;
+	uint64_t kvobj;
+	err = libuzfs_inode_get_kvobj(dhp, obj, &kvobj);
+	if (err)
+		return err;
+
+	if (kvobj == 0)
+		return ENOENT;
+
+	return libuzfs_zap_lookup(dhp, kvobj, name, 8, size >> 3, value);
+}
+
+// TODO(hping): remove kvobj when no kv attr
+int
+libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, char *name,
+    uint64_t opid, boolean_t sync)
+{
+	int err = 0;
+	uint64_t kvobj;
+	err = libuzfs_inode_get_kvobj(dhp, obj, &kvobj);
+	if (err)
+		return err;
+
+	if (kvobj == 0)
+		return ENOENT;
+
+	return libuzfs_zap_remove(dhp, kvobj, name, opid, sync);
+}
+
+int
+libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, char *name, void *value,
+    size_t size, int flags, uint64_t opid, boolean_t sync)
+{
+	int err = 0;
+	uint64_t kvobj;
+	err = libuzfs_inode_get_kvobj(dhp, obj, &kvobj);
+	if (err)
+		return err;
+
+	if (kvobj == 0)
+		return libuzfs_object_kvattr_create_add(dhp, obj, name, 8, size >> 3, value, opid, sync);
+
+	err = libuzfs_zap_lookup(dhp, kvobj, name, 8, size >> 3, value);
+	if (err == ENOENT)
+		return libuzfs_zap_add(dhp, kvobj, name, 8, size >> 3, value, opid, sync);
+	if (err == 0)
+		return libuzfs_zap_update(dhp, kvobj, name, 8, size >> 3, value, opid, sync);
+
+	return err;
 }
 
 int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, char *name, uint64_t ino,
