@@ -16,6 +16,7 @@ libspl_HEADERS = \
 	inttypes.h \
 	isa_defs.h \
 	kmem.h \
+	kmem_cache.h \
 	kstat.h \
 	list.h \
 	list_impl.h \
