@@ -23,6 +23,7 @@ USER_C += \
 	os/linux/getexecname.c \
 	os/linux/gethostid.c \
 	os/linux/getmntany.c \
+	os/linux/stat.c \
 	os/linux/zone.c
 endif
 

@@ -23,17 +23,22 @@
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
-#ifndef _LIBSPL_SYS_STAT_H
-#define	_LIBSPL_SYS_STAT_H
-
-#include_next <sys/stat.h>
-
-// FIXME(hping): this should not be here, but many files relies on this for
-// MOUNT related definition in sys/mount.h, leave as it is for now.
-#include <sys/mount.h>
+#include <sys/stat.h>
 
 /*
  * Emulate Solaris' behavior of returning the block device size in fstat64().
  */
-int fstat64_blk(int fd, struct stat64 *st);
-#endif /* _LIBSPL_SYS_STAT_H */
+int
+fstat64_blk(int fd, struct stat64 *st)
+{
+	if (fstat64(fd, st) == -1)
+		return (-1);
+
+	/* In Linux we need to use an ioctl to get the size of a block device */
+	if (S_ISBLK(st->st_mode)) {
+		if (ioctl(fd, BLKGETSIZE64, &st->st_size) != 0)
+			return (-1);
+	}
+
+	return (0);
+}
