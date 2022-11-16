@@ -490,7 +490,7 @@ uzfs_zpool_set(int argc, char **argv)
 {
 	char *zpool = argv[1];
 	char *prop_name = argv[2];
-	uint64_t value = atoi(argv[3]);
+	uint64_t value = atoll(argv[3]);
 
 	printf("setting zpool %s, %s=%lu\n", zpool, prop_name, value);
 
@@ -581,9 +581,9 @@ uzfs_object_create(int argc, char **argv)
 
 	uint64_t obj = 0;
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_object_create(dhp, &obj, opid, B_TRUE);
+	err = libuzfs_object_create(dhp, &obj, opid);
 	if (err)
 		printf("failed to create object on dataset: %s\n", dsname);
 	else
@@ -599,7 +599,7 @@ uzfs_object_delete(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("destroying object %s:%ld\n", dsname, obj);
 
@@ -609,9 +609,9 @@ uzfs_object_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_object_delete(dhp, obj, opid, B_TRUE);
+	err = libuzfs_object_delete(dhp, obj, opid);
 	if (err)
 		printf("failed to delete object: %s:%ld\n", dsname, obj);
 
@@ -624,7 +624,7 @@ uzfs_object_claim(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("claiming object %s:%ld\n", dsname, obj);
 
@@ -634,9 +634,9 @@ uzfs_object_claim(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_object_claim(dhp, obj, opid, B_TRUE);
+	err = libuzfs_object_claim(dhp, obj, opid);
 	if (err)
 		printf("failed to claim object on dataset: %s\n", dsname);
 
@@ -681,7 +681,7 @@ uzfs_object_stat(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("stating object %s:%ld\n", dsname, obj);
 
@@ -729,7 +729,7 @@ uzfs_object_read(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	int offset = atoi(argv[3]);
 	int size = atoi(argv[4]);
 	char *buf = NULL;
@@ -762,7 +762,7 @@ uzfs_object_write(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	int offset = atoi(argv[3]);
 	int size = strlen(argv[4]);
 	char *buf = NULL;
@@ -804,9 +804,9 @@ uzfs_zap_create(int argc, char **argv)
 
 	uint64_t obj = 0;
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_zap_create(dhp, &obj, opid, B_TRUE);
+	err = libuzfs_zap_create(dhp, &obj, opid);
 	if (err)
 		printf("failed to create zap object on dataset: %s\n", dsname);
 	else
@@ -822,7 +822,7 @@ uzfs_zap_delete(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("destroying zap object %s:%ld\n", dsname, obj);
 
@@ -832,9 +832,9 @@ uzfs_zap_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_zap_delete(dhp, obj, opid, B_TRUE);
+	err = libuzfs_zap_delete(dhp, obj, opid);
 	if (err)
 		printf("failed to delete object: %s:%ld\n", dsname, obj);
 
@@ -847,9 +847,9 @@ uzfs_zap_add(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
-	uint64_t value = atoi(argv[4]);
+	uint64_t value = atoll(argv[4]);
 
 	printf("add entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
 
@@ -859,9 +859,9 @@ uzfs_zap_add(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_zap_add(dhp, obj, key, 8, 1, &value, opid, B_TRUE);
+	err = libuzfs_zap_add(dhp, obj, key, 8, 1, &value, opid);
 	if (err)
 		printf("failed to add entry to zap object: %s:%ld\n", dsname, obj);
 
@@ -874,7 +874,7 @@ uzfs_zap_remove(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 
 	printf("remove entry %s from zap object %s:%ld\n", key, dsname, obj);
@@ -885,9 +885,9 @@ uzfs_zap_remove(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_zap_remove(dhp, obj, key, opid, B_TRUE);
+	err = libuzfs_zap_remove(dhp, obj, key, opid);
 	if (err)
 		printf("failed to remove entry from zap object: %s:%ld\n", dsname, obj);
 
@@ -900,9 +900,9 @@ uzfs_zap_update(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
-	uint64_t value = atoi(argv[4]);
+	uint64_t value = atoll(argv[4]);
 
 	printf("update entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
 
@@ -912,9 +912,9 @@ uzfs_zap_update(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_zap_update(dhp, obj, key, 8, 1, &value, opid, B_TRUE);
+	err = libuzfs_zap_update(dhp, obj, key, 8, 1, &value, opid);
 	if (err)
 		printf("failed to update entry to zap object: %s:%ld\n", dsname, obj);
 
@@ -927,7 +927,7 @@ uzfs_zap_lookup(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 	uint64_t value = 0;
 
@@ -954,7 +954,7 @@ uzfs_zap_count(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	uint64_t count = 0;
 
 	printf("count entry from zap object %s:%ld\n", dsname, obj);
@@ -992,9 +992,9 @@ uzfs_inode_create(int argc, char **argv)
 
 	uint64_t obj = 0;
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_inode_create(dhp, &obj, type, opid, B_TRUE);
+	err = libuzfs_inode_create(dhp, &obj, type, opid);
 	if (err)
 		printf("failed to create inode on dataset: %s\n", dsname);
 	else
@@ -1010,7 +1010,7 @@ uzfs_inode_delete(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	int type = atoi(argv[3]); // 0: file, 1: dir
 
 	printf("destroying inode %s:%ld, type: %d\n", dsname, obj, type);
@@ -1021,9 +1021,9 @@ uzfs_inode_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_inode_delete(dhp, obj, type, opid, B_TRUE);
+	err = libuzfs_inode_delete(dhp, obj, type, opid);
 	if (err)
 		printf("failed to delete inode: %s:%ld\n", dsname, obj);
 
@@ -1036,7 +1036,7 @@ uzfs_inode_getattr(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("getting attr inode %s, obj: %ld\n", dsname, obj);
 
@@ -1065,7 +1065,7 @@ uzfs_inode_setattr(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("setting attr inode %s, obj: %ld\n", dsname, obj);
 
@@ -1090,8 +1090,8 @@ uzfs_inode_setattr(int argc, char **argv)
 	buf.st_blocks = 8;
 	buf.st_blksize = 512;
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
-	err = libuzfs_inode_setattr(dhp, obj, &buf, opid, B_TRUE);
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
+	err = libuzfs_inode_setattr(dhp, obj, &buf, opid);
 	if (err)
 		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
 	else
@@ -1107,7 +1107,7 @@ uzfs_inode_get_kvobj(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 
 	printf("getting kvobj %s, obj: %ld\n", dsname, obj);
 
@@ -1134,7 +1134,7 @@ uzfs_inode_get_kvattr(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 
 	printf("getting kvattr inode %s, obj: %ld, key: %s\n", dsname, obj, key);
@@ -1162,9 +1162,9 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
-	uint64_t value = atoi(argv[4]);
+	uint64_t value = atoll(argv[4]);
 
 
 	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %ld\n", dsname, obj, key, value);
@@ -1175,8 +1175,8 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
-	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 8, 0, opid, B_TRUE);
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
+	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 8, 0, opid);
 	if (err)
 		printf("failed to set attr inode %ld on dataset: %s\n", obj, dsname);
 
@@ -1190,7 +1190,7 @@ uzfs_inode_rm_kvattr(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t obj = atoi(argv[2]);
+	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 
 
@@ -1202,8 +1202,8 @@ uzfs_inode_rm_kvattr(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
-	err = libuzfs_inode_remove_kvattr(dhp, obj, key, opid, B_TRUE);
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
+	err = libuzfs_inode_remove_kvattr(dhp, obj, key, opid);
 	if (err)
 		printf("failed to rm kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
 
@@ -1217,9 +1217,9 @@ uzfs_dentry_create(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t dino = atoi(argv[2]);
+	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
-	uint64_t ino = atoi(argv[4]);
+	uint64_t ino = atoll(argv[4]);
 
 	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld\n", dsname, dino, name, ino);
 
@@ -1229,9 +1229,9 @@ uzfs_dentry_create(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_dentry_create(dhp, dino, name, ino, opid, B_TRUE);
+	err = libuzfs_dentry_create(dhp, dino, name, ino, opid);
 	if (err)
 		printf("failed to create dentry on dataset: %s\n", dsname);
 	else
@@ -1247,7 +1247,7 @@ uzfs_dentry_delete(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t dino = atoi(argv[2]);
+	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
 
 	printf("destroying dentry %s: dino: %ld, name: %s\n", dsname, dino, name);
@@ -1258,9 +1258,9 @@ uzfs_dentry_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t opid = libuzfs_get_max_sync_opid(dhp) + 1;
+	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_dentry_delete(dhp, dino, name, opid, B_TRUE);
+	err = libuzfs_dentry_delete(dhp, dino, name, opid);
 	if (err)
 		printf("failed to delete dentry: %s:%ld/%s\n", dsname, dino, name);
 
@@ -1273,7 +1273,7 @@ uzfs_dentry_lookup(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
-	uint64_t dino = atoi(argv[2]);
+	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
 
 	printf("lookup dentry %s: dino: %ld, name: %s\n", dsname, dino, name);
@@ -2295,13 +2295,13 @@ static void* do_object_perf(void* object_perf_args)
 	for (i = 0; i < num; i++) {
 		obj = tid << 32 | i;
 		if (op == 0) {
-			error = libuzfs_object_delete(dhp, obj, atomic_inc_64_nv(opid), B_FALSE);
+			error = libuzfs_object_delete(dhp, obj, atomic_inc_64_nv(opid));
 			if (error) {
 				printf("Failed to rm obj %ld\n", obj);
 				goto out;
 			}
 		} else if (op == 1) {
-			error = libuzfs_object_claim(dhp, obj, atomic_inc_64_nv(opid), B_FALSE);
+			error = libuzfs_object_claim(dhp, obj, atomic_inc_64_nv(opid));
 			if (error) {
 				printf("Failed to claim obj %ld\n", obj);
 				goto out;
@@ -2317,10 +2317,11 @@ static void* do_object_perf(void* object_perf_args)
 		if (print_idx != 0 && i % print_idx == 0) {
 			printf("tid %ld: %d%%\n", tid, i / print_idx);
 			libuzfs_dump_txg_opids(dhp);
-			printf("max_local_opid: %ld\n", atomic_load_64(opid));
-			printf("max_sync_opid: %ld\n", libuzfs_get_max_sync_opid(dhp));
+			printf("max_mem_opid: %ld\n", atomic_load_64(opid));
+			printf("max_synced_opid: %ld\n", libuzfs_get_max_synced_opid(dhp));
 		}
 	}
+	libuzfs_wait_synced(dhp);
 	printf("tid: %ld done\n", tid);
 
 out:
@@ -2360,8 +2361,8 @@ static int uzfs_object_perf(int argc, char **argv)
 		return (-1);
 	}
 
-	volatile uint64_t opid = libuzfs_get_max_sync_opid(dhp);
-	printf("max_sync_opid: %ld\n", opid);
+	volatile uint64_t opid = libuzfs_get_max_synced_opid(dhp);
+	printf("max_synced_opid: %ld\n", opid);
 
 	struct timeval t1,t2;
 	double timeuse;
@@ -2398,8 +2399,8 @@ static int uzfs_object_perf(int argc, char **argv)
 	double rate = totalnum / timeuse;
 	printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n", totalnum, timeuse, clockuse, rate);
 
-	printf("max_local_opid: %ld\n", atomic_load_64(&opid));
-	printf("max_sync_opid: %ld\n", libuzfs_get_max_sync_opid(dhp));
+	printf("max_mem_opid: %ld\n", atomic_load_64(&opid));
+	printf("max_synced_opid: %ld\n", libuzfs_get_max_synced_opid(dhp));
 	sleep(10);
 out:
 
