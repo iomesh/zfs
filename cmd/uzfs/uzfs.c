@@ -1146,7 +1146,7 @@ uzfs_inode_get_kvattr(int argc, char **argv)
 	}
 
 	uint64_t value = 0;
-	err = libuzfs_inode_get_kvattr(dhp, obj, key, &value, 8, 0);
+	err = libuzfs_inode_get_kvattr(dhp, obj, key, &value, 1, 0);
 	if (err)
 		printf("failed to get kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
 	else
@@ -1176,7 +1176,7 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 	}
 
 	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
-	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 8, 0, opid);
+	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 1, 0, opid);
 	if (err)
 		printf("failed to set attr inode %ld on dataset: %s\n", obj, dsname);
 
