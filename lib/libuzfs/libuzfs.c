@@ -54,12 +54,6 @@
 
 #include "libuzfs_impl.h"
 
-enum libuzfs_object {
-	LIBUZFS_META_DNODE = 0,
-	LIBUZFS_DIROBJ,
-	LIBUZFS_OBJECTS
-};
-
 static boolean_t change_zpool_cache_path = B_FALSE;
 
 static void
@@ -420,11 +414,6 @@ out:
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
-	/*
-	 * Create the objects common to all libuzfs datasets.
-	 */
-	VERIFY0(zap_create_claim(os, LIBUZFS_DIROBJ, DMU_OT_ZAP_OTHER,
-	    DMU_OT_NONE, 0, tx));
 }
 
 int
@@ -445,23 +434,6 @@ static int
 libuzfs_objset_destroy_cb(const char *name, void *arg)
 {
 	int err = 0;
-	objset_t *os = NULL;
-	dmu_object_info_t doi;
-
-	memset(&doi, 0, sizeof (doi));
-
-	/*
-	 * Verify that the dataset contains a directory object.
-	 */
-	VERIFY0(libuzfs_dmu_objset_own(name, DMU_OST_ZFS, B_TRUE, B_TRUE, FTAG,
-	    &os));
-	err = dmu_object_info(os, LIBUZFS_DIROBJ, &doi);
-	if (err != ENOENT) {
-		/* We could have crashed in the middle of destroying it */
-		ASSERT0(err);
-		ASSERT3S(doi.doi_physical_blocks_512, >=, 0);
-	}
-	dmu_objset_disown(os, B_TRUE, FTAG);
 
 	/*
 	 * Destroy the dataset.
@@ -498,29 +470,6 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 {
 }
 
-static void
-libuzfs_dataset_dirobj_verify(libuzfs_dataset_handle_t *dhp)
-{
-	uint64_t usedobjs = 0;
-	uint64_t dirobjs = 0;
-	uint64_t scratch = 0;
-
-	/*
-	 * LIBUZFS_DIROBJ is the object directory for the entire dataset.
-	 * Therefore, the number of objects in use should equal the
-	 * number of LIBUZFS_DIROBJ entries, +1 for LIBUZFS_DIROBJ itself.
-	 * If not, we have an object leak.
-	 *
-	 * Note that we can only check this in libuzfs_dataset_open(),
-	 * when the open-context and syncing-context values agree.
-	 * That's because zap_count() returns the open-context value,
-	 * while dmu_objset_space() returns the rootbp fill count.
-	 */
-	VERIFY0(zap_count(dhp->os, LIBUZFS_DIROBJ, &dirobjs));
-	dmu_objset_space(dhp->os, &scratch, &scratch, &usedobjs, &scratch);
-	ASSERT3U(dirobjs + 1, <=, usedobjs);
-}
-
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname)
 {
@@ -537,11 +486,7 @@ libuzfs_dataset_open(const char *dsname)
 
 	zilog = dhp->zilog;
 
-	libuzfs_dataset_dirobj_verify(dhp);
-
 	zil_replay(os, dhp, libuzfs_replay_vector);
-
-	libuzfs_dataset_dirobj_verify(dhp);
 
 	zilog = zil_open(os, libuzfs_get_data);
 
