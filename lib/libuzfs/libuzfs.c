@@ -929,7 +929,7 @@ libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 	return zap_count(dhp->os, obj, count);
 }
 
-int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, inode_type_t type, uint64_t opid)
+int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, libuzfs_inode_type_t type, uint64_t opid)
 {
 	if (type == INODE_FILE)
 		return libuzfs_object_create(dhp, ino, opid);
@@ -941,7 +941,7 @@ int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, inode_typ
 }
 
 static int
-libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, inode_type_t type,
+libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
     uint64_t kvobj, uint64_t opid)
 {
 	int err = 0;
@@ -974,7 +974,7 @@ out:
 }
 
 int
-libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, inode_type_t type,
+libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
     uint64_t opid)
 {
 	if (type != INODE_FILE && type != INODE_DIR)
@@ -1008,7 +1008,7 @@ libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const struct 
 
 static int
 libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *key, const uint64_t *val, uint64_t num, int flags, uint64_t opid)
+    const char *key, const char *value, uint64_t size, int flags, uint64_t opid)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -1033,7 +1033,7 @@ libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	kvobj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
 	    DMU_OT_SA, bonuslen, dnodesize, tx);
 
-	err = zap_add(os, kvobj, key, 8, num, val, tx);
+	err = zap_add(os, kvobj, key, 1, size, value, tx);
 	if (err) {
 		dmu_tx_abort(tx);
 		goto out;
@@ -1067,7 +1067,7 @@ libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino, uint64_t *k
 
 int
 libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    uint64_t *value, uint64_t num, int flags)
+    char *value, uint64_t size, int flags)
 {
 	int err = 0;
 	uint64_t kvobj;
@@ -1079,7 +1079,7 @@ libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char
 	if (kvobj == 0)
 		return ENOENT;
 
-	return libuzfs_zap_lookup(dhp, kvobj, name, 8, num, value);
+	return libuzfs_zap_lookup(dhp, kvobj, name, 1, size, value);
 }
 
 // TODO(hping): remove kvobj when no kv attr
@@ -1102,7 +1102,7 @@ libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const c
 
 int
 libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    const uint64_t *value, uint64_t num, int flags, uint64_t opid)
+    const char *value, uint64_t size, int flags, uint64_t opid)
 {
 	int err = 0;
 	uint64_t kvobj;
@@ -1112,15 +1112,15 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char
 		return err;
 
 	if (kvobj == 0)
-		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, num, flags, opid);
+		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, size, flags, opid);
 
-	return libuzfs_zap_update(dhp, kvobj, name, 8, num, value, opid);
+	return libuzfs_zap_update(dhp, kvobj, name, 1, size, value, opid);
 }
 
 int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t ino, uint64_t opid)
+    uint64_t *value, uint64_t num, uint64_t opid)
 {
-	return libuzfs_zap_add(dhp, dino, name, 8, 1, &ino, opid);
+	return libuzfs_zap_add(dhp, dino, name, 8, num, value, opid);
 }
 
 int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
@@ -1130,9 +1130,9 @@ int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino, const ch
 }
 
 int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t *ino)
+    uint64_t *value, uint64_t num)
 {
-	return libuzfs_zap_lookup(dhp, dino, name, 8, 1, ino);
+	return libuzfs_zap_lookup(dhp, dino, name, 8, num, value);
 }
 
 // FIXME(hping)

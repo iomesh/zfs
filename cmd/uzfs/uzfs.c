@@ -1145,12 +1145,12 @@ uzfs_inode_get_kvattr(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t value = 0;
-	err = libuzfs_inode_get_kvattr(dhp, obj, key, &value, 1, 0);
+	char value[64] = {0};
+	err = libuzfs_inode_get_kvattr(dhp, obj, key, value, 64, 0);
 	if (err)
 		printf("failed to get kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
 	else
-		printf("%s/%ld:: key: %s, value: %ld\n", dsname, obj, key, value);
+		printf("%s/%ld:: key: %s, value: %s\n", dsname, obj, key, value);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1164,10 +1164,10 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 	char *dsname = argv[1];
 	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
-	uint64_t value = atoll(argv[4]);
+	char *value = argv[4];
 
 
-	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %ld\n", dsname, obj, key, value);
+	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %s\n", dsname, obj, key, value);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1176,7 +1176,7 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 	}
 
 	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
-	err = libuzfs_inode_set_kvattr(dhp, obj, key, &value, 1, 0, opid);
+	err = libuzfs_inode_set_kvattr(dhp, obj, key, value, 64, 0, opid);
 	if (err)
 		printf("failed to set attr inode %ld on dataset: %s\n", obj, dsname);
 
@@ -1220,6 +1220,7 @@ uzfs_dentry_create(int argc, char **argv)
 	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
 	uint64_t ino = atoll(argv[4]);
+	uint64_t payload = atoll(argv[5]);
 
 	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld\n", dsname, dino, name, ino);
 
@@ -1230,12 +1231,16 @@ uzfs_dentry_create(int argc, char **argv)
 	}
 
 	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
+	uint64_t value[2];
+	value[0] = ino;
+	value[1] = payload;
 
-	err = libuzfs_dentry_create(dhp, dino, name, ino, opid);
+	err = libuzfs_dentry_create(dhp, dino, name, value, 2, opid);
 	if (err)
 		printf("failed to create dentry on dataset: %s\n", dsname);
 	else
-		printf("created dentry %s, dino: %ld, name: %s, ino: %ld\n", dsname, dino, name, ino);
+		printf("created dentry %s, dino: %ld, name: %s, [%ld, %ld]\n",
+			dsname, dino, name, ino, payload);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1284,13 +1289,14 @@ uzfs_dentry_lookup(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t obj = 0;
+	uint64_t value[2] = {0};
 
-	err = libuzfs_dentry_lookup(dhp, dino, name, &obj);
+	err = libuzfs_dentry_lookup(dhp, dino, name, value, 2);
 	if (err)
 		printf("failed to lookup dentry: %s:%ld/%s\n", dsname, dino, name);
 	else
-		printf("looked up dentry: %s:%ld/%s: %ld\n", dsname, dino, name, obj);
+		printf("looked up dentry: %s:%ld/%s: [%ld, %ld]\n", dsname, dino, name,
+			value[0], value[1]);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
