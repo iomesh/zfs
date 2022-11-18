@@ -74,7 +74,10 @@ extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t opid);
 
-extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
+
+// only for test, used in perf-object by uzfs
+extern int TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t opid);
 
 extern int libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
@@ -99,6 +102,8 @@ extern void libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     uint64_t opid);
 
+extern int libuzfs_zap_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
+
 extern int libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t opid);
 
@@ -121,6 +126,9 @@ extern int libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, uint64_t opid);
+
+extern int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    libuzfs_inode_type_t type);
 
 extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type, uint64_t opid);

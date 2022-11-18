@@ -636,7 +636,7 @@ uzfs_object_claim(int argc, char **argv)
 
 	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
 
-	err = libuzfs_object_claim(dhp, obj, opid);
+	err = TEST_libuzfs_object_claim(dhp, obj, opid);
 	if (err)
 		printf("failed to claim object on dataset: %s\n", dsname);
 
@@ -2307,7 +2307,7 @@ static void* do_object_perf(void* object_perf_args)
 				goto out;
 			}
 		} else if (op == 1) {
-			error = libuzfs_object_claim(dhp, obj, atomic_inc_64_nv(opid));
+			error = TEST_libuzfs_object_claim(dhp, obj, atomic_inc_64_nv(opid));
 			if (error) {
 				printf("Failed to claim obj %ld\n", obj);
 				goto out;
