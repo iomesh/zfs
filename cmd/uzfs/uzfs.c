@@ -1047,9 +1047,9 @@ uzfs_inode_getattr(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(struct stat));
+	memset(&buf, 0, sizeof(buf));
 
-	err = libuzfs_inode_getattr(dhp, obj, &buf);
+	err = libuzfs_inode_getattr(dhp, obj, &buf, sizeof(buf));
 	if (err)
 		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
 	else
@@ -1076,7 +1076,7 @@ uzfs_inode_setattr(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(struct stat));
+	memset(&buf, 0, sizeof(buf));
 
 	buf.st_ino = obj;
 	buf.st_mode = 0x1;
@@ -1091,7 +1091,7 @@ uzfs_inode_setattr(int argc, char **argv)
 	buf.st_blksize = 512;
 
 	uint64_t opid = libuzfs_get_max_synced_opid(dhp) + 1;
-	err = libuzfs_inode_setattr(dhp, obj, &buf, opid);
+	err = libuzfs_inode_setattr(dhp, obj, &buf, sizeof(buf), opid);
 	if (err)
 		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
 	else

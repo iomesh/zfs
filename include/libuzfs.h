@@ -89,10 +89,10 @@ extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf);
 
 extern int libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    struct stat *sp);
+    void *attr, uint64_t size);
 
 extern int libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    const struct stat *sp, uint64_t opid);
+    const void *attr, uint64_t size, uint64_t opid);
 
 extern uint64_t libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp);
@@ -134,10 +134,10 @@ extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type, uint64_t opid);
 
 extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    struct stat *sp);
+    void *attr, uint64_t size);
 
 extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const struct stat *sp, uint64_t opid);
+    const void *attr, uint64_t size, uint64_t opid);
 
 extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *kvobj);
