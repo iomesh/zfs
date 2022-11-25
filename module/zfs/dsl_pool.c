@@ -660,7 +660,14 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		 */
 		ASSERT(!list_link_active(&ds->ds_synced_link));
 		list_insert_tail(&synced_datasets, ds);
-		(void)txg_list_add(&dp->dp_update_max_opid_datasets, ds, txg);
+
+		/* don't add ds in the case of ds creating: max_opid == 0 */
+		if (atomic_load_64(&ds->ds_max_opid[txg & TXG_MASK]) != 0) {
+			if (txg_list_add(&dp->dp_update_max_opid_datasets, ds, txg)) {
+				dmu_buf_add_ref(ds->ds_dbuf, ds);
+			}
+		}
+
 		dsl_dataset_sync(ds, zio, tx);
 	}
 	VERIFY0(zio_wait(zio));
@@ -822,6 +829,7 @@ dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg)
 
 	while ((ds = txg_list_remove(&dp->dp_update_max_opid_datasets, txg)) != NULL) {
 		ds->ds_synced_max_opid = dsl_dataset_phys(ds)->ds_max_synced_opid;
+		dmu_buf_rele(ds->ds_dbuf, ds);
 	}
 
 	ASSERT(!dmu_objset_is_dirty(dp->dp_meta_objset, txg));
