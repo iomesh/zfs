@@ -7252,6 +7252,12 @@ zfs_ioctl_init(void)
 	zfs_ioctl_init_os();
 }
 
+void
+zfs_ioctl_fini(void)
+{
+	memset(zfs_ioc_vec, 0, sizeof(*zfs_ioc_vec) * (ZFS_IOC_LAST - ZFS_IOC_FIRST));
+}
+
 /*
  * Verify that for non-legacy ioctls the input nvlist
  * pairs match against the expected input.

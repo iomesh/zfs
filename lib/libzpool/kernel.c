@@ -833,6 +833,7 @@ kernel_init(int mode)
 void
 kernel_fini(void)
 {
+	zfs_ioctl_fini();
 	zfs_fini();
 	fletcher_4_fini();
 	spa_fini();
