@@ -80,7 +80,7 @@ extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 extern int TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t opid);
 
-extern int libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
+extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
 extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf);

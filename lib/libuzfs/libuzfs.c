@@ -668,11 +668,11 @@ out:
 
 }
 
-int
+uint64_t
 libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 {
 	int err = 0;
-	int i = 0;
+	uint64_t i = 0;
 	uint64_t obj = 0;
 	objset_t *os = dhp->os;
 	dmu_object_info_t doi;
