@@ -414,6 +414,21 @@ out:
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
+	int err = 0;
+	uint64_t sb_obj = 0;
+
+	err = zap_create_claim(os, MASTER_NODE_OBJ, DMU_OT_MASTER_NODE,
+	    DMU_OT_NONE, 0, tx);
+	ASSERT(err == 0);
+
+	int dnodesize = dmu_objset_dnodesize(os);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+
+	sb_obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS, DMU_OT_PLAIN_OTHER,
+	    bonuslen, dnodesize, tx);
+
+	err = zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx);
+	ASSERT(err == 0);
 }
 
 int
@@ -463,6 +478,9 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 	dhp->os = os;
 	dhp->zilog = dmu_objset_zil(os);
 	dmu_objset_name(os, dhp->name);
+
+	zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
+	    &dhp->sb_ino);
 }
 
 static void
@@ -500,6 +518,13 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 	dmu_objset_disown(dhp->os, B_TRUE, dhp);
 	libuzfs_dhp_fini(dhp);
 	free(dhp);
+}
+
+int
+libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp, uint64_t *sb_ino)
+{
+	*sb_ino = dhp->sb_ino;
+	return (0);
 }
 
 int

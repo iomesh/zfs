@@ -46,6 +46,8 @@ static int uzfs_zpool_get(int argc, char **argv);
 static int uzfs_dataset_create(int argc, char **argv);
 static int uzfs_dataset_destroy(int argc, char **argv);
 
+static int uzfs_dataset_get_sbino(int argc, char **argv);
+
 static int uzfs_object_create(int argc, char **argv);
 static int uzfs_object_delete(int argc, char **argv);
 static int uzfs_object_claim(int argc, char **argv);
@@ -100,6 +102,7 @@ typedef enum {
 	HELP_ZPOOL_GET,
 	HELP_DATASET_CREATE,
 	HELP_DATASET_DESTROY,
+	HELP_DATASET_GET_SBINO,
 	HELP_OBJECT_CREATE,
 	HELP_OBJECT_DELETE,
 	HELP_OBJECT_CLAIM,
@@ -162,6 +165,7 @@ static uzfs_command_t command_table[] = {
 	{ "get-zpool",		uzfs_zpool_get, 	HELP_ZPOOL_GET    },
 	{ "create-dataset",	uzfs_dataset_create, 	HELP_DATASET_CREATE },
 	{ "destroy-dataset",	uzfs_dataset_destroy, 	HELP_DATASET_DESTROY},
+	{ "getsbino-dataset",	uzfs_dataset_get_sbino,	HELP_DATASET_GET_SBINO},
 	{ "create-object",	uzfs_object_create, 	HELP_OBJECT_CREATE  },
 	{ "delete-object",	uzfs_object_delete, 	HELP_OBJECT_DELETE  },
 	{ "claim-object",	uzfs_object_claim, 	HELP_OBJECT_CLAIM   },
@@ -222,6 +226,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tcreate-dataset ...\n"));
 	case HELP_DATASET_DESTROY:
 		return (gettext("\tdestroy-dataset ...\n"));
+	case HELP_DATASET_GET_SBINO:
+		return (gettext("\tgetsbino-dataset ...\n"));
 	case HELP_OBJECT_CREATE:
 		return (gettext("\tcreate-object ...\n"));
 	case HELP_OBJECT_DELETE:
@@ -561,6 +567,33 @@ uzfs_dataset_destroy(int argc, char **argv)
 	printf("destroying dataset %s\n", dsname);
 
 	libuzfs_dataset_destroy(dsname);
+
+	return (0);
+}
+
+int
+uzfs_dataset_get_sbino(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+
+	printf("getting sb ino for dataset %s\n", dsname);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t sbino = 0;
+	err = libuzfs_dataset_get_superblock_ino(dhp, &sbino);
+
+	if (err)
+		printf("failed to get sb ino for dataset: %s\n", dsname);
+	else
+		printf("sbino: %ld, dataset: %s\n", sbino, dsname);
+
+	libuzfs_dataset_close(dhp);
 
 	return (0);
 }
