@@ -427,7 +427,7 @@ libuzfs_dataset_create(const char *dsname)
 		return (err);
 
 	return (libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
-	    ZFS_SYNC_ALWAYS, B_FALSE));
+	    ZFS_SYNC_STANDARD, B_FALSE));
 }
 
 static int
