@@ -168,15 +168,16 @@ extern int libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_
 extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
                                 libuzfs_inode_type_t type, uint64_t opid);
 extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    void *attr, uint64_t size);
+                                 void *attr, uint64_t size);
 extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const void *attr, uint64_t size, uint64_t opid);
+                                 const void *attr, uint64_t size, uint64_t opid);
 extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, const char *value, uint64_t size, int flags, uint64_t opid);
+                                    const char *name, const char *value, 
+                                    uint64_t size, int flags, uint64_t opid);
 extern int libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, char *value, uint64_t size, int flags);
-extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, const char *name, uint64_t opid);
+                                    const char *name, char *value, uint64_t size, int flags);
+extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+                                       const char *name, uint64_t opid);
 
 #ifdef	__cplusplus
 }
