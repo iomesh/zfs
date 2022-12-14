@@ -14,7 +14,7 @@
 
 #define FUSE_USE_VERSION 30
 
-#include <fuse_lowlevel.h>
+#include <fuse3/fuse_lowlevel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +22,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
-#include <fuse.h>
+#include <fuse3/fuse.h>
 #include <libuzfs.h>
 
 struct zfs_fuse_conf_t {
