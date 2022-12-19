@@ -555,12 +555,17 @@ void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp)
 	dsl_dataset_dump_txg_opids(dmu_objset_ds(dhp->os));
 }
 
+uint64_t libuzfs_get_last_synced_txg(libuzfs_dataset_handle_t *dhp)
+{
+	return spa_last_synced_txg(dhp->os->os_spa);
+}
+
 void libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp) {
 	txg_wait_synced(spa_get_dsl(dhp->os->os_spa), 0);
 }
 
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opid)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -586,7 +591,7 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opi
 
 	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -594,7 +599,7 @@ out:
 }
 
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid)
+libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -612,7 +617,7 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid
 
 	VERIFY0(dmu_object_free(os, obj, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -655,7 +660,7 @@ out:
 }
 
 int
-TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid)
+TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -685,7 +690,7 @@ TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t 
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -733,7 +738,7 @@ libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, void *attr, 
 
 int
 libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, const void *attr, uint64_t size,
-    uint64_t opid)
+    uint64_t *txg)
 {
 	int err = 0;
 	objset_t *os = dhp->os;
@@ -762,7 +767,7 @@ libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, const void *
 	bcopy(attr, db->db_data + 8, size);
 	dmu_buf_rele(db, FTAG);
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -818,7 +823,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 }
 
 int
-libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opid)
+libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -840,7 +845,7 @@ libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t opid)
 	*obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
 	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -881,7 +886,7 @@ out:
 }
 
 int
-libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid)
+libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -899,7 +904,7 @@ libuzfs_zap_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid)
 
 	VERIFY0(zap_destroy(os, obj, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -908,7 +913,7 @@ out:
 
 int
 libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		uint64_t num_integers, const void *val, uint64_t opid)
+		uint64_t num_integers, const void *val, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -930,7 +935,7 @@ libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, in
 		goto out;
 	}
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -938,7 +943,7 @@ out:
 }
 
 int
-libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, uint64_t opid)
+libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -960,7 +965,7 @@ libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 		goto out;
 	}
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -969,7 +974,7 @@ out:
 
 int
 libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		   uint64_t num_integers, const void *val, uint64_t opid)
+		   uint64_t num_integers, const void *val, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -991,7 +996,7 @@ libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 		goto out;
 	}
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -1012,13 +1017,13 @@ libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 	return zap_count(dhp->os, obj, count);
 }
 
-int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, libuzfs_inode_type_t type, uint64_t opid)
+int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, libuzfs_inode_type_t type, uint64_t *txg)
 {
 	if (type == INODE_FILE)
-		return libuzfs_object_create(dhp, ino, opid);
+		return libuzfs_object_create(dhp, ino, txg);
 
 	if (type == INODE_DIR)
-		return libuzfs_zap_create(dhp, ino, opid);
+		return libuzfs_zap_create(dhp, ino, txg);
 
 	return EINVAL;
 }
@@ -1036,7 +1041,7 @@ int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_ino
 
 static int
 libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t kvobj, uint64_t opid)
+    uint64_t kvobj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -1060,7 +1065,7 @@ libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_
 	else if (type == INODE_DIR)
 		VERIFY0(zap_destroy(os, ino, tx));
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 out:
@@ -1069,7 +1074,7 @@ out:
 
 int
 libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t opid)
+    uint64_t *txg)
 {
 	if (type != INODE_FILE && type != INODE_DIR)
 		return EINVAL;
@@ -1079,12 +1084,12 @@ libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_
 
 	if (kvobj == 0) {
 		if (type == INODE_FILE)
-			return libuzfs_object_delete(dhp, ino, opid);
+			return libuzfs_object_delete(dhp, ino, txg);
 		if (type == INODE_DIR)
-			return libuzfs_zap_delete(dhp, ino, opid);
+			return libuzfs_zap_delete(dhp, ino, txg);
 	}
 
-	return libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, opid);
+	return libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, txg);
 }
 
 int
@@ -1095,14 +1100,14 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, void *attr, u
 
 int
 libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const void *attr, uint64_t size,
-    uint64_t opid)
+    uint64_t *txg)
 {
-	return libuzfs_object_setattr(dhp, ino, attr, size, opid);
+	return libuzfs_object_setattr(dhp, ino, attr, size, txg);
 }
 
 static int
 libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *key, const char *value, uint64_t size, int flags, uint64_t opid)
+    const char *key, const char *value, uint64_t size, int flags, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -1138,7 +1143,7 @@ libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	bcopy(&kvobj, db->db_data, sizeof(kvobj));
 	dmu_buf_rele(db, FTAG);
 
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
+	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
 	libuzfs_wait_synced(dhp);
@@ -1179,7 +1184,7 @@ libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char
 // TODO(hping): remove kvobj when no kv attr
 int
 libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    uint64_t opid)
+    uint64_t *txg)
 {
 	int err = 0;
 	uint64_t kvobj;
@@ -1191,12 +1196,12 @@ libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const c
 	if (kvobj == 0)
 		return ENOENT;
 
-	return libuzfs_zap_remove(dhp, kvobj, name, opid);
+	return libuzfs_zap_remove(dhp, kvobj, name, txg);
 }
 
 int
 libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    const char *value, uint64_t size, int flags, uint64_t opid)
+    const char *value, uint64_t size, int flags, uint64_t *txg)
 {
 	int err = 0;
 	uint64_t kvobj;
@@ -1206,21 +1211,21 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char
 		return err;
 
 	if (kvobj == 0)
-		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, size, flags, opid);
+		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, size, flags, txg);
 
-	return libuzfs_zap_update(dhp, kvobj, name, 1, size, value, opid);
+	return libuzfs_zap_update(dhp, kvobj, name, 1, size, value, txg);
 }
 
 int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t *value, uint64_t num, uint64_t opid)
+    uint64_t *value, uint64_t num, uint64_t *txg)
 {
-	return libuzfs_zap_add(dhp, dino, name, 8, num, value, opid);
+	return libuzfs_zap_add(dhp, dino, name, 8, num, value, txg);
 }
 
 int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t opid)
+    uint64_t *txg)
 {
-	return libuzfs_zap_remove(dhp, dino, name, opid);
+	return libuzfs_zap_remove(dhp, dino, name, txg);
 }
 
 int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
