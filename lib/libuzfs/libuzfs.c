@@ -414,21 +414,25 @@ out:
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
-	int err = 0;
-	uint64_t sb_obj = 0;
+    int err = 0;
+    uint64_t sb_obj = 0;
 
-	err = zap_create_claim(os, MASTER_NODE_OBJ, DMU_OT_MASTER_NODE,
-	    DMU_OT_NONE, 0, tx);
-	ASSERT(err == 0);
+    err = zap_create_claim(os, MASTER_NODE_OBJ, DMU_OT_MASTER_NODE,
+                           DMU_OT_NONE, 0, tx);
+    ASSERT(err == 0);
 
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
+    int dnodesize = dmu_objset_dnodesize(os);
+    int bonuslen = DN_BONUS_SIZE(dnodesize);
 
-	sb_obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS, DMU_OT_PLAIN_OTHER,
-	    bonuslen, dnodesize, tx);
+    sb_obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS, DMU_OT_PLAIN_OTHER,
+                               bonuslen, dnodesize, tx);
 
-	err = zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx);
-	ASSERT(err == 0);
+    err = zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx);
+    ASSERT(err == 0);
+    uint64_t sa_obj = zap_create(os, DMU_OT_SA_MASTER_NODE,
+                                 DMU_OT_NONE, 0, tx);
+    err = zap_add(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1, &sa_obj, tx);
+    ASSERT(err == 0);
 }
 
 int
@@ -488,6 +492,13 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 {
 }
 
+static int
+uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
+                   zfs_file_info_t *zoi)
+{
+    return EINVAL;
+}
+
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname)
 {
@@ -501,6 +512,8 @@ libuzfs_dataset_open(const char *dsname)
 	    dhp, &os));
 
 	libuzfs_dhp_init(dhp, os);
+    // TODO(sundengyu) : use better way instead of disabling zfs quota
+	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 
 	zilog = dhp->zilog;
 
@@ -508,6 +521,7 @@ libuzfs_dataset_open(const char *dsname)
 
 	zilog = zil_open(os, libuzfs_get_data);
 
+	libuzfs_open_dataset_attr(dhp);
 	return (dhp);
 }
 
@@ -515,6 +529,9 @@ void
 libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 {
 	zil_close(dhp->zilog);
+	if(dhp->os->os_sa != NULL) {
+		sa_tear_down(dhp->os);
+	}
 	dmu_objset_disown(dhp->os, B_TRUE, dhp);
 	libuzfs_dhp_fini(dhp);
 	free(dhp);
@@ -567,35 +584,7 @@ void libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp) {
 int
 libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t *txg)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int blocksize = 0;
-	int ibshift = 0;
-
-	*obj = dmu_object_alloc_dnsize(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-
-	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
-
-	*txg = tx->tx_txg;
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
+	return libuzfs_create_inode_with_type(dhp, obj, B_FALSE, INODE_FILE, txg);
 }
 
 int
@@ -627,75 +616,13 @@ out:
 int
 libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int blocksize = 0;
-	int ibs = 0;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	err = dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-		DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-	if (err)
-		goto out;
-
-	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
-
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
+	return libuzfs_create_inode_with_type(dhp, &obj, B_TRUE, INODE_FILE, 0);
 }
 
 int
 TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int type = DMU_OT_UINT64_OTHER;
-	int bonus_type = DMU_OT_UINT64_OTHER;
-	int blocksize = 0;
-	int ibs = 0;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	err = dmu_object_claim_dnsize(os, obj, type, 0, bonus_type, bonuslen,
-	    dnodesize, tx);
-	if (err)
-		goto out;
-
-	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
-
-	*txg = tx->tx_txg;
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
-
+	return libuzfs_create_inode_with_type(dhp, &obj, B_TRUE, INODE_FILE, txg);
 }
 
 uint64_t
@@ -1019,137 +946,12 @@ libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 
 int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, libuzfs_inode_type_t type, uint64_t *txg)
 {
-	if (type == INODE_FILE)
-		return libuzfs_object_create(dhp, ino, txg);
-
-	if (type == INODE_DIR)
-		return libuzfs_zap_create(dhp, ino, txg);
-
-	return EINVAL;
+	return libuzfs_create_inode_with_type(dhp, ino, B_FALSE, type, txg);
 }
 
 int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type)
 {
-	if (type == INODE_FILE)
-		return libuzfs_object_claim(dhp, ino);
-
-	if (type == INODE_DIR)
-		return libuzfs_zap_claim(dhp, ino);
-
-	return EINVAL;
-}
-
-static int
-libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t kvobj, uint64_t *txg)
-{
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_free(tx, kvobj, 0, DMU_OBJECT_END);
-	dmu_tx_hold_free(tx, ino, 0, DMU_OBJECT_END);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	VERIFY0(zap_destroy(os, kvobj, tx));
-
-	if (type == INODE_FILE)
-		VERIFY0(dmu_object_free(os, ino, tx));
-	else if (type == INODE_DIR)
-		VERIFY0(zap_destroy(os, ino, tx));
-
-	*txg = tx->tx_txg;
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
-}
-
-int
-libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t *txg)
-{
-	if (type != INODE_FILE && type != INODE_DIR)
-		return EINVAL;
-
-	uint64_t kvobj = 0;
-	VERIFY0(libuzfs_inode_get_kvobj(dhp, ino, &kvobj));
-
-	if (kvobj == 0) {
-		if (type == INODE_FILE)
-			return libuzfs_object_delete(dhp, ino, txg);
-		if (type == INODE_DIR)
-			return libuzfs_zap_delete(dhp, ino, txg);
-	}
-
-	return libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, txg);
-}
-
-int
-libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, void *attr, uint64_t size)
-{
-	return libuzfs_object_getattr(dhp, ino, attr, size);
-}
-
-int
-libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const void *attr, uint64_t size,
-    uint64_t *txg)
-{
-	return libuzfs_object_setattr(dhp, ino, attr, size, txg);
-}
-
-static int
-libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *key, const char *value, uint64_t size, int flags, uint64_t *txg)
-{
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-	dmu_buf_t *db;
-	uint64_t kvobj = 0;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
-	dmu_tx_hold_bonus(tx, ino);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-
-	kvobj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-
-	err = zap_add(os, kvobj, key, 1, size, value, tx);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	VERIFY0(dmu_bonus_hold(os, ino, FTAG, &db));
-	dmu_buf_will_dirty(db, tx);
-	bcopy(&kvobj, db->db_data, sizeof(kvobj));
-	dmu_buf_rele(db, FTAG);
-
-	*txg = tx->tx_txg;
-	dmu_tx_commit(tx);
-
-	libuzfs_wait_synced(dhp);
-
-out:
-	return (err);
+	return libuzfs_create_inode_with_type(dhp, &ino, B_FALSE, type, NULL);
 }
 
 int
@@ -1162,58 +964,6 @@ libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino, uint64_t *k
 	dmu_buf_rele(db, FTAG);
 
 	return 0;
-}
-
-int
-libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    char *value, uint64_t size, int flags)
-{
-	int err = 0;
-	uint64_t kvobj;
-
-	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
-	if (err)
-		return err;
-
-	if (kvobj == 0)
-		return ENOENT;
-
-	return libuzfs_zap_lookup(dhp, kvobj, name, 1, size, value);
-}
-
-// TODO(hping): remove kvobj when no kv attr
-int
-libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    uint64_t *txg)
-{
-	int err = 0;
-	uint64_t kvobj;
-
-	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
-	if (err)
-		return err;
-
-	if (kvobj == 0)
-		return ENOENT;
-
-	return libuzfs_zap_remove(dhp, kvobj, name, txg);
-}
-
-int
-libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    const char *value, uint64_t size, int flags, uint64_t *txg)
-{
-	int err = 0;
-	uint64_t kvobj;
-
-	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
-	if (err)
-		return err;
-
-	if (kvobj == 0)
-		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, size, flags, txg);
-
-	return libuzfs_zap_update(dhp, kvobj, name, 1, size, value, txg);
 }
 
 int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
