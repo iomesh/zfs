@@ -471,6 +471,13 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 {
 }
 
+static int
+uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
+                   zfs_file_info_t *zoi)
+{
+    return EINVAL;
+}
+
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname)
 {
@@ -484,6 +491,8 @@ libuzfs_dataset_open(const char *dsname)
 	    dhp, &os));
 
 	libuzfs_dhp_init(dhp, os);
+    // TODO(sundengyu) : use better way instead of disabling zfs quota
+	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 
 	zilog = dhp->zilog;
 
@@ -580,40 +589,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 int
 TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t opid)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int type = DMU_OT_UINT64_OTHER;
-	int bonus_type = DMU_OT_UINT64_OTHER;
-	int blocksize = 0;
-	int ibs = 0;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	err = dmu_object_claim_dnsize(os, obj, type, 0, bonus_type, bonuslen,
-	    dnodesize, tx);
-	if (err)
-		goto out;
-
-	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
-
-	dsl_dataset_update_max_opid(dmu_objset_ds(os), opid, tx);
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
-
+	return libuzfs_create_inode_with_type(dhp, &obj, B_TRUE, INODE_FILE, opid);
 }
 
 uint64_t

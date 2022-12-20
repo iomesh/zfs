@@ -40,6 +40,7 @@ typedef enum {
 
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
+typedef struct uzfs_attr uzfs_attr_t;
 
 typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
