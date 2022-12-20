@@ -80,8 +80,8 @@ extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 
 // only for test, used in perf-object by uzfs
-extern int TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *txg);
+extern int TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t *txg);
 
 extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
@@ -147,7 +147,8 @@ extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *kvobj);
 
 extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, const char *value, uint64_t size, int flags, uint64_t *txg);
+    const char *name, const char *value, uint64_t size, int flags,
+    uint64_t *txg);
 
 extern int libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *name, char *value, uint64_t size, int flags);
@@ -166,20 +167,33 @@ extern int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
 
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);
-extern int libuzfs_fs_init(const char* fsname, uint64_t* fsid);
+extern int libuzfs_fs_init(const char *fsname, uint64_t *fsid);
 extern int libuzfs_fs_fini(uint64_t fsid);
-extern int libuzfs_getroot(uint64_t fsid, uint64_t* ino);
-extern int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat);
-extern int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino);
-extern int libuzfs_mkdir(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino);
-extern int libuzfs_rmdir(uint64_t fsid, uint64_t dino, char* name);
-extern int libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent, filldir_t filldir, loff_t pos);
-extern int libuzfs_create(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino);
-extern int libuzfs_remove(uint64_t fsid, uint64_t dino, char* name);
-extern int libuzfs_rename(uint64_t fsid, uint64_t sdino, char* sname, uint64_t tdino, char* tname);
+extern int libuzfs_getroot(uint64_t fsid, uint64_t *ino);
+extern int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat *stat);
+extern int libuzfs_lookup(uint64_t fsid, uint64_t dino, char *name,
+    uint64_t *ino);
 
-extern int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag);
-extern int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag);
+extern int libuzfs_mkdir(uint64_t fsid, uint64_t dino, char *name,
+    umode_t mode, uint64_t *ino);
+
+extern int libuzfs_rmdir(uint64_t fsid, uint64_t dino, char *name);
+extern int libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent,
+    filldir_t filldir, loff_t pos);
+
+extern int libuzfs_create(uint64_t fsid, uint64_t dino, char *name,
+    umode_t mode, uint64_t *ino);
+
+extern int libuzfs_remove(uint64_t fsid, uint64_t dino, char *name);
+extern int libuzfs_rename(uint64_t fsid, uint64_t sdino, char *sname,
+    uint64_t tdino, char *tname);
+
+extern int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio,
+    int ioflag);
+
+extern int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio,
+    int ioflag);
+
 extern int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag);
 
 #ifdef	__cplusplus

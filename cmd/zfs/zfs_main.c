@@ -783,7 +783,8 @@ zfs_mount_and_share(libzfs_handle_t *hdl, const char *dataset, zfs_type_t type)
 	 * skip the mount/share step
 	 */
 	if (zfs_prop_valid_for_type(ZFS_PROP_CANMOUNT, type, B_FALSE) &&
-	    zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_ON && !uzfs) {
+	    zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_ON &&
+	    !uzfs) {
 		if (zfs_mount_delegation_check()) {
 			(void) fprintf(stderr, gettext("filesystem "
 			    "successfully created, but it may only be "
@@ -1472,7 +1473,8 @@ destroy_callback(zfs_handle_t *zhp, void *data)
 	} else {
 		error = destroy_batched(cb);
 		if (error != 0 ||
-		    (!uzfs && zfs_unmount(zhp, NULL, cb->cb_force ? MS_FORCE : 0) != 0) ||
+		    (zfs_unmount(zhp, NULL, cb->cb_force ? MS_FORCE : 0) != 0 &&
+		    !uzfs) ||
 		    zfs_destroy(zhp, cb->cb_defer_destroy) != 0) {
 			zfs_close(zhp);
 			/*
@@ -1836,8 +1838,8 @@ zfs_do_destroy(int argc, char **argv)
 			 */
 			cb.cb_first = B_TRUE;
 			if (!cb.cb_doclones &&
-					zfs_iter_dependents(zhp, B_TRUE, destroy_check_dependent,
-						&cb) != 0) {
+			    zfs_iter_dependents(zhp, B_TRUE,
+			    destroy_check_dependent, &cb) != 0) {
 				rv = 1;
 				goto out;
 			}
@@ -1848,7 +1850,7 @@ zfs_do_destroy(int argc, char **argv)
 			}
 			cb.cb_batchedsnaps = fnvlist_alloc();
 			if (zfs_iter_dependents(zhp, B_FALSE, destroy_callback,
-						&cb) != 0) {
+			    &cb) != 0) {
 				rv = 1;
 				goto out;
 			}

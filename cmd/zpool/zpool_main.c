@@ -1755,8 +1755,8 @@ zpool_do_create(int argc, char **argv)
 				ret = 0;
 			else {
 				zfs_handle_t *pool = zfs_open(g_zfs,
-						tname ? tname : poolname,
-						ZFS_TYPE_FILESYSTEM);
+				    tname ? tname : poolname,
+				    ZFS_TYPE_FILESYSTEM);
 				if (pool != NULL) {
 					if (zfs_mount(pool, NULL, 0) == 0) {
 						ret = zfs_shareall(pool);

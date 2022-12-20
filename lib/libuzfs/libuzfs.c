@@ -424,8 +424,8 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
 
-	sb_obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS, DMU_OT_PLAIN_OTHER,
-	    bonuslen, dnodesize, tx);
+	sb_obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
 
 	err = zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx);
 	ASSERT(err == 0);
@@ -521,7 +521,8 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 }
 
 int
-libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp, uint64_t *sb_ino)
+libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
+    uint64_t *sb_ino)
 {
 	*sb_ino = dhp->sb_ino;
 	return (0);
@@ -545,27 +546,33 @@ libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	return (0);
 }
 
-uint64_t libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp)
+uint64_t
+libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp)
 {
-	return dsl_dataset_get_max_synced_opid(dmu_objset_ds(dhp->os));
+	return (dsl_dataset_get_max_synced_opid(dmu_objset_ds(dhp->os)));
 }
 
-void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp)
+void
+libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp)
 {
 	dsl_dataset_dump_txg_opids(dmu_objset_ds(dhp->os));
 }
 
-uint64_t libuzfs_get_last_synced_txg(libuzfs_dataset_handle_t *dhp)
+uint64_t
+libuzfs_get_last_synced_txg(libuzfs_dataset_handle_t *dhp)
 {
-	return spa_last_synced_txg(dhp->os->os_spa);
+	return (spa_last_synced_txg(dhp->os->os_spa));
 }
 
-void libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp) {
+void
+libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
+{
 	txg_wait_synced(spa_get_dsl(dhp->os->os_spa), 0);
 }
 
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t *txg)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
+    uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -599,7 +606,8 @@ out:
 }
 
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
+libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -647,8 +655,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	}
 
 	err = dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-		DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-	if (err)
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
 		goto out;
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
@@ -660,7 +667,8 @@ out:
 }
 
 int
-TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *txg)
+TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -723,7 +731,8 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 }
 
 int
-libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, void *attr, uint64_t size)
+libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, void *attr,
+    uint64_t size)
 {
 	objset_t *os = dhp->os;
 	dmu_buf_t *db;
@@ -733,12 +742,12 @@ libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, void *attr, 
 	bcopy(db->db_data + 8, attr, size);
 	dmu_buf_rele(db, FTAG);
 
-	return 0;
+	return (0);
 }
 
 int
-libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, const void *attr, uint64_t size,
-    uint64_t *txg)
+libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    const void *attr, uint64_t size, uint64_t *txg)
 {
 	int err = 0;
 	objset_t *os = dhp->os;
@@ -771,7 +780,7 @@ libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, const void *
 	dmu_tx_commit(tx);
 
 out:
-	return err;
+	return (err);
 }
 
 int
@@ -795,7 +804,6 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	dmu_write(os, obj, offset, size, buf, tx);
 
 	dmu_tx_commit(tx);
-	txg_wait_synced(spa_get_dsl(os->os_spa), 0);
 
 out:
 	return (err);
@@ -912,8 +920,8 @@ out:
 }
 
 int
-libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		uint64_t num_integers, const void *val, uint64_t *txg)
+libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+    int integer_size, uint64_t num_integers, const void *val, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -943,7 +951,8 @@ out:
 }
 
 int
-libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, uint64_t *txg)
+libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+    uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -973,8 +982,8 @@ out:
 }
 
 int
-libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		   uint64_t num_integers, const void *val, uint64_t *txg)
+libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+    int integer_size, uint64_t num_integers, const void *val, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -1004,44 +1013,48 @@ out:
 }
 
 int
-libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key, int integer_size,
-		   uint64_t num_integers, void *val)
+libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
+    int integer_size, uint64_t num_integers, void *val)
 {
-	return zap_lookup(dhp->os, obj, key, integer_size, num_integers, val);
+	return (zap_lookup(dhp->os, obj, key, integer_size, num_integers, val));
 
 }
 
 int
 libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 {
-	return zap_count(dhp->os, obj, count);
+	return (zap_count(dhp->os, obj, count));
 }
 
-int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino, libuzfs_inode_type_t type, uint64_t *txg)
+int
+libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
+    libuzfs_inode_type_t type, uint64_t *txg)
 {
 	if (type == INODE_FILE)
-		return libuzfs_object_create(dhp, ino, txg);
+		return (libuzfs_object_create(dhp, ino, txg));
 
 	if (type == INODE_DIR)
-		return libuzfs_zap_create(dhp, ino, txg);
+		return (libuzfs_zap_create(dhp, ino, txg));
 
-	return EINVAL;
+	return (EINVAL);
 }
 
-int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type)
+int
+libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    libuzfs_inode_type_t type)
 {
 	if (type == INODE_FILE)
-		return libuzfs_object_claim(dhp, ino);
+		return (libuzfs_object_claim(dhp, ino));
 
 	if (type == INODE_DIR)
-		return libuzfs_zap_claim(dhp, ino);
+		return (libuzfs_zap_claim(dhp, ino));
 
-	return EINVAL;
+	return (EINVAL);
 }
 
 static int
-libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t kvobj, uint64_t *txg)
+libuzfs_inode_kvobj_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    libuzfs_inode_type_t type, uint64_t kvobj, uint64_t *txg)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -1073,36 +1086,37 @@ out:
 }
 
 int
-libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino, libuzfs_inode_type_t type,
-    uint64_t *txg)
+libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    libuzfs_inode_type_t type, uint64_t *txg)
 {
 	if (type != INODE_FILE && type != INODE_DIR)
-		return EINVAL;
+		return (EINVAL);
 
 	uint64_t kvobj = 0;
 	VERIFY0(libuzfs_inode_get_kvobj(dhp, ino, &kvobj));
 
 	if (kvobj == 0) {
 		if (type == INODE_FILE)
-			return libuzfs_object_delete(dhp, ino, txg);
+			return (libuzfs_object_delete(dhp, ino, txg));
 		if (type == INODE_DIR)
-			return libuzfs_zap_delete(dhp, ino, txg);
+			return (libuzfs_zap_delete(dhp, ino, txg));
 	}
 
-	return libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, txg);
+	return (libuzfs_inode_kvobj_delete(dhp, ino, type, kvobj, txg));
 }
 
 int
-libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, void *attr, uint64_t size)
+libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, void *attr,
+    uint64_t size)
 {
-	return libuzfs_object_getattr(dhp, ino, attr, size);
+	return (libuzfs_object_getattr(dhp, ino, attr, size));
 }
 
 int
-libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const void *attr, uint64_t size,
-    uint64_t *txg)
+libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const void *attr, uint64_t size, uint64_t *txg)
 {
-	return libuzfs_object_setattr(dhp, ino, attr, size, txg);
+	return (libuzfs_object_setattr(dhp, ino, attr, size, txg));
 }
 
 static int
@@ -1140,7 +1154,7 @@ libuzfs_object_kvattr_create_add(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 
 	VERIFY0(dmu_bonus_hold(os, ino, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
-	bcopy(&kvobj, db->db_data, sizeof(kvobj));
+	bcopy(&kvobj, db->db_data, sizeof (kvobj));
 	dmu_buf_rele(db, FTAG);
 
 	*txg = tx->tx_txg;
@@ -1153,94 +1167,98 @@ out:
 }
 
 int
-libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino, uint64_t *kvobj)
+libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    uint64_t *kvobj)
 {
 	dmu_buf_t *db;
 
 	VERIFY0(dmu_bonus_hold(dhp->os, ino, FTAG, &db));
-	bcopy(db->db_data, kvobj, sizeof(*kvobj));
+	bcopy(db->db_data, kvobj, sizeof (*kvobj));
 	dmu_buf_rele(db, FTAG);
 
-	return 0;
+	return (0);
 }
 
 int
-libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    char *value, uint64_t size, int flags)
+libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const char *name, char *value, uint64_t size, int flags)
 {
 	int err = 0;
 	uint64_t kvobj;
 
 	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
 	if (err)
-		return err;
+		return (err);
 
 	if (kvobj == 0)
-		return ENOENT;
+		return (ENOENT);
 
-	return libuzfs_zap_lookup(dhp, kvobj, name, 1, size, value);
+	return (libuzfs_zap_lookup(dhp, kvobj, name, 1, size, value));
 }
 
 // TODO(hping): remove kvobj when no kv attr
 int
-libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    uint64_t *txg)
+libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const char *name, uint64_t *txg)
 {
 	int err = 0;
 	uint64_t kvobj;
 
 	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
 	if (err)
-		return err;
+		return (err);
 
 	if (kvobj == 0)
-		return ENOENT;
+		return (ENOENT);
 
-	return libuzfs_zap_remove(dhp, kvobj, name, txg);
+	return (libuzfs_zap_remove(dhp, kvobj, name, txg));
 }
 
 int
-libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino, const char *name,
-    const char *value, uint64_t size, int flags, uint64_t *txg)
+libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const char *name, const char *value, uint64_t size, int flags,
+    uint64_t *txg)
 {
 	int err = 0;
 	uint64_t kvobj;
 
 	err = libuzfs_inode_get_kvobj(dhp, ino, &kvobj);
 	if (err)
-		return err;
+		return (err);
 
 	if (kvobj == 0)
-		return libuzfs_object_kvattr_create_add(dhp, ino, name, value, size, flags, txg);
+		return (libuzfs_object_kvattr_create_add(dhp, ino, name,
+		    value, size, flags, txg));
 
-	return libuzfs_zap_update(dhp, kvobj, name, 1, size, value, txg);
+	return (libuzfs_zap_update(dhp, kvobj, name, 1, size, value, txg));
 }
 
-int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t *value, uint64_t num, uint64_t *txg)
+int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino,
+    const char *name, uint64_t *value, uint64_t num, uint64_t *txg)
 {
-	return libuzfs_zap_add(dhp, dino, name, 8, num, value, txg);
+	return (libuzfs_zap_add(dhp, dino, name, 8, num, value, txg));
 }
 
-int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t *txg)
+int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino,
+    const char *name, uint64_t *txg)
 {
-	return libuzfs_zap_remove(dhp, dino, name, txg);
+	return (libuzfs_zap_remove(dhp, dino, name, txg));
 }
 
-int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino, const char *name,
-    uint64_t *value, uint64_t num)
+int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
+    const char *name, uint64_t *value, uint64_t num)
 {
-	return libuzfs_zap_lookup(dhp, dino, name, 8, num, value);
+	return (libuzfs_zap_lookup(dhp, dino, name, 8, num, value));
 }
 
 // FIXME(hping)
-#define MAX_NUM_FS (100)
+#define	MAX_NUM_FS (100)
 static zfsvfs_t *zfsvfs_array[MAX_NUM_FS];
 static int zfsvfs_idx = 0;
 static znode_t *rootzp = NULL;
 
-static void libuzfs_vap_init(vattr_t *vap, struct inode *dir, umode_t mode, cred_t *cr)
+static void
+libuzfs_vap_init(vattr_t *vap, struct inode *dir, umode_t mode, cred_t *cr)
 {
 	vap->va_mask = ATTR_MODE;
 	vap->va_mode = mode;
@@ -1264,7 +1282,8 @@ libuzfs_fs_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 int
 libuzfs_fs_create(const char *fsname)
 {
-	return dmu_objset_create(fsname, DMU_OST_ZFS, 0, NULL, libuzfs_fs_create_cb, NULL);
+	return (dmu_objset_create(fsname, DMU_OST_ZFS, 0, NULL,
+	    libuzfs_fs_create_cb, NULL));
 }
 
 void
@@ -1274,7 +1293,8 @@ libuzfs_fs_destroy(const char *fsname)
 	    DS_FIND_SNAPSHOTS | DS_FIND_CHILDREN);
 }
 
-int libuzfs_fs_init(const char* fsname, uint64_t *fsid)
+int
+libuzfs_fs_init(const char *fsname, uint64_t *fsid)
 {
 	int error = 0;
 	vfs_t *vfs = NULL;
@@ -1289,7 +1309,7 @@ int libuzfs_fs_init(const char* fsname, uint64_t *fsid)
 	vfs->vfs_data = zfsvfs;
 	zfsvfs->z_vfs = vfs;
 
-	sb = kmem_zalloc(sizeof(struct super_block), KM_SLEEP);
+	sb = kmem_zalloc(sizeof (struct super_block), KM_SLEEP);
 	sb->s_fs_info = zfsvfs;
 
 	zfsvfs->z_sb = sb;
@@ -1301,32 +1321,38 @@ int libuzfs_fs_init(const char* fsname, uint64_t *fsid)
 
 	zfsvfs_array[zfsvfs_idx++] = zfsvfs;
 
-	return 0;
+	return (0);
 
 out:
 	if (sb)
 		kmem_free(sb, sizeof (struct super_block));
-	if(vfs)
+	if (vfs)
 		kmem_free(vfs, sizeof (vfs_t));
-	if(zfsvfs)
+	if (zfsvfs)
 		kmem_free(zfsvfs, sizeof (zfsvfs_t));
-	return -1;
+	return (-1);
 }
 
-int libuzfs_fs_fini(uint64_t fsid)
+int
+libuzfs_fs_fini(uint64_t fsid)
 {
 	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
 	objset_t *os = zfsvfs->z_os;
 	vfs_t *vfs = zfsvfs->z_vfs;
 	struct super_block *sb = zfsvfs->z_sb;
 
-	struct inode* root_inode = NULL;
+	struct inode *root_inode = NULL;
 	int error = zfs_root(zfsvfs, &root_inode);
-	if (error) return 1;
+	if (error)
+		return (1);
+
 	iput(root_inode);
 	iput(root_inode);
-	// sleep 1 second for zfsvfs draining, otherwise may hit first assert in zfs_unlinked_drain_task
+
+	// sleep 1 second for zfsvfs draining, otherwise may hit first
+	// assert in zfs_unlinked_drain_task
 	sleep(1);
+
 	VERIFY(zfsvfs_teardown(zfsvfs, B_TRUE) == 0);
 
 	/*
@@ -1349,18 +1375,19 @@ int libuzfs_fs_fini(uint64_t fsid)
 
 	if (sb)
 		kmem_free(sb, sizeof (struct super_block));
-	if(vfs)
+	if (vfs)
 		kmem_free(vfs, sizeof (vfs_t));
-	if(zfsvfs)
+	if (zfsvfs)
 		kmem_free(zfsvfs, sizeof (zfsvfs_t));
 
-	return 0;
+	return (0);
 }
 
-int libuzfs_getroot(uint64_t fsid, uint64_t* ino)
+int
+libuzfs_getroot(uint64_t fsid, uint64_t *ino)
 {
 	int error = 0;
-	struct inode* root_inode = NULL;
+	struct inode *root_inode = NULL;
 	zfsvfs_t *zfsvfs = zfsvfs_array[fsid];
 
 	error = zfs_root(zfsvfs, &root_inode);
@@ -1370,20 +1397,21 @@ int libuzfs_getroot(uint64_t fsid, uint64_t* ino)
 	*ino = root_inode->i_ino;
 
 out:
-	return error;
+	return (error);
 }
 
-static int cp_new_stat(struct linux_kstat *stat, struct stat *statbuf)
+static int
+cp_new_stat(struct linux_kstat *stat, struct stat *statbuf)
 {
 	struct stat tmp;
 
 	tmp.st_ino = stat->ino;
-	if (sizeof(tmp.st_ino) < sizeof(stat->ino) && tmp.st_ino != stat->ino)
-		return -EOVERFLOW;
+	if (sizeof (tmp.st_ino) < sizeof (stat->ino) && tmp.st_ino != stat->ino)
+		return (-EOVERFLOW);
 	tmp.st_mode = stat->mode;
 	tmp.st_nlink = stat->nlink;
 	if (tmp.st_nlink != stat->nlink)
-		return -EOVERFLOW;
+		return (-EOVERFLOW);
 	tmp.st_uid = stat->uid;
 	tmp.st_gid = stat->gid;
 	tmp.st_size = stat->size;
@@ -1392,11 +1420,12 @@ static int cp_new_stat(struct linux_kstat *stat, struct stat *statbuf)
 	tmp.st_ctime = stat->ctime.tv_sec;
 	tmp.st_blocks = stat->blocks;
 	tmp.st_blksize = stat->blksize;
-	memcpy(statbuf,&tmp,sizeof(tmp));
-	return 0;
+	memcpy(statbuf, &tmp, sizeof (tmp));
+	return (0);
 }
 
-int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat)
+int
+libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat *stat)
 {
 	int error = 0;
 	znode_t *zp = NULL;
@@ -1405,13 +1434,15 @@ int libuzfs_getattr(uint64_t fsid, uint64_t ino, struct stat* stat)
 	ZFS_ENTER(zfsvfs);
 
 	error = zfs_zget(zfsvfs, ino, &zp);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	struct linux_kstat kstatbuf;
-	memset(&kstatbuf, 0, sizeof(struct linux_kstat));
+	memset(&kstatbuf, 0, sizeof (struct linux_kstat));
 
 	error = zfs_getattr_fast(NULL, ZTOI(zp), &kstatbuf);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	cp_new_stat(&kstatbuf, stat);
 
@@ -1420,10 +1451,11 @@ out:
 		iput(ZTOI(zp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino)
+int
+libuzfs_lookup(uint64_t fsid, uint64_t dino, char *name, uint64_t *ino)
 {
 	int error = 0;
 	znode_t *dzp = NULL;
@@ -1433,10 +1465,12 @@ int libuzfs_lookup(uint64_t fsid, uint64_t dino, char* name, uint64_t* ino)
 	ZFS_ENTER(zfsvfs);
 
 	error = zfs_zget(zfsvfs, dino, &dzp);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	error = zfs_lookup(dzp, name, &zp, 0, NULL, NULL, NULL);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	*ino = ZTOI(zp)->i_ino;
 
@@ -1448,10 +1482,12 @@ out:
 		iput(ZTOI(dzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_mkdir(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino)
+int
+libuzfs_mkdir(uint64_t fsid, uint64_t dino, char *name, umode_t mode,
+    uint64_t *ino)
 {
 	int error = 0;
 	znode_t *dzp = NULL;
@@ -1483,10 +1519,11 @@ out:
 		iput(ZTOI(dzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_rmdir(uint64_t fsid, uint64_t dino, char* name)
+int
+libuzfs_rmdir(uint64_t fsid, uint64_t dino, char *name)
 {
 	int error = 0;
 	znode_t *dzp = NULL;
@@ -1506,7 +1543,7 @@ out:
 		iput(ZTOI(dzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
 #define	ZPL_DIR_CONTEXT_INIT(_dirent, _actor, _pos) {	\
@@ -1515,7 +1552,9 @@ out:
 	.pos = _pos,					\
 }
 
-int libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent, filldir_t filldir, loff_t pos)
+int
+libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent, filldir_t filldir,
+    loff_t pos)
 {
 	int error = 0;
 	znode_t *zp = NULL;
@@ -1524,22 +1563,26 @@ int libuzfs_readdir(uint64_t fsid, uint64_t ino, void *dirent, filldir_t filldir
 	ZFS_ENTER(zfsvfs);
 
 	error = zfs_zget(zfsvfs, ino, &zp);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	zpl_dir_context_t ctx = ZPL_DIR_CONTEXT_INIT(dirent, filldir, pos);
 
 	error = zfs_readdir(ZTOI(zp), &ctx, NULL);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 out:
 	if (zp)
 		iput(ZTOI(zp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_create(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint64_t *ino)
+int
+libuzfs_create(uint64_t fsid, uint64_t dino, char *name, umode_t mode,
+    uint64_t *ino)
 {
 	int error = 0;
 	znode_t *dzp = NULL;
@@ -1549,13 +1592,15 @@ int libuzfs_create(uint64_t fsid, uint64_t dino, char* name, umode_t mode, uint6
 	ZFS_ENTER(zfsvfs);
 
 	error = zfs_zget(zfsvfs, dino, &dzp);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	vattr_t vap;
 	libuzfs_vap_init(&vap, ZTOI(dzp), mode | S_IFREG, NULL);
 
 	error = zfs_create(dzp, name, &vap, 0, mode, &zp, NULL, 0, NULL);
-	if (error) goto out;
+	if (error)
+		goto out;
 
 	*ino = ZTOI(zp)->i_ino;
 
@@ -1567,10 +1612,11 @@ out:
 		iput(ZTOI(dzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_remove(uint64_t fsid, uint64_t dino, char* name)
+int
+libuzfs_remove(uint64_t fsid, uint64_t dino, char *name)
 {
 	int error = 0;
 	znode_t *dzp = NULL;
@@ -1590,10 +1636,12 @@ out:
 		iput(ZTOI(dzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_rename(uint64_t fsid, uint64_t sdino, char* sname, uint64_t tdino, char* tname)
+int
+libuzfs_rename(uint64_t fsid, uint64_t sdino, char *sname, uint64_t tdino,
+    char *tname)
 {
 	int error = 0;
 	znode_t *sdzp = NULL;
@@ -1620,10 +1668,11 @@ out:
 		iput(ZTOI(tdzp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
+int
+libuzfs_read(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
 {
 	int error = 0;
 	znode_t *zp = NULL;
@@ -1642,10 +1691,11 @@ out:
 		iput(ZTOI(zp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
+int
+libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio, int ioflag)
 {
 	int error = 0;
 	znode_t *zp = NULL;
@@ -1664,10 +1714,11 @@ out:
 		iput(ZTOI(zp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }
 
-int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag)
+int
+libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag)
 {
 	int error = 0;
 	znode_t *zp = NULL;
@@ -1686,5 +1737,5 @@ out:
 		iput(ZTOI(zp));
 
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return (error);
 }

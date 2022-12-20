@@ -29,35 +29,35 @@ typedef unsigned long int u64;
 typedef	unsigned short umode_t;
 typedef unsigned int kuid_t;
 typedef unsigned int kgid_t;
-#define make_kuid(ns, uid) KUIDT_INIT(uid)
-#define make_kgid(ns, gid) KGIDT_INIT(gid)
-#define KUIDT_INIT(value) ((kuid_t) value )
-#define KGIDT_INIT(value) ((kgid_t) value )
+#define	make_kuid(ns, uid) KUIDT_INIT(uid)
+#define	make_kgid(ns, gid) KGIDT_INIT(gid)
+#define	KUIDT_INIT(value) ((kuid_t)value)
+#define	KGIDT_INIT(value) ((kgid_t)value)
 
 static inline kuid_t __kuid_val(kuid_t uid)
 {
-    return uid;
+	return (uid);
 }
 
 static inline kgid_t __kgid_val(kgid_t gid)
 {
-    return gid;
+	return (gid);
 }
 
 typedef unsigned gfp_t;
 
 typedef struct {
-    volatile uint32_t counter;
+	volatile uint32_t counter;
 } atomic_t;
 
 typedef atomic_t atomic_long_t;
 
 typedef pthread_spinlock_t spinlock_t;
-#define spin_lock(lock) pthread_spin_lock(lock)
-#define spin_unlock(lock) pthread_spin_unlock(lock)
+#define	spin_lock(lock) pthread_spin_lock(lock)
+#define	spin_unlock(lock) pthread_spin_unlock(lock)
 
 struct dentry {
-    struct inode *d_inode;      /* Where the name belongs to - NULL is negative */
+	struct inode *d_inode;
 };
 
 struct path {};
@@ -67,7 +67,7 @@ struct super_block {
 	struct dentry		*s_root;
 	atomic_t		s_active;
 	void 			*s_fs_info;	/* Filesystem private info */
-	u32	                s_time_gran;
+	u32			s_time_gran;
 };
 
 typedef unsigned fmode_t;
@@ -80,19 +80,19 @@ struct inode_operations {};
 enum { MAX_NESTED_LINKS = 8 };
 
 struct linux_kstat {
-    u64     ino;
-    dev_t       dev;
-    umode_t     mode;
-    unsigned int    nlink;
-    kuid_t      uid;
-    kgid_t      gid;
-    dev_t       rdev;
-    loff_t      size;
-    struct timespec  atime;
-    struct timespec mtime;
-    struct timespec ctime;
-    unsigned long   blksize;
-    unsigned long long  blocks;
+	u64			ino;
+	dev_t			dev;
+	umode_t			mode;
+	unsigned int		nlink;
+	kuid_t			uid;
+	kgid_t			gid;
+	dev_t			rdev;
+	loff_t			size;
+	struct timespec		atime;
+	struct timespec 	mtime;
+	struct timespec 	ctime;
+	unsigned long   	blksize;
+	unsigned long long	blocks;
 };
 
 struct inode {
@@ -112,14 +112,14 @@ struct inode {
 	struct timespec		i_atime;
 	struct timespec		i_mtime;
 	struct timespec		i_ctime;
-	spinlock_t		i_lock;	/* i_blocks, i_bytes, maybe i_size */
-	unsigned short          i_bytes;
+	spinlock_t		i_lock;
+	unsigned short		i_bytes;
 	unsigned int		i_blkbits;
 	blkcnt_t		i_blocks;
 	unsigned long		i_state;
 	uint64_t		i_version;
 	atomic_t		i_count;
-	const struct file_operations	*i_fop;	/* former ->i_op->default_file_ops */
+	const struct file_operations	*i_fop;
 	u32			i_generation;
 };
 
@@ -130,7 +130,8 @@ extern struct inode *igrab(struct inode *inode);
 extern void iput(struct inode *inode);
 extern struct inode *new_inode(struct super_block *sb);
 extern void init_special_inode(struct inode *, umode_t, dev_t);
-extern void inode_set_flags(struct inode *inode, unsigned int flags, unsigned int mask);
+extern void inode_set_flags(struct inode *inode, unsigned int flags,
+    unsigned int mask);
 extern int insert_inode_locked(struct inode *inode);
 extern void unlock_new_inode(struct inode *inode);
 extern void mark_inode_dirty(struct inode *inode);
@@ -138,7 +139,8 @@ extern void set_nlink(struct inode *inode, unsigned int nlink);
 extern void i_size_write(struct inode *inode, loff_t i_size);
 extern void truncate_setsize(struct inode *inode, loff_t newsize);
 
-extern int timespec_compare(const struct timespec *lhs, const struct timespec *rhs);
+extern int timespec_compare(const struct timespec *lhs,
+    const struct timespec *rhs);
 
 static inline void zfs_uid_write(struct inode *ip, uid_t uid)
 {
@@ -150,33 +152,37 @@ static inline void zfs_gid_write(struct inode *ip, gid_t gid)
 	ip->i_gid = make_kgid(ip->i_sb->s_user_ns, gid);
 }
 
-#define container_of(ptr, type, member) ({          \
-    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-    (type *)( (char *)__mptr - offsetof(type,member) );})
+#define	container_of(ptr, type, member) 				\
+(									\
+	{								\
+		const typeof(((type *)0)->member) *__mptr = (ptr);	\
+		(type *)((char *)__mptr - offsetof(type, member));	\
+	}								\
+)
 
-#define S_APPEND    4   /* Append-only file */
-#define S_IMMUTABLE 8   /* Immutable file */
+#define	S_APPEND    4   /* Append-only file */
+#define	S_IMMUTABLE 8   /* Immutable file */
 
-#define PAGE_SHIFT  12
-#define PAGE_SIZE   (1 << PAGE_SHIFT)
-#define PAGE_MASK   (~(PAGE_SIZE-1))
+#define	PAGE_SHIFT  12
+#define	PAGE_SIZE   (1 << PAGE_SHIFT)
+#define	PAGE_MASK   (~(PAGE_SIZE-1))
 
 // policy.c
-#define CAP_SYS_ADMIN        21
-#define CAP_DAC_OVERRIDE     1
-#define CAP_DAC_READ_SEARCH  2
-#define CAP_FOWNER           3
-#define CAP_FSETID           4
-#define CAP_SETGID           6
+#define	CAP_SYS_ADMIN		21
+#define	CAP_DAC_OVERRIDE	1
+#define	CAP_DAC_READ_SEARCH	2
+#define	CAP_FOWNER		3
+#define	CAP_FSETID		4
+#define	CAP_SETGID		6
 
 extern struct cred *kcred;
 extern boolean_t has_capability(proc_t *t, int cap);
 extern boolean_t capable(int cap);
 
-#define zpl_inode_owner_or_capable(ns, ip)  inode_owner_or_capable(ip)
+#define	zpl_inode_owner_or_capable(ns, ip)  inode_owner_or_capable(ip)
 extern boolean_t inode_owner_or_capable(const struct inode *inode);
 
-#define mutex_owned(mp) MUTEX_HELD(mp)
+#define	mutex_owned(mp) MUTEX_HELD(mp)
 
 // zfs_vnops.c
 typedef struct zpl_dir_context {
@@ -190,17 +196,17 @@ static inline void task_io_account_read(int64_t n) {}
 static inline void task_io_account_write(int64_t n) {}
 
 // zfs_dir.c
-#define ED_CASE_CONFLICT        0x10
+#define	ED_CASE_CONFLICT	0x10
 extern int atomic_read(const atomic_t *v);
 extern void drop_nlink(struct inode *inode);
 extern void clear_nlink(struct inode *inode);
 extern void inc_nlink(struct inode *inode);
 
 // zfs_vnops_os.c
-#define FMODE_WRITE     (0x2)
+#define	FMODE_WRITE		(0x2)
 
-#define	TIME_MAX			INT64_MAX
-#define	TIME_MIN			INT64_MIN
+#define	TIME_MAX		INT64_MAX
+#define	TIME_MIN		INT64_MIN
 
 #define	TIMESPEC_OVERFLOW(ts)		\
 	((ts)->tv_sec < TIME_MIN || (ts)->tv_sec > TIME_MAX)
@@ -220,22 +226,24 @@ extern loff_t i_size_read(const struct inode *inode);
 #define	zpl_generic_fillattr(user_ns, ip, sp)	 generic_fillattr(ip, sp)
 extern void generic_fillattr(struct inode *inode, struct linux_kstat *stat);
 
-#define	zpl_inode_timestamp_truncate(ts, ip)	timespec_trunc(ts, (ip)->i_sb->s_time_gran)
+#define	zpl_inode_timestamp_truncate(ts, ip)	\
+	timespec_trunc(ts, (ip)->i_sb->s_time_gran)
+
 extern struct timespec timespec_trunc(struct timespec t, unsigned gran);
 extern uid_t zfs_uid_read(struct inode *inode);
 extern gid_t zfs_gid_read(struct inode *inode);
 
 // zfs_ctldir.c
-#define LOOKUP_FOLLOW       0x0001
-#define LOOKUP_DIRECTORY    0x0002
+#define	LOOKUP_FOLLOW		0x0001
+#define	LOOKUP_DIRECTORY	0x0002
 
-#define S_IRWXUGO   (S_IRWXU|S_IRWXG|S_IRWXO)
+#define	S_IRWXUGO   (S_IRWXU|S_IRWXG|S_IRWXO)
 
-#define IS_ERR(ptr) (B_FALSE)
+#define	IS_ERR(ptr) (B_FALSE)
 
 extern struct timespec current_time(struct inode *inode);
 extern struct inode *ilookup(struct super_block *sb, unsigned long ino);
-extern struct dentry * d_obtain_alias(struct inode *);
+extern struct dentry *d_obtain_alias(struct inode *);
 extern boolean_t d_mountpoint(struct dentry *dentry);
 extern void dput(struct dentry *);
 extern int kern_path(const char *name, unsigned int flags, struct path *path);
@@ -252,42 +260,46 @@ extern const struct file_operations simple_dir_operations;
 extern const struct inode_operations simple_dir_inode_operations;
 
 // zfs_vfsops.c
-#define SB_RDONLY   MS_RDONLY
-#define SB_POSIXACL MS_POSIXACL
-#define SB_NOATIME  MS_NOATIME
-#define SB_MANDLOCK MS_MANDLOCK
+#define	SB_RDONLY   MS_RDONLY
+#define	SB_POSIXACL MS_POSIXACL
+#define	SB_NOATIME  MS_NOATIME
+#define	SB_MANDLOCK MS_MANDLOCK
 
-#define MAX_LFS_FILESIZE INT64_MAX
+#define	MAX_LFS_FILESIZE INT64_MAX
 
 // FIXME(hping): use clock functions
-#define jiffies (0)
+#define	jiffies (0)
 
 extern void shrink_dcache_sb(struct super_block *sb);
 extern void d_prune_aliases(struct inode *inode);
 
-#define printk printf
+#define	printk printf
 
 extern int fls(int x);
 
-#define typecheck(type,x) \
-({  type __dummy; \
-    typeof(x) __dummy2; \
-    (void)(&__dummy == &__dummy2); \
-    1; \
-})
+#define	typecheck(type, x)			\
+(						\
+	{					\
+		type __dummy;			\
+		typeof(x) __dummy2;		\
+		(void) (&__dummy == &__dummy2);	\
+		1;				\
+	}					\
+)
 
-#define time_after(a,b)     \
-    (typecheck(unsigned long, a) && \
-     typecheck(unsigned long, b) && \
-     ((long)((b) - (a)) < 0))
-#define time_before(a,b)    time_after(b,a)
+#define	time_after(a, b)			\
+	(typecheck(unsigned long, a) &&		\
+	typecheck(unsigned long, b) &&		\
+	((long)((b) - (a)) < 0))
+
+#define	time_before(a, b)	time_after(b, a)
 
 #undef HAVE_SINGLE_SHRINKER_CALLBACK
 
 // zfs_ioctl.c
-#define FKIOCTL				0x80000000
-#define is_system_labeled()             0
-#define zvol_tag(zv)			(NULL)
+#define	FKIOCTL				0x80000000
+#define	is_system_labeled()		0
+#define	zvol_tag(zv)			(NULL)
 
 static inline boolean_t zfs_proc_is_caller(proc_t *t) { return B_FALSE; }
 

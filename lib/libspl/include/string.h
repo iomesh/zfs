@@ -39,29 +39,30 @@ extern size_t strlcpy(char *dst, const char *src, size_t len);
 
 static inline int ddi_copyin(const void *from, void *to, size_t len, int flags)
 {
-    memcpy(to, from, len);
-    return 0;
+	memcpy(to, from, len);
+	return (0);
 }
 
 static inline int ddi_copyout(const void *from, void *to, size_t len, int flags)
 {
-    memcpy(to, from, len);
-    return 0;
+	memcpy(to, from, len);
+	return (0);
 }
 
 static inline int xcopyin(const void *from, void *to, size_t len)
 {
-    memcpy(to, from, len);
-    return 0;
+	memcpy(to, from, len);
+	return (0);
 }
 
 static inline int xcopyout(const void *from, void *to, size_t len)
 {
-    memcpy(to, from, len);
-    return 0;
+	memcpy(to, from, len);
+	return (0);
 }
 
-static inline int copyinstr(const void *from, void *to, size_t len, size_t *done)
+static inline int
+copyinstr(const void *from, void *to, size_t len, size_t *done)
 {
 	if (len == 0)
 		return (-1);
@@ -69,15 +70,15 @@ static inline int copyinstr(const void *from, void *to, size_t len, size_t *done
 	/* XXX: Should return ENAMETOOLONG if 'strlen(from) > len' */
 
 	memset(to, 0, len);
-    if (xcopyin(from, to, len - 1) == 0) {
-        if (done) {
-            *done = 0;
-        }
-    } else {
-        if (done) {
-            *done = len - 1;
-        }
-    }
+	if (xcopyin(from, to, len - 1) == 0) {
+		if (done) {
+			*done = 0;
+		}
+	} else {
+		if (done) {
+			*done = len - 1;
+		}
+	}
 
 	return (0);
 }

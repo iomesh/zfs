@@ -35,14 +35,14 @@ extern "C" {
 
 #define	KM_SLEEP	0x00000000	/* same as KM_SLEEP */
 #define	KM_NOSLEEP	0x00000001	/* same as KM_NOSLEEP */
-#define KM_PUSHPAGE             KM_SLEEP
+#define	KM_PUSHPAGE	KM_SLEEP
 
-#define kmem_alloc(_s, _f)      umem_alloc(_s, _f)
-#define kmem_zalloc(_s, _f)     umem_zalloc(_s, _f)
-#define kmem_free(_b, _s)       umem_free(_b, _s)
-#define vmem_alloc(_s, _f)      kmem_alloc(_s, _f)
-#define vmem_zalloc(_s, _f)     kmem_zalloc(_s, _f)
-#define vmem_free(_b, _s)       kmem_free(_b, _s)
+#define	kmem_alloc(_s, _f)	umem_alloc(_s, _f)
+#define	kmem_zalloc(_s, _f)	umem_zalloc(_s, _f)
+#define	kmem_free(_b, _s)	umem_free(_b, _s)
+#define	vmem_alloc(_s, _f)	kmem_alloc(_s, _f)
+#define	vmem_zalloc(_s, _f)	kmem_zalloc(_s, _f)
+#define	vmem_free(_b, _s)	kmem_free(_b, _s)
 
 #ifdef	__cplusplus
 }

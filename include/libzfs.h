@@ -59,10 +59,10 @@ extern "C" {
 /*
  * These APIs' names are conflict with libzpool
  */
-#define zfs_open(a, b, c)	libzfs_zfs_open(a, b, c)
-#define zfs_close(a)		libzfs_zfs_close(a)
-#define zfs_create(a, b, c, d)	libzfs_zfs_create(a, b, c, d)
-#define zfs_rename(a, b, c)	libzfs_zfs_rename(a, b, c)
+#define	zfs_open(a, b, c)	libzfs_zfs_open(a, b, c)
+#define	zfs_close(a)		libzfs_zfs_close(a)
+#define	zfs_create(a, b, c, d)	libzfs_zfs_create(a, b, c, d)
+#define	zfs_rename(a, b, c)	libzfs_zfs_rename(a, b, c)
 
 /*
  * libzfs errors

@@ -72,7 +72,7 @@ typedef struct zfs_uio {
 	int		uio_iovcnt;	   /* number of iovecs */
 	offset_t	uio_loffset;	   /* file offset */
 	zfs_uio_seg_t	uio_segflg;	   /* address space (kernel or user) */
-	boolean_t	uio_fault_disable; /* for compatibility, unused in userspace */
+	boolean_t	uio_fault_disable; /* for compatibility */
 	uint16_t	uio_fmode;	   /* file mode flags */
 	uint16_t	uio_extflg;	   /* extended flags */
 	ssize_t		uio_resid;	   /* residual count */
@@ -191,7 +191,7 @@ zfs_uioskip(zfs_uio_t *uio, size_t n)
 
 	uio->uio_skip += n;
 	while (uio->uio_iovcnt &&
-			uio->uio_skip >= uio->uio_iov->iov_len) {
+	    uio->uio_skip >= uio->uio_iov->iov_len) {
 		uio->uio_skip -= uio->uio_iov->iov_len;
 		uio->uio_iov++;
 		uio->uio_iovcnt--;
@@ -201,8 +201,9 @@ zfs_uioskip(zfs_uio_t *uio, size_t n)
 }
 
 static inline int
-zfs_uio_prefaultpages(ssize_t n, zfs_uio_t *uio) {
-    return 0;
+zfs_uio_prefaultpages(ssize_t n, zfs_uio_t *uio)
+{
+	return (0);
 }
 
 #endif	/* _SYS_UIO_H */

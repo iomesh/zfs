@@ -39,7 +39,7 @@
 #include <sys/objlist.h>
 
 #ifndef _KERNEL
-#define kstatfs statfs
+#define	kstatfs statfs
 #endif
 
 #ifdef	__cplusplus

@@ -27,7 +27,7 @@
 
 #include <sys/types.h>
 #include <sys/zfs_dir.h> // zfs_rmnode
-#include <sys/zfs_ctldir.h> //zfsctl_is_node
+#include <sys/zfs_ctldir.h> // zfsctl_is_node
 
 #include <sys/xvattr.h>
 

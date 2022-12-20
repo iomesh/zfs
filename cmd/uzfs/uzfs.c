@@ -161,8 +161,8 @@ typedef struct uzfs_command {
 static uzfs_command_t command_table[] = {
 	{ "create-zpool",	uzfs_zpool_create, 	HELP_ZPOOL_CREATE   },
 	{ "destroy-zpool",	uzfs_zpool_destroy, 	HELP_ZPOOL_DESTROY  },
-	{ "set-zpool",		uzfs_zpool_set, 	HELP_ZPOOL_SET    },
-	{ "get-zpool",		uzfs_zpool_get, 	HELP_ZPOOL_GET    },
+	{ "set-zpool",		uzfs_zpool_set, 	HELP_ZPOOL_SET	},
+	{ "get-zpool",		uzfs_zpool_get, 	HELP_ZPOOL_GET	},
 	{ "create-dataset",	uzfs_dataset_create, 	HELP_DATASET_CREATE },
 	{ "destroy-dataset",	uzfs_dataset_destroy, 	HELP_DATASET_DESTROY},
 	{ "getsbino-dataset",	uzfs_dataset_get_sbino,	HELP_DATASET_GET_SBINO},
@@ -173,37 +173,37 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
-	{ "perf-object",	uzfs_object_perf, 	HELP_OBJECT_PERF   },
-	{ "create-zap",		uzfs_zap_create, 	HELP_ZAP_CREATE     },
-	{ "delete-zap",		uzfs_zap_delete, 	HELP_ZAP_DELETE     },
-	{ "add-zap"	,	uzfs_zap_add,	 	HELP_ZAP_ADD        },
-	{ "remove-zap"	,	uzfs_zap_remove, 	HELP_ZAP_REMOVE     },
-	{ "update-zap"	,	uzfs_zap_update, 	HELP_ZAP_UPDATE     },
-	{ "lookup-zap"	,	uzfs_zap_lookup, 	HELP_ZAP_LOOKUP     },
-	{ "count-zap"	,	uzfs_zap_count, 	HELP_ZAP_COUNT      },
-	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE      },
-	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY     },
-	{ "stat",		uzfs_stat,		HELP_STAT           },
-	{ "mkdir",		uzfs_mkdir,		HELP_MKDIR          },
-	{ "create",		uzfs_create,		HELP_CREATE         },
-	{ "rm",			uzfs_rm,		HELP_RM             },
-	{ "ls",			uzfs_ls,		HELP_LS             },
-	{ "mv",			uzfs_mv,		HELP_MV             },
-	{ "read",		uzfs_read,		HELP_READ           },
-	{ "write",		uzfs_write,		HELP_WRITE          },
-	{ "fsync",		uzfs_fsync,		HELP_FSYNC          },
-	{ "perf",		uzfs_perf,		HELP_PERF           },
-	{ "create-inode",	uzfs_inode_create, 	HELP_INODE_CREATE   },
-	{ "delete-inode",	uzfs_inode_delete, 	HELP_INODE_DELETE   },
-	{ "getattr-inode",	uzfs_inode_getattr, 	HELP_INODE_GETATTR  },
-	{ "setattr-inode",	uzfs_inode_setattr, 	HELP_INODE_SETATTR  },
-	{ "getkvobj-inode",	uzfs_inode_get_kvobj, 	HELP_INODE_GET_KVOBJ  },
-	{ "getkvattr-inode",	uzfs_inode_get_kvattr, 	HELP_INODE_GET_KVATTR  },
-	{ "setkvattr-inode",	uzfs_inode_set_kvattr, 	HELP_INODE_SET_KVATTR  },
-	{ "rmkvattr-inode",	uzfs_inode_rm_kvattr, 	HELP_INODE_RM_KVATTR  },
-	{ "create-dentry",	uzfs_dentry_create, 	HELP_DENTRY_CREATE  },
-	{ "delete-dentry",	uzfs_dentry_delete, 	HELP_DENTRY_DELETE  },
-	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_DELETE  },
+	{ "perf-object",	uzfs_object_perf, 	HELP_OBJECT_PERF    },
+	{ "create-zap",		uzfs_zap_create, 	HELP_ZAP_CREATE	},
+	{ "delete-zap",		uzfs_zap_delete, 	HELP_ZAP_DELETE },
+	{ "add-zap",		uzfs_zap_add,		HELP_ZAP_ADD	},
+	{ "remove-zap",		uzfs_zap_remove, 	HELP_ZAP_REMOVE	},
+	{ "update-zap",		uzfs_zap_update, 	HELP_ZAP_UPDATE	},
+	{ "lookup-zap",		uzfs_zap_lookup, 	HELP_ZAP_LOOKUP	},
+	{ "count-zap",		uzfs_zap_count, 	HELP_ZAP_COUNT	},
+	{ "create-fs",		uzfs_fs_create, 	HELP_FS_CREATE	},
+	{ "destroy-fs",		uzfs_fs_destroy, 	HELP_FS_DESTROY	},
+	{ "stat",		uzfs_stat,		HELP_STAT	},
+	{ "mkdir",		uzfs_mkdir,		HELP_MKDIR	},
+	{ "create",		uzfs_create,		HELP_CREATE	},
+	{ "rm",			uzfs_rm,		HELP_RM		},
+	{ "ls",			uzfs_ls,		HELP_LS		},
+	{ "mv",			uzfs_mv,		HELP_MV		},
+	{ "read",		uzfs_read,		HELP_READ	},
+	{ "write",		uzfs_write,		HELP_WRITE	},
+	{ "fsync",		uzfs_fsync,		HELP_FSYNC	},
+	{ "perf",		uzfs_perf,		HELP_PERF	},
+	{ "create-inode",	uzfs_inode_create, 	HELP_INODE_CREATE    },
+	{ "delete-inode",	uzfs_inode_delete, 	HELP_INODE_DELETE    },
+	{ "getattr-inode",	uzfs_inode_getattr, 	HELP_INODE_GETATTR   },
+	{ "setattr-inode",	uzfs_inode_setattr, 	HELP_INODE_SETATTR   },
+	{ "getkvobj-inode",	uzfs_inode_get_kvobj, 	HELP_INODE_GET_KVOBJ },
+	{ "getkvattr-inode",	uzfs_inode_get_kvattr, 	HELP_INODE_GET_KVATTR},
+	{ "setkvattr-inode",	uzfs_inode_set_kvattr, 	HELP_INODE_SET_KVATTR},
+	{ "rmkvattr-inode",	uzfs_inode_rm_kvattr, 	HELP_INODE_RM_KVATTR },
+	{ "create-dentry",	uzfs_dentry_create, 	HELP_DENTRY_CREATE   },
+	{ "delete-dentry",	uzfs_dentry_delete, 	HELP_DENTRY_DELETE   },
+	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_DELETE   },
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -351,22 +351,23 @@ usage(boolean_t requested)
 	exit(requested ? 0 : 2);
 }
 
-static void print_stat(const char* name, struct stat* stat)
+static void print_stat(const char *name, struct stat *stat)
 {
-    const char* format =
-        "  File: %s(%s)\n"
-        "  Inode: %lld\n"
-        "  MODE: %x\n"
-        "  Links: %lld\n"
-        "  UID/GID: %d/%d\n"
-        "  SIZE: %d\n"
-        "  BLOCKSIZE: %d\n"
-        "  BLOCKS: %d\n";
+	const char *format =
+	    "  File: %s(%s)\n"
+	    "  Inode: %lld\n"
+	    "  MODE: %x\n"
+	    "  Links: %lld\n"
+	    "  UID/GID: %d/%d\n"
+	    "  SIZE: %d\n"
+	    "  BLOCKSIZE: %d\n"
+	    "  BLOCKS: %d\n";
 
-    const char* type = S_ISDIR(stat->st_mode) ? "DIR" : "REG FILE";
+	const char *type = S_ISDIR(stat->st_mode) ? "DIR" : "REG FILE";
 
-    printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink, stat->st_uid, stat->st_gid,
-           stat->st_size, stat->st_blksize, stat->st_blocks);
+	printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink,
+	    stat->st_uid, stat->st_gid, stat->st_size, stat->st_blksize,
+	    stat->st_blocks);
 }
 
 static int
@@ -882,7 +883,8 @@ uzfs_zap_add(int argc, char **argv)
 	char *key = argv[3];
 	uint64_t value = atoll(argv[4]);
 
-	printf("add entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
+	printf("add entry %s:%ld to zap object %s:%ld\n",
+	    key, value, dsname, obj);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -894,7 +896,8 @@ uzfs_zap_add(int argc, char **argv)
 
 	err = libuzfs_zap_add(dhp, obj, key, 8, 1, &value, &txg);
 	if (err)
-		printf("failed to add entry to zap object: %s:%ld\n", dsname, obj);
+		printf("failed to add entry to zap object: %s:%ld\n",
+		    dsname, obj);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -908,7 +911,8 @@ uzfs_zap_remove(int argc, char **argv)
 	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 
-	printf("remove entry %s from zap object %s:%ld\n", key, dsname, obj);
+	printf("remove entry %s from zap object %s:%ld\n",
+	    key, dsname, obj);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -920,7 +924,8 @@ uzfs_zap_remove(int argc, char **argv)
 
 	err = libuzfs_zap_remove(dhp, obj, key, &txg);
 	if (err)
-		printf("failed to remove entry from zap object: %s:%ld\n", dsname, obj);
+		printf("failed to remove entry from zap object: %s:%ld\n",
+		    dsname, obj);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -935,7 +940,8 @@ uzfs_zap_update(int argc, char **argv)
 	char *key = argv[3];
 	uint64_t value = atoll(argv[4]);
 
-	printf("update entry %s:%ld to zap object %s:%ld\n", key, value, dsname, obj);
+	printf("update entry %s:%ld to zap object %s:%ld\n",
+	    key, value, dsname, obj);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -947,7 +953,8 @@ uzfs_zap_update(int argc, char **argv)
 
 	err = libuzfs_zap_update(dhp, obj, key, 8, 1, &value, &txg);
 	if (err)
-		printf("failed to update entry to zap object: %s:%ld\n", dsname, obj);
+		printf("failed to update entry to zap object: %s:%ld\n",
+		    dsname, obj);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -972,9 +979,11 @@ uzfs_zap_lookup(int argc, char **argv)
 
 	err = libuzfs_zap_lookup(dhp, obj, key, 8, 1, &value);
 	if (err)
-		printf("failed to lookup entry to zap object: %s:%ld\n", dsname, obj);
+		printf("failed to lookup entry to zap object: %s:%ld\n",
+		    dsname, obj);
 	else
-		printf("lookup entry to zap object: %s:%ld, %s:%ld\n", dsname, obj, key, value);
+		printf("lookup entry to zap object: %s:%ld, %s:%ld\n",
+		    dsname, obj, key, value);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -998,7 +1007,8 @@ uzfs_zap_count(int argc, char **argv)
 
 	err = libuzfs_zap_count(dhp, obj, &count);
 	if (err)
-		printf("failed to count entry to zap object: %s:%ld\n", dsname, obj);
+		printf("failed to count entry to zap object: %s:%ld\n",
+		    dsname, obj);
 	else
 		printf("zap object: %s:%ld, count: %ld\n", dsname, obj, count);
 
@@ -1077,11 +1087,12 @@ uzfs_inode_getattr(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(buf));
+	memset(&buf, 0, sizeof (buf));
 
-	err = libuzfs_inode_getattr(dhp, obj, &buf, sizeof(buf));
+	err = libuzfs_inode_getattr(dhp, obj, &buf, sizeof (buf));
 	if (err)
-		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
+		printf("failed to get attr inode %ld on dataset: %s\n",
+		    obj, dsname);
 	else
 		print_stat(NULL, &buf);
 
@@ -1106,7 +1117,7 @@ uzfs_inode_setattr(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(buf));
+	memset(&buf, 0, sizeof (buf));
 
 	buf.st_ino = obj;
 	buf.st_mode = 0x1;
@@ -1121,9 +1132,10 @@ uzfs_inode_setattr(int argc, char **argv)
 	buf.st_blksize = 512;
 
 	uint64_t txg = 0;
-	err = libuzfs_inode_setattr(dhp, obj, &buf, sizeof(buf), &txg);
+	err = libuzfs_inode_setattr(dhp, obj, &buf, sizeof (buf), &txg);
 	if (err)
-		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
+		printf("failed to get attr inode %ld on dataset: %s\n",
+		    obj, dsname);
 	else
 		print_stat(NULL, &buf);
 
@@ -1150,7 +1162,8 @@ uzfs_inode_get_kvobj(int argc, char **argv)
 	uint64_t kvobj = 0;
 	err = libuzfs_inode_get_kvobj(dhp, obj, &kvobj);
 	if (err)
-		printf("failed to get kvattr inode %ld on dataset: %s\n", obj, dsname);
+		printf("failed to get kvattr inode %ld on dataset: %s\n",
+		    obj, dsname);
 	else
 		printf("%s/%ld:: kvobj: %ld\n", dsname, obj, kvobj);
 
@@ -1167,7 +1180,8 @@ uzfs_inode_get_kvattr(int argc, char **argv)
 	uint64_t obj = atoll(argv[2]);
 	char *key = argv[3];
 
-	printf("getting kvattr inode %s, obj: %ld, key: %s\n", dsname, obj, key);
+	printf("getting kvattr inode %s, obj: %ld, key: %s\n",
+	    dsname, obj, key);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1178,9 +1192,11 @@ uzfs_inode_get_kvattr(int argc, char **argv)
 	char value[64] = {0};
 	err = libuzfs_inode_get_kvattr(dhp, obj, key, value, 64, 0);
 	if (err)
-		printf("failed to get kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
+		printf("failed to get kvattr inode %ld, dataset: %s, key: %s\n",
+		    obj, dsname, key);
 	else
-		printf("%s/%ld:: key: %s, value: %s\n", dsname, obj, key, value);
+		printf("%s/%ld:: key: %s, value: %s\n",
+		    dsname, obj, key, value);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1196,8 +1212,8 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 	char *key = argv[3];
 	char *value = argv[4];
 
-
-	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %s\n", dsname, obj, key, value);
+	printf("setting kvattr inode %s, obj: %ld, key: %s, value: %s\n",
+	    dsname, obj, key, value);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1208,7 +1224,8 @@ uzfs_inode_set_kvattr(int argc, char **argv)
 	uint64_t txg = 0;
 	err = libuzfs_inode_set_kvattr(dhp, obj, key, value, 64, 0, &txg);
 	if (err)
-		printf("failed to set attr inode %ld on dataset: %s\n", obj, dsname);
+		printf("failed to set attr inode %ld on dataset: %s\n",
+		    obj, dsname);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1224,7 +1241,8 @@ uzfs_inode_rm_kvattr(int argc, char **argv)
 	char *key = argv[3];
 
 
-	printf("removing kvattr inode %s, obj: %ld, key: %s\n", dsname, obj, key);
+	printf("removing kvattr inode %s, obj: %ld, key: %s\n",
+	    dsname, obj, key);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1235,7 +1253,8 @@ uzfs_inode_rm_kvattr(int argc, char **argv)
 	uint64_t txg = 0;
 	err = libuzfs_inode_remove_kvattr(dhp, obj, key, &txg);
 	if (err)
-		printf("failed to rm kvattr inode %ld on dataset: %s, key: %s\n", obj, dsname, key);
+		printf("failed to rm kvattr inode %ld on dataset: %s key: %s\n",
+		    obj, dsname, key);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1252,7 +1271,8 @@ uzfs_dentry_create(int argc, char **argv)
 	uint64_t ino = atoll(argv[4]);
 	uint64_t payload = atoll(argv[5]);
 
-	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld\n", dsname, dino, name, ino);
+	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld\n",
+	    dsname, dino, name, ino);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1270,7 +1290,7 @@ uzfs_dentry_create(int argc, char **argv)
 		printf("failed to create dentry on dataset: %s\n", dsname);
 	else
 		printf("created dentry %s, dino: %ld, name: %s, [%ld, %ld]\n",
-			dsname, dino, name, ino, payload);
+		    dsname, dino, name, ino, payload);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1285,7 +1305,8 @@ uzfs_dentry_delete(int argc, char **argv)
 	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
 
-	printf("destroying dentry %s: dino: %ld, name: %s\n", dsname, dino, name);
+	printf("destroying dentry %s: dino: %ld, name: %s\n",
+	    dsname, dino, name);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1297,7 +1318,8 @@ uzfs_dentry_delete(int argc, char **argv)
 
 	err = libuzfs_dentry_delete(dhp, dino, name, &txg);
 	if (err)
-		printf("failed to delete dentry: %s:%ld/%s\n", dsname, dino, name);
+		printf("failed to delete dentry: %s:%ld/%s\n",
+		    dsname, dino, name);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -1323,10 +1345,11 @@ uzfs_dentry_lookup(int argc, char **argv)
 
 	err = libuzfs_dentry_lookup(dhp, dino, name, value, 2);
 	if (err)
-		printf("failed to lookup dentry: %s:%ld/%s\n", dsname, dino, name);
+		printf("failed to lookup dentry: %s:%ld/%s\n",
+		    dsname, dino, name);
 	else
-		printf("looked up dentry: %s:%ld/%s: [%ld, %ld]\n", dsname, dino, name,
-			value[0], value[1]);
+		printf("looked up dentry: %s:%ld/%s: [%ld, %ld]\n",
+		    dsname, dino, name, value[0], value[1]);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -1421,7 +1444,7 @@ static int uzfs_stat(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(struct stat));
+	memset(&buf, 0, sizeof (struct stat));
 
 	error = libuzfs_getattr(fsid, ino, &buf);
 	if (error) {
@@ -1435,7 +1458,7 @@ out:
 
 	libuzfs_fs_fini(fsid);
 
-	return error;
+	return (error);
 }
 
 static int uzfs_mkdir(int argc, char **argv)
@@ -1498,7 +1521,7 @@ out:
 
 	libuzfs_fs_fini(fsid);
 
-	return error;
+	return (error);
 
 }
 
@@ -1560,7 +1583,7 @@ out:
 
 	libuzfs_fs_fini(fsid);
 
-	return error;
+	return (error);
 }
 
 static int uzfs_rm(int argc, char **argv)
@@ -1625,7 +1648,7 @@ static int uzfs_rm(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(struct stat));
+	memset(&buf, 0, sizeof (struct stat));
 
 	error = libuzfs_getattr(fsid, ino, &buf);
 	if (error) {
@@ -1655,13 +1678,14 @@ out:
 
 	libuzfs_fs_fini(fsid);
 
-	return error;
+	return (error);
 }
 
-static int uzfs_dir_emit(void *ctx, const char *name, int namelen, loff_t off, uint64_t ino, unsigned type)
+static int uzfs_dir_emit(void *ctx, const char *name, int namelen, loff_t off,
+    uint64_t ino, unsigned type)
 {
 	printf("\t%s\tobjnum: %ld\n", name, ino);
-	return 0;
+	return (0);
 }
 
 static int uzfs_ls(int argc, char **argv)
@@ -1726,7 +1750,7 @@ static int uzfs_ls(int argc, char **argv)
 	}
 
 	struct stat buf;
-	memset(&buf, 0, sizeof(struct stat));
+	memset(&buf, 0, sizeof (struct stat));
 
 	error = libuzfs_getattr(fsid, ino, &buf);
 	if (error) {
@@ -1752,95 +1776,95 @@ out:
 
 	libuzfs_fs_fini(fsid);
 
-	return error;
+	return (error);
 }
 
 static int uzfs_mv(int argc, char **argv)
 {
-    int error = 0;
-    char *spath = argv[1];
-    char *dst_path = argv[2];
+	int error = 0;
+	char *spath = argv[1];
+	char *dst_path = argv[2];
 
-    char fsname[256] = "";
-    char src_path[256] = "";
+	char fsname[256] = "";
+	char src_path[256] = "";
 
-    char *fs_end = strstr(spath, "://");
-    memcpy(fsname, spath, fs_end - spath);
-    memcpy(src_path, fs_end + 3, strlen(spath) - strlen(fsname) - 3);
+	char *fs_end = strstr(spath, "://");
+	memcpy(fsname, spath, fs_end - spath);
+	memcpy(src_path, fs_end + 3, strlen(spath) - strlen(fsname) - 3);
 
-    printf("mv %s: %s %s\n", fsname, src_path, dst_path);
+	printf("mv %s: %s %s\n", fsname, src_path, dst_path);
 
-    uint64_t fsid = 0;
-    error = libuzfs_fs_init(fsname, &fsid);
-    if (error) goto out;
+	uint64_t fsid = 0;
+	error = libuzfs_fs_init(fsname, &fsid);
+	if (error) goto out;
 
-    uint64_t root_ino = 0;
+	uint64_t root_ino = 0;
 
-    error = libuzfs_getroot(fsid, &root_ino);
-    if (error) goto out;
+	error = libuzfs_getroot(fsid, &root_ino);
+	if (error) goto out;
 
-    char *s = src_path;
-    if (*s != '/') {
-        printf("path %s must be started with /\n", src_path);
-        error = 1;
-        goto out;
-    }
+	char *s = src_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", src_path);
+		error = 1;
+		goto out;
+	}
 
-    s++;
+	s++;
 
-    char *e = strchr(s, '/');
+	char *e = strchr(s, '/');
 
-    uint64_t sdino = root_ino;
-    uint64_t sino = 0;
+	uint64_t sdino = root_ino;
+	uint64_t sino = 0;
 
-    while (e) {
-        *e = '\0';
+	while (e) {
+		*e = '\0';
 
-        error = libuzfs_lookup(fsid, sdino, s, &sino);
-        if (error) goto out;
+		error = libuzfs_lookup(fsid, sdino, s, &sino);
+		if (error) goto out;
 
-        s = e + 1;
-        e = strchr(s, '/');
-        sdino = sino;
-    }
+		s = e + 1;
+		e = strchr(s, '/');
+		sdino = sino;
+	}
 
-    char *d = dst_path;
-    if (*d != '/') {
-        printf("path %s must be started with /\n", dst_path);
-        error = 1;
-        goto out;
-    }
+	char *d = dst_path;
+	if (*d != '/') {
+		printf("path %s must be started with /\n", dst_path);
+		error = 1;
+		goto out;
+	}
 
-    d++;
+	d++;
 
-    e = strchr(d, '/');
+	e = strchr(d, '/');
 
-    uint64_t dst_dino = root_ino;
-    uint64_t dst_ino = 0;
+	uint64_t dst_dino = root_ino;
+	uint64_t dst_ino = 0;
 
-    while (e) {
-        *e = '\0';
+	while (e) {
+		*e = '\0';
 
-        error = libuzfs_lookup(fsid, dst_dino, d, &dst_ino);
-        if (error) goto out;
+		error = libuzfs_lookup(fsid, dst_dino, d, &dst_ino);
+		if (error) goto out;
 
-        d = e + 1;
-        e = strchr(d, '/');
-        dst_dino = dst_ino;
-    }
+		d = e + 1;
+		e = strchr(d, '/');
+		dst_dino = dst_ino;
+	}
 
 
-    error = libuzfs_rename(fsid, sdino, s, dst_dino, d);
-    if (error) {
-        printf("Failed to mv %s %s\n", spath, dst_path);
-        goto out;
-    }
+	error = libuzfs_rename(fsid, sdino, s, dst_dino, d);
+	if (error) {
+		printf("Failed to mv %s %s\n", spath, dst_path);
+		goto out;
+	}
 
 out:
 
-    libuzfs_fs_fini(fsid);
+	libuzfs_fs_fini(fsid);
 
-    return error;
+	return (error);
 
 }
 
@@ -1859,7 +1883,8 @@ static int uzfs_read(int argc, char **argv)
 	memcpy(fsname, path, fs_end - path);
 	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
 
-	printf("read %s: %s, offset: %d, size: %d\n", fsname, target_path, offset, size);
+	printf("read %s: %s, offset: %d, size: %d\n",
+	    fsname, target_path, offset, size);
 
 	uint64_t fsid = 0;
 	error = libuzfs_fs_init(fsname, &fsid);
@@ -1913,7 +1938,7 @@ static int uzfs_read(int argc, char **argv)
 	iov.iov_len = size;
 
 	zfs_uio_t uio;
-	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, iov.iov_len, 0);
+	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, size, 0);
 
 	error = libuzfs_read(fsid, ino, &uio, 0);
 	if (error) {
@@ -1926,7 +1951,7 @@ static int uzfs_read(int argc, char **argv)
 	libuzfs_fs_fini(fsid);
 
 out:
-	return error;
+	return (error);
 }
 
 static int uzfs_write(int argc, char **argv)
@@ -1999,7 +2024,7 @@ static int uzfs_write(int argc, char **argv)
 	iov.iov_len = size;
 
 	zfs_uio_t uio;
-	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, iov.iov_len, 0);
+	zfs_uio_iovec_init(&uio, &iov, 1, offset, UIO_USERSPACE, size, 0);
 
 	error = libuzfs_write(fsid, ino, &uio, 0);
 	if (error) {
@@ -2010,7 +2035,7 @@ static int uzfs_write(int argc, char **argv)
 	libuzfs_fs_fini(fsid);
 
 out:
-	return error;
+	return (error);
 }
 
 static int uzfs_fsync(int argc, char **argv)
@@ -2082,227 +2107,230 @@ static int uzfs_fsync(int argc, char **argv)
 
 	libuzfs_fs_fini(fsid);
 out:
-	return error;
+	return (error);
 }
 
 struct perf_args {
-    uint64_t fsid;
-    uint64_t dino;
-    int op;
-    int num;
-    int tid;
+	uint64_t fsid;
+	uint64_t dino;
+	int op;
+	int num;
+	int tid;
 };
 
 static void* do_perf(void* perf_args)
 {
-    struct perf_args* args = perf_args;
-    uint64_t fsid = args->fsid;
-    uint64_t root_ino = args->dino;
-    int op = args->op;
-    int num = args->num;
-    int tid = args->tid;
-    int error = 0;
-    int i = 0;
-    uint64_t ino;
-    uint64_t dino;
-    char name[20] = "";
+	struct perf_args *args = perf_args;
+	uint64_t fsid = args->fsid;
+	uint64_t root_ino = args->dino;
+	int op = args->op;
+	int num = args->num;
+	int tid = args->tid;
+	int error = 0;
+	int i = 0;
+	uint64_t ino;
+	uint64_t dino;
+	char name[20] = "";
 
-    printf("tid: %d\n", tid);
-    sprintf(name, "t%d", tid);
+	printf("tid: %d\n", tid);
+	sprintf(name, "t%d", tid);
 
-    if (op == 1 || op == 3) {
-        error = libuzfs_mkdir(fsid, root_ino, name, 0, &ino);
-        if (error) {
-            printf("Failed to mkdir parent %s\n", name);
-            goto out;
-        }
-    } else {
-        error = libuzfs_lookup(fsid, root_ino, name, &ino);
-        if (error) {
-            printf("Failed to lookup parent dir %s\n", name);
-            goto out;
-        }
-    }
+	if (op == 1 || op == 3) {
+		error = libuzfs_mkdir(fsid, root_ino, name, 0, &ino);
+		if (error) {
+			printf("Failed to mkdir parent %s\n", name);
+			goto out;
+		}
+	} else {
+		error = libuzfs_lookup(fsid, root_ino, name, &ino);
+		if (error) {
+			printf("Failed to lookup parent dir %s\n", name);
+			goto out;
+		}
+	}
 
-    dino = ino;
+	dino = ino;
 
-    int print_idx = num / 100;
-    for (i = 0; i < num; i++) {
-        sprintf(name, "%d", i);
-        if (op == 0) {
-            error = libuzfs_rmdir(fsid, dino, name);
-            if (error) {
-                printf("Failed to mkdir %s\n", name);
-                goto out;
-            }
-        } else if (op == 1) {
-            error = libuzfs_mkdir(fsid, dino, name, 0, &ino);
-            if (error) {
-                printf("Failed to rmdir %s\n", name);
-                goto out;
-            }
-        } else if (op == 2) {
-            error = libuzfs_remove(fsid, dino, name);
-            if (error) {
-                printf("Failed to remove file %s\n", name);
-                goto out;
-            }
-        } else if (op == 3) {
-            error = libuzfs_create(fsid, dino, name, 0, &ino);
-            if (error) {
-                printf("Failed to create file %s\n", name);
-                goto out;
-            }
-        } else if (op == 4) {
-            error = libuzfs_lookup(fsid, dino, name, &ino);
-            if (error) goto out;
+	int print_idx = num / 100;
+	for (i = 0; i < num; i++) {
+		sprintf(name, "%d", i);
+		if (op == 0) {
+			error = libuzfs_rmdir(fsid, dino, name);
+			if (error) {
+				printf("Failed to mkdir %s\n", name);
+				goto out;
+			}
+		} else if (op == 1) {
+			error = libuzfs_mkdir(fsid, dino, name, 0, &ino);
+			if (error) {
+				printf("Failed to rmdir %s\n", name);
+				goto out;
+			}
+		} else if (op == 2) {
+			error = libuzfs_remove(fsid, dino, name);
+			if (error) {
+				printf("Failed to remove file %s\n", name);
+				goto out;
+			}
+		} else if (op == 3) {
+			error = libuzfs_create(fsid, dino, name, 0, &ino);
+			if (error) {
+				printf("Failed to create file %s\n", name);
+				goto out;
+			}
+		} else if (op == 4) {
+			error = libuzfs_lookup(fsid, dino, name, &ino);
+			if (error) goto out;
 
-            struct stat buf;
-            memset(&buf, 0, sizeof(struct stat));
+			struct stat buf;
+			memset(&buf, 0, sizeof (struct stat));
 
-            error = libuzfs_getattr(fsid, ino, &buf);
-            if (error) {
-                printf("Failed to stat %s\n", name);
-                goto out;
-            }
-            //print_stat(name, &buf);
-        }
-        if (print_idx != 0 && i % print_idx == 0) {
-            printf("tid %d: %d%%\n", tid, i / print_idx);
-        }
-    }
+			error = libuzfs_getattr(fsid, ino, &buf);
+			if (error) {
+				printf("Failed to stat %s\n", name);
+				goto out;
+			}
+			// print_stat(name, &buf);
+		}
+		if (print_idx != 0 && i % print_idx == 0) {
+			printf("tid %d: %d%%\n", tid, i / print_idx);
+		}
+	}
 
-    if (op == 0 || op == 2) {
-        sprintf(name, "t%d", tid);
-        error = libuzfs_rmdir(fsid, root_ino, name);
-        if (error) {
-            printf("Failed to rm parent dir %s\n", name);
-            goto out;
-        }
-    }
+	if (op == 0 || op == 2) {
+		sprintf(name, "t%d", tid);
+		error = libuzfs_rmdir(fsid, root_ino, name);
+		if (error) {
+			printf("Failed to rm parent dir %s\n", name);
+			goto out;
+		}
+	}
 
-    printf("tid: %d done\n", tid);
+	printf("tid: %d done\n", tid);
 
 out:
-    return NULL;
+	return (NULL);
 }
 
 static int uzfs_perf(int argc, char **argv)
 {
-    int error = 0;
-    char *path = argv[1];
-    int op = atoi(argv[2]); // 0: rmdir, 1: mkdir, 2: remove file, 3: create file, 4: stat
-    int depth = atoi(argv[3]);
-    int branch = atoi(argv[4]);
-    int num = atoi(argv[5]);
-    int n_threads = atoi(argv[6]);
+	int err = 0;
+	char *path = argv[1];
 
-    char fsname[256] = "";
-    char target_path[256] = "";
-    char *opstr = NULL;
+	// 0: rmdir, 1: mkdir, 2: remove file, 3: create file, 4: stat
+	int op = atoi(argv[2]);
+	int depth = atoi(argv[3]);
+	int branch = atoi(argv[4]);
+	int num = atoi(argv[5]);
+	int n_threads = atoi(argv[6]);
 
-    char *fs_end = strstr(path, "://");
-    memcpy(fsname, path, fs_end - path);
-    memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
+	char fsname[256] = "";
+	char target_path[256] = "";
+	char *opstr = NULL;
 
-    switch (op) {
-        case 0:
-            opstr = "rmdir";
-            break;
-        case 1:
-            opstr = "mkdir";
-            break;
-        case 2:
-            opstr = "rm file";
-            break;
-        case 3:
-            opstr = "create file";
-            break;
-        case 4:
-            opstr = "stat";
-            break;
-        default:
-            printf("invalid op: %d\n", op);
-            return -1;
-    }
+	char *fs_end = strstr(path, "://");
+	memcpy(fsname, path, fs_end - path);
+	memcpy(target_path, fs_end + 3, strlen(path) - strlen(fsname) - 3);
 
-    printf("%s %s: %s\n", opstr, fsname, target_path);
+	switch (op) {
+		case 0:
+			opstr = "rmdir";
+			break;
+		case 1:
+			opstr = "mkdir";
+			break;
+		case 2:
+			opstr = "rm file";
+			break;
+		case 3:
+			opstr = "create file";
+			break;
+		case 4:
+			opstr = "stat";
+			break;
+		default:
+			printf("invalid op: %d\n", op);
+			return (-1);
+	}
 
-    uint64_t fsid = 0;
-    error = libuzfs_fs_init(fsname, &fsid);
-    if (error) goto out;
+	printf("%s %s: %s\n", opstr, fsname, target_path);
 
-    uint64_t root_ino = 0;
+	uint64_t fsid = 0;
+	err = libuzfs_fs_init(fsname, &fsid);
+	if (err) goto out;
 
-    error = libuzfs_getroot(fsid, &root_ino);
-    if (error) goto out;
+	uint64_t root_ino = 0;
 
-    char *s = target_path;
-    if (*s != '/') {
-        printf("path %s must be started with /\n", target_path);
-        error = 1;
-        goto out;
-    }
+	err = libuzfs_getroot(fsid, &root_ino);
+	if (err) goto out;
 
-    s++;
+	char *s = target_path;
+	if (*s != '/') {
+		printf("path %s must be started with /\n", target_path);
+		err = 1;
+		goto out;
+	}
 
-    char *e = strchr(s, '/');
+	s++;
 
-    uint64_t dino = root_ino;
-    uint64_t ino = 0;
+	char *e = strchr(s, '/');
 
-    while (e) {
-        *e = '\0';
+	uint64_t dino = root_ino;
+	uint64_t ino = 0;
 
-        error = libuzfs_lookup(fsid, dino, s, &ino);
-        if (error) goto out;
+	while (e) {
+		*e = '\0';
 
-        s = e + 1;
-        e = strchr(s, '/');
-        dino = ino;
-    }
+		err = libuzfs_lookup(fsid, dino, s, &ino);
+		if (err) goto out;
 
-    struct timeval t1,t2;
-    double timeuse;
-    gettimeofday(&t1,NULL);
+		s = e + 1;
+		e = strchr(s, '/');
+		dino = ino;
+	}
 
-    int i;
-    clock_t start, end;
-    start = clock();
-    pthread_t ntids[100];
-    struct perf_args args[100];
-    for (i = 0; i < n_threads; i++) {
-        args[i].fsid = fsid;
-        args[i].dino = dino;
-        args[i].op = op;
-        args[i].num = num;
-        args[i].tid = i;
-        error = pthread_create(&ntids[i], NULL, do_perf, (void*)&args[i]);
-        if  (error != 0) {
-            printf("Failed to create thread: %s\n" ,  strerror (error));
-            goto out;
-        }
+	struct timeval t1, t2;
+	double timeuse;
+	gettimeofday(&t1, NULL);
 
-    }
-    for (i = 0; i < n_threads; i++) {
-        pthread_join(ntids[i],NULL);
-    }
+	int i;
+	clock_t start, end;
+	start = clock();
+	pthread_t ntids[100];
+	struct perf_args args[100];
+	for (i = 0; i < n_threads; i++) {
+		args[i].fsid = fsid;
+		args[i].dino = dino;
+		args[i].op = op;
+		args[i].num = num;
+		args[i].tid = i;
+		err = pthread_create(&ntids[i], NULL, do_perf,
+		    (void*)&args[i]);
+		if (err != 0) {
+			printf("Failed to create thread: %s\n", strerror(err));
+			goto out;
+		}
 
-    end = clock();
-    gettimeofday(&t2,NULL);
-    timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+	}
+	for (i = 0; i < n_threads; i++) {
+		pthread_join(ntids[i], NULL);
+	}
 
-    int totalnum = branch * depth * num * n_threads;
-    double clockuse = ((double)(end - start))/CLOCKS_PER_SEC;
-    double rate = totalnum / timeuse;
-    printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n", totalnum, timeuse, clockuse, rate);
+	end = clock();
+	gettimeofday(&t2, NULL);
+	timeuse = (t2.tv_sec - t1.tv_sec) +
+	    (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+
+	int totalnum = branch * depth * num * n_threads;
+	double clockuse = ((double)(end - start))/CLOCKS_PER_SEC;
+	double rate = totalnum / timeuse;
+	printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n",
+	    totalnum, timeuse, clockuse, rate);
 
 out:
 
-    libuzfs_fs_fini(fsid);
-
-    return error;
-
+	libuzfs_fs_fini(fsid);
+	return (err);
 }
 
 struct object_perf_args {
@@ -2312,15 +2340,15 @@ struct object_perf_args {
 	int tid;
 };
 
-static void* do_object_perf(void* object_perf_args)
+static void* do_object_perf(void *object_perf_args)
 {
-	struct object_perf_args* args = object_perf_args;
+	struct object_perf_args *args = object_perf_args;
 	libuzfs_dataset_handle_t *dhp = args->dhp;
 	int op = args->op;
 	int num = args->num;
 	uint64_t tid = args->tid + 1;
 	uint64_t txg = 0;
-	int error = 0;
+	int err = 0;
 	int i = 0;
 	uint64_t obj = 0;
 
@@ -2330,40 +2358,41 @@ static void* do_object_perf(void* object_perf_args)
 	for (i = 0; i < num; i++) {
 		obj = tid << 32 | i;
 		if (op == 0) {
-			error = libuzfs_object_delete(dhp, obj, &txg);
-			if (error) {
+			err = libuzfs_object_delete(dhp, obj, &txg);
+			if (err) {
 				printf("Failed to rm obj %ld\n", obj);
 				goto out;
 			}
 		} else if (op == 1) {
-			error = TEST_libuzfs_object_claim(dhp, obj, &txg);
-			if (error) {
+			err = TEST_libuzfs_object_claim(dhp, obj, &txg);
+			if (err) {
 				printf("Failed to claim obj %ld\n", obj);
 				goto out;
 			}
 		} else if (op == 2) {
 			dmu_object_info_t doi;
-			error = libuzfs_object_stat(dhp, obj, &doi);
-			if (error) {
+			err = libuzfs_object_stat(dhp, obj, &doi);
+			if (err) {
 				printf("Failed to stat obj %ld\n", obj);
 				goto out;
 			}
 		}
 		if (print_idx != 0 && i % print_idx == 0) {
 			printf("tid %ld: %d%%\n", tid, i / print_idx);
-			printf("last_synced_txg: %ld\n", libuzfs_get_last_synced_txg(dhp));
+			printf("last_synced_txg: %ld\n",
+			    libuzfs_get_last_synced_txg(dhp));
 		}
 	}
 	libuzfs_wait_synced(dhp);
 	printf("tid: %ld done\n", tid);
 
 out:
-	return NULL;
+	return (NULL);
 }
 
 static int uzfs_object_perf(int argc, char **argv)
 {
-	int error = 0;
+	int err = 0;
 	char *dsname = argv[1];
 	int op = atoi(argv[2]); // 0: rm, 1: create, 2: stat
 	int num = atoi(argv[3]);
@@ -2383,7 +2412,7 @@ static int uzfs_object_perf(int argc, char **argv)
 			break;
 		default:
 			printf("invalid op: %d\n", op);
-			return -1;
+			return (-1);
 	}
 
 	printf("%s %s\n", opstr, dsname);
@@ -2396,9 +2425,9 @@ static int uzfs_object_perf(int argc, char **argv)
 
 	printf("last_synced_txg: %ld\n", libuzfs_get_last_synced_txg(dhp));
 
-	struct timeval t1,t2;
+	struct timeval t1, t2;
 	double timeuse;
-	gettimeofday(&t1,NULL);
+	gettimeofday(&t1, NULL);
 
 	int i;
 	clock_t start, end;
@@ -2410,29 +2439,32 @@ static int uzfs_object_perf(int argc, char **argv)
 		args[i].op = op;
 		args[i].num = num;
 		args[i].tid = i;
-		error = pthread_create(&ntids[i], NULL, do_object_perf, (void*)&args[i]);
-		if  (error != 0) {
-			printf("Failed to create thread: %s\n" ,  strerror (error));
+		err = pthread_create(&ntids[i], NULL, do_object_perf,
+		    (void*)&args[i]);
+		if (err != 0) {
+			printf("Failed to create thread: %s\n", strerror(err));
 			goto out;
 		}
 
 	}
 	for (i = 0; i < n_threads; i++) {
-		pthread_join(ntids[i],NULL);
+		pthread_join(ntids[i], NULL);
 	}
 
 	end = clock();
-	gettimeofday(&t2,NULL);
-	timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+	gettimeofday(&t2, NULL);
+	timeuse = (t2.tv_sec - t1.tv_sec) +
+	    (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
 
 	int totalnum = num * n_threads;
 	double clockuse = ((double)(end - start))/CLOCKS_PER_SEC;
 	double rate = totalnum / timeuse;
-	printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n", totalnum, timeuse, clockuse, rate);
+	printf("num: %d\ntime=%fs\nclock=%fs\nrate=%f\n",
+	    totalnum, timeuse, clockuse, rate);
 
 	printf("last_synced_txg: %ld\n", libuzfs_get_last_synced_txg(dhp));
 out:
 
 	libuzfs_dataset_close(dhp);
-	return error;
+	return (err);
 }

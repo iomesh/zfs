@@ -28,7 +28,8 @@
 #include <sys/vfs.h>
 
 struct cred {
-	struct user_namespace *user_ns; /* user_ns the caps and keyrings are relative to. */
+	/* user_ns the caps and keyrings are relative to. */
+	struct user_namespace *user_ns;
 };
 
 typedef struct cred cred_t;
