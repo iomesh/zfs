@@ -37,6 +37,9 @@
 #include <sys/zfs_context.h>
 #include <libuzfs.h>
 #include <pthread.h>
+#include <libuzfs_impl.h>
+#include <sys/nvpair.h>
+#include <umem.h>
 
 static int uzfs_zpool_create(int argc, char **argv);
 static int uzfs_zpool_destroy(int argc, char **argv);
@@ -90,6 +93,7 @@ static int uzfs_inode_get_kvobj(int argc, char **argv);
 static int uzfs_inode_get_kvattr(int argc, char **argv);
 static int uzfs_inode_set_kvattr(int argc, char **argv);
 static int uzfs_inode_rm_kvattr(int argc, char **argv);
+static int uzfs_attr_random_test(int argc, char **argv);
 
 static int uzfs_dentry_create(int argc, char **argv);
 static int uzfs_dentry_delete(int argc, char **argv);
@@ -141,6 +145,7 @@ typedef enum {
 	HELP_DENTRY_CREATE,
 	HELP_DENTRY_DELETE,
 	HELP_DENTRY_LOOKUP,
+    HELP_ATTR_TEST,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -204,6 +209,7 @@ static uzfs_command_t command_table[] = {
 	{ "create-dentry",	uzfs_dentry_create, 	HELP_DENTRY_CREATE  },
 	{ "delete-dentry",	uzfs_dentry_delete, 	HELP_DENTRY_DELETE  },
 	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_DELETE  },
+    { "attr-test",      uzfs_attr_random_test,  HELP_ATTR_TEST},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -304,6 +310,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tdelete-dentry ...\n"));
 	case HELP_DENTRY_LOOKUP:
 		return (gettext("\tlookup-dentry ...\n"));
+    case HELP_ATTR_TEST:
+        return (gettext("\tattr-test ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -367,6 +375,38 @@ static void print_stat(const char* name, struct stat* stat)
 
     printf(format, name, type, stat->st_ino, stat->st_mode, stat->st_nlink, stat->st_uid, stat->st_gid,
            stat->st_size, stat->st_blksize, stat->st_blocks);
+}
+
+static void print_stat_sa(const char* name, uzfs_attr_t* stat)
+{
+    const char* format =
+        "ino: %lu\n"
+        "pino: %lu\n"
+        "psid: %u\n"
+        "ftype: %d\n"
+        "gen: %lu\n"
+        "nlink: %u\n"
+        "perm: %u\n"
+        "uid: %u\n"
+        "gid: %u\n"
+        "size: %lu\n"
+        "blksize: %lu\n"
+        "blocks: %lu\n"
+        "nsid: %lu\n"
+        "atime: (%lu, %lu)\n"
+        "mtime: (%lu, %lu)\n"
+        "ctime: (%lu, %lu)\n"
+        "btime: (%lu, %lu)\n"
+        ;
+
+    printf(format, stat->ino, stat->pino, stat->psid,
+           stat->ftype, stat->gen, stat->nlink, stat->perm,
+           stat->uid, stat->gid, stat->size, stat->blksize,
+           stat->blocks, stat->nsid, stat->atime.tv_sec,
+           stat->atime.tv_nsec, stat->mtime.tv_sec,
+           stat->mtime.tv_nsec, stat->ctime.tv_sec,
+           stat->ctime.tv_nsec, stat->btime.tv_sec,
+           stat->btime.tv_nsec);
 }
 
 static int
@@ -1076,14 +1116,14 @@ uzfs_inode_getattr(int argc, char **argv)
 		return (-1);
 	}
 
-	struct stat buf;
+	uzfs_attr_t buf;
 	memset(&buf, 0, sizeof(buf));
 
 	err = libuzfs_inode_getattr(dhp, obj, &buf, sizeof(buf));
 	if (err)
 		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
 	else
-		print_stat(NULL, &buf);
+		print_stat_sa(NULL, &buf);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1105,27 +1145,28 @@ uzfs_inode_setattr(int argc, char **argv)
 		return (-1);
 	}
 
-	struct stat buf;
+	uzfs_attr_t buf;
 	memset(&buf, 0, sizeof(buf));
 
-	buf.st_ino = obj;
-	buf.st_mode = 0x1;
-	buf.st_nlink = 1;
-	buf.st_uid = 0;
-	buf.st_gid = 0;
-	buf.st_size = 4096;
-//	buf.st_atime.tv_sec = 0;
-//	buf.st_mtime.tv_sec = 0;
-//	buf.st_ctime.tv_sec = 0;
-	buf.st_blocks = 8;
-	buf.st_blksize = 512;
+    buf.ino = obj;
+    buf.pino = 0;
+    buf.psid = 0;
+    buf.ftype = TYPE_FILE;
+    buf.gen = 1;
+    buf.nlink = 1;
+    buf.perm = 0;
+    buf.uid = 12358;
+    buf.gid = 85321;
+    buf.size = 0;
+    buf.blksize = 65536;
+    buf.blocks = 1;
+    buf.nsid = 1;
 
-	uint64_t txg = 0;
-	err = libuzfs_inode_setattr(dhp, obj, &buf, sizeof(buf), &txg);
+	err = libuzfs_inode_setattr(dhp, obj, &buf, sizeof(buf), NULL);
 	if (err)
 		printf("failed to get attr inode %ld on dataset: %s\n", obj, dsname);
 	else
-		print_stat(NULL, &buf);
+		print_stat_sa(NULL, &buf);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1240,6 +1281,202 @@ uzfs_inode_rm_kvattr(int argc, char **argv)
 	libuzfs_dataset_close(dhp);
 
 	return (err);
+}
+
+static int
+uzfs_attr_cmp(uzfs_attr_t *lhs, uzfs_attr_t *rhs)
+{
+    return lhs->ino == rhs->ino && lhs->pino == rhs->pino &&
+           lhs->psid == rhs->psid && lhs->ftype == rhs->ftype &&
+           lhs->gen == rhs->gen && lhs->nlink == rhs->nlink &&
+           lhs->perm == rhs->perm && lhs->gid == rhs->gid &&
+           lhs->size == rhs->size && lhs->blksize == rhs->blksize &&
+           lhs->blocks == rhs->blocks && lhs->nsid == rhs->nsid &&
+           lhs->atime.tv_nsec == rhs->atime.tv_nsec && lhs->atime.tv_sec == rhs->atime.tv_sec &&
+           lhs->mtime.tv_nsec == rhs->mtime.tv_nsec && lhs->mtime.tv_sec == rhs->mtime.tv_sec &&
+           lhs->ctime.tv_nsec == rhs->ctime.tv_nsec && lhs->ctime.tv_sec == rhs->ctime.tv_sec &&
+           lhs->btime.tv_nsec == rhs->btime.tv_nsec && lhs->btime.tv_sec == rhs->btime.tv_sec;
+}
+
+static boolean_t
+uzfs_attr_ops (libuzfs_dataset_handle_t *dhp, uint64_t *ino,
+               libuzfs_inode_type_t *type, uzfs_attr_t *cur_attr,
+               nvlist_t *nvl, boolean_t *reset)
+{
+    int delete_proportion = 1;
+    int getkvattr_proportion = 2;
+    int setkvattr_proportion = 4;
+    int deletekvattr_proportion = 1;
+    int getattr_proportion = 6;
+    int setattr_proportion = 6;
+    int op = rand() % 20;
+    *reset = B_FALSE;
+    if (op < delete_proportion) {
+        // delete inode
+        if (*ino != 0) {
+            VERIFY0(libuzfs_inode_delete(dhp, *ino, *type, NULL));
+            memset(cur_attr, 0, sizeof(*cur_attr));
+            // printf("delete inode: %lu\n", *ino);
+            *ino = 0;
+            *reset = B_TRUE;
+        }
+        return B_TRUE;
+    }
+    op -= delete_proportion;
+
+    if (*ino == 0) {
+        boolean_t claiming = B_FALSE;
+        if (claiming) {
+            *ino = 2;
+        }
+        *type = rand() % 2;
+        VERIFY0(libuzfs_create_inode_with_type(dhp, ino, claiming, *type, NULL));
+    }
+    if (op < getkvattr_proportion) {
+        // get all kvattr and check
+        nvpair_t *elem = NULL;
+        while ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
+            char *name = nvpair_name(elem);
+            char *value = NULL;
+            uint_t size;
+            VERIFY0(nvpair_value_byte_array(elem, (uchar_t **)(&value), &size));
+            char *stored_value = (char *)umem_alloc(size, UMEM_NOFAIL);
+            VERIFY0(libuzfs_inode_get_kvattr(dhp, *ino, name, stored_value, (uint64_t)(size), 0));
+            if(memcmp(value, stored_value, size) != 0) {
+                // printf("name: %s, value[0]: %c, stored_value[0]: %c\n", name, value[0], stored_value[0]);
+                return B_FALSE;
+            }
+            umem_free(stored_value, size);
+        }
+        // printf("get ok\n");s
+        return B_TRUE;
+    }
+    op -= getkvattr_proportion;
+
+    if (op < setkvattr_proportion) {
+        char *name = NULL;
+        int name_size = 0;
+        if (rand() % 4 < 1) {
+            nvpair_t *elem = NULL;
+            if ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
+                name = nvpair_name(elem);
+            }
+        }
+        if (name == NULL) {
+            name_size = rand() % 50 + 1;
+            name = umem_alloc(name_size + 1, UMEM_NOFAIL);
+            for (int i = 0; i < name_size; ++i) {
+                name[i] = rand() % 26 + 'a';
+            }
+            name[name_size] = '\0';
+        }
+
+        uint_t value_size = rand() % 32768 + 100;
+        uchar_t *value = umem_alloc(value_size + 1, UMEM_NOFAIL);
+        for (int i = 0; i < value_size; ++i) {
+            value[i] = rand() % 26 + 'a';
+        }
+        value[value_size] = '\0';
+
+        // printf("setkvattr: name: %s, value_size: %u, start_char, %c\n", name, value_size + 1, value[0]);
+        VERIFY0(libuzfs_inode_set_kvattr(dhp, *ino, name, (char *)value, value_size + 1, 0, NULL));
+        VERIFY0(nvlist_add_byte_array(nvl, name, value, value_size + 1));
+        umem_free(value, value_size + 1);
+        if (name_size > 0) {
+            umem_free(name, name_size + 1);
+        }
+        return B_TRUE;
+    }
+    op -= setkvattr_proportion;
+
+    if (op < deletekvattr_proportion) {
+        // delete one kv_attr
+        nvpair_t *elem = NULL;
+        if ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
+            char *name = nvpair_name(elem);
+            // printf("remove kvattr, name: %s\n", name);
+            int err = libuzfs_inode_remove_kvattr(dhp, *ino, name, NULL);
+            if (err != 0) {
+                printf("remove kvattr, name: %s, failed, err: %d\n", name, err);
+                return B_FALSE;
+            }
+            VERIFY0(nvlist_remove(nvl, name, DATA_TYPE_BYTE_ARRAY));
+        }
+        return B_TRUE;
+    }
+    op -= deletekvattr_proportion;
+
+    if (op < getattr_proportion) {
+        // get attr
+        uzfs_attr_t stored_attr;
+        VERIFY0(libuzfs_inode_getattr(dhp, *ino, &stored_attr, sizeof(stored_attr)));
+        if(uzfs_attr_cmp(&stored_attr, cur_attr) == 0) {
+            printf("cur_attr: \n");
+            print_stat_sa(NULL, cur_attr);
+            printf("stored_attr: \n");
+            print_stat_sa(NULL, &stored_attr);
+            printf("\n");
+            return B_FALSE;
+        }
+        // printf("get ok\n");
+        return B_TRUE;
+    }
+    op -= getattr_proportion;
+
+    if (op < setattr_proportion){
+        // set attr
+        // change 4 byte of cur_attr and set
+        // printf("set attr\n");
+        int attr_size = sizeof(uzfs_attr_t);
+        int start_index = rand() % (attr_size - 3);
+        for (int i =  start_index; i < start_index + 4; ++i) {
+            ((uchar_t *)(cur_attr))[i] = rand() % 256;
+        }
+        VERIFY0(libuzfs_inode_setattr(dhp, *ino, cur_attr, sizeof(uzfs_attr_t), 0));
+        return B_TRUE;
+    }
+    return B_TRUE;
+}
+
+static int
+uzfs_attr_random_test(int argc, char **argv)
+{
+    assert(argc == 3);
+    char *dsname = argv[1];
+    libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+    int nloops = atoi(argv[2]);
+    uint64_t ino = 0;
+    uzfs_attr_t cur_attr;
+    memset(&cur_attr, 0, sizeof(cur_attr));
+    nvlist_t *nvl = NULL;
+    VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+    libuzfs_inode_type_t type = 0;
+    int seed = time(NULL);
+    srand(seed);
+    printf("testing attr functionalities, loops: %d, seed: %d\n", nloops, seed);
+    for (int i = 0; i < nloops; ++i) {
+        boolean_t reset;
+        if (!uzfs_attr_ops(dhp, &ino, &type, &cur_attr, nvl, &reset)) {
+            printf("test failed, total loops: %d\n", i);
+            break;
+        }
+        if (reset) {
+            nvlist_free(nvl);
+            VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+        }
+    }
+    if (ino != 0) {
+        VERIFY0(libuzfs_inode_delete(dhp, ino, type, 0));
+    }
+    nvlist_free(nvl);
+    libuzfs_dataset_close(dhp);
+    printf("test end\n");
+    return 0;
 }
 
 int

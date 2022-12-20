@@ -14,7 +14,9 @@ pkgconfig_DATA = libuzfs.pc
 
 lib_LTLIBRARIES = libuzfs.la
 
-USER_C = libuzfs.c
+USER_C = \
+    libuzfs.c \
+    libuzfs_attr.c
 
 libuzfs_la_SOURCES = $(USER_C)
 

@@ -31,6 +31,7 @@
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
+#include <sys/sa.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -46,8 +47,38 @@ struct libuzfs_dataset_handle {
 	objset_t *os;
 	zilog_t	*zilog;
 	uint64_t sb_ino;
+	sa_attr_type_t	*uzfs_attr_table;
 };
 
+typedef enum {
+    TYPE_FILE,
+    TYPE_DIR,
+    TYPE_SYMLINK,
+    TYPE_SOCK,
+    TYPE_FIFO,
+    TYPE_CHR,
+    TYPE_BLK
+} FileType;
+
+struct uzfs_attr{
+    uint64_t ino;
+    uint64_t pino;
+    uint32_t psid;
+    FileType ftype;
+    uint64_t gen;
+    uint32_t nlink;
+    uint32_t perm;
+    uint32_t uid;
+    uint32_t gid;
+    uint64_t size;
+    uint64_t blksize;
+    uint64_t blocks;
+    uint32_t nsid;
+    struct timespec atime;
+    struct timespec mtime;
+    struct timespec ctime;
+    struct timespec btime;
+};
 
 #ifdef	__cplusplus
 }
