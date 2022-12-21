@@ -294,7 +294,7 @@ extern int fls(int x);
 
 #define	time_before(a, b)	time_after(b, a)
 
-#define HAVE_D_PRUNE_ALIASES
+#define	HAVE_D_PRUNE_ALIASES
 
 // zfs_ioctl.c
 #define	FKIOCTL				0x80000000
