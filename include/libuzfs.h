@@ -38,10 +38,43 @@ typedef enum {
 	INODE_DIR  = 1,
 } libuzfs_inode_type_t;
 
+typedef enum {
+	TYPE_FILE,
+	TYPE_DIR,
+	TYPE_SYMLINK,
+	TYPE_SOCK,
+	TYPE_FIFO,
+	TYPE_CHR,
+	TYPE_BLK
+} FileType;
+
+struct uzfs_attr {
+	uint64_t ino;
+	uint64_t pino;
+	uint32_t psid;
+	FileType ftype;
+	uint64_t gen;
+	uint32_t nlink;
+	uint32_t perm;
+	uint64_t uid;
+	uint64_t gid;
+	uint64_t size;
+	uint64_t blksize;
+	uint64_t blocks;
+	uint32_t nsid;
+	struct timespec atime;
+	struct timespec mtime;
+	struct timespec ctime;
+	struct timespec btime;
+};
+
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
+typedef struct uzfs_attr uzfs_attr_t;
 
 typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
+
+#define	UZFS_XATTR_MAXVALUELEN (8192)
 
 extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
@@ -134,27 +167,8 @@ extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 extern int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type);
 
-extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    libuzfs_inode_type_t type, uint64_t *txg);
-
-extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    void *attr, uint64_t size);
-
-extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const void *attr, uint64_t size, uint64_t *txg);
-
 extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *kvobj);
-
-extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, const char *value, uint64_t size, int flags,
-    uint64_t *txg);
-
-extern int libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, char *value, uint64_t size, int flags);
-
-extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, const char *name, uint64_t *txg);
 
 extern int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino,
     const char *name, uint64_t *value, uint64_t num, uint64_t *txg);
@@ -195,6 +209,20 @@ extern int libuzfs_write(uint64_t fsid, uint64_t ino, zfs_uio_t *uio,
     int ioflag);
 
 extern int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag);
+
+extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    libuzfs_inode_type_t type, uint64_t *txg);
+extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    uzfs_attr_t *attr);
+extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const uzfs_attr_t *attr, uint64_t *txg);
+extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+    const char *name, const char *value,
+    uint64_t size, int flags, uint64_t *txg);
+extern ssize_t libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, const char *name, char *value, uint64_t size, int flags);
+extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, const char *name, uint64_t *txg);
 
 #ifdef	__cplusplus
 }

@@ -31,6 +31,7 @@
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
+#include <sys/sa.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -46,8 +47,20 @@ struct libuzfs_dataset_handle {
 	objset_t *os;
 	zilog_t	*zilog;
 	uint64_t sb_ino;
+	sa_attr_type_t	*uzfs_attr_table;
 };
 
+#define	UZFS_SIZE_OFFSET 0
+#define	UZFS_GEN_OFFSET 8
+#define	UZFS_UID_OFFSET 16
+#define	UZFS_GID_OFFSET 24
+#define	UZFS_PARENT_OFFSET 32
+
+extern void libuzfs_object_attr_init(libuzfs_dataset_handle_t *dhp,
+    sa_handle_t *sa_hdl, dmu_tx_t *tx);
+extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
+extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, uint64_t *xattr_zap_obj);
 
 #ifdef	__cplusplus
 }
