@@ -294,7 +294,7 @@ extern int fls(int x);
 
 #define	time_before(a, b)	time_after(b, a)
 
-#undef HAVE_SINGLE_SHRINKER_CALLBACK
+#define HAVE_D_PRUNE_ALIASES
 
 // zfs_ioctl.c
 #define	FKIOCTL				0x80000000
@@ -309,13 +309,5 @@ extern gid_t crgetfsgid(const cred_t *cr);
 
 // libzfs
 extern long uzfs_ioctl(unsigned cmd, unsigned long arg);
-
-#undef HAVE_TMPFILE
-#undef HAVE_INODE_TIMESPEC64_TIMES
-#undef HAVE_SPLIT_SHRINKER_CALLBACK
-#undef HAVE_SINGLE_SHRINKER_CALLBACK
-#undef HAVE_SUPER_SETUP_BDI_NAME
-#undef CONFIG_USER_NS
-#undef HAVE_VFS_IOV_ITER
 
 #endif	/* _SYS_KERNEL_H */
