@@ -667,9 +667,7 @@ uzfs_object_claim(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t txg = 0;
-
-	err = TEST_libuzfs_object_claim(dhp, obj, &txg);
+	err = libuzfs_object_claim(dhp, obj);
 	if (err)
 		printf("failed to claim object on dataset: %s\n", dsname);
 

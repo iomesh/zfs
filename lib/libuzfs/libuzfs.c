@@ -649,20 +649,22 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
 
 	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
+	if (err)
 		goto out;
-	}
 
 	err = dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
 	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
+	if (err)
 		goto out;
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
 
 	dmu_tx_commit(tx);
 
+	return (0);
+
 out:
+	dmu_tx_abort(tx);
 	return (err);
 }
 
@@ -686,10 +688,8 @@ TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
 
 	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
+	if (err)
 		goto out;
-	}
 
 	err = dmu_object_claim_dnsize(os, obj, type, 0, bonus_type, bonuslen,
 	    dnodesize, tx);
@@ -701,7 +701,10 @@ TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
 
+	return (0);
+
 out:
+	dmu_tx_abort(tx);
 	return (err);
 
 }
