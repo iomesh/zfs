@@ -275,8 +275,6 @@ extern void d_prune_aliases(struct inode *inode);
 
 #define	printk printf
 
-extern int fls(int x);
-
 #define	typecheck(type, x)			\
 (						\
 	{					\

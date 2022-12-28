@@ -1095,6 +1095,7 @@ objs:
 	return (0);
 }
 
+#ifdef _KERNEL
 int
 zfs_statvfs(struct inode *ip, struct kstatfs *statp)
 {
@@ -1171,6 +1172,7 @@ zfs_statvfs(struct inode *ip, struct kstatfs *statp)
 	ZFS_EXIT(zfsvfs);
 	return (err);
 }
+#endif /* _KERNEL */
 
 int
 zfs_root(zfsvfs_t *zfsvfs, struct inode **ipp)

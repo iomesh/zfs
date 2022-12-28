@@ -1745,14 +1745,6 @@ d_prune_aliases(struct inode *inode)
 	dprintf("%s: %ld\n", __func__, inode->i_ino);
 }
 
-int
-fls(int x)
-{
-	int r;
-	asm("bsrl %1,%0" : "=r" (r) : "rm" (x), "0" (-1));
-	return (r + 1);
-}
-
 // zfs_ioctl.c
 
 boolean_t
