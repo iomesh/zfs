@@ -39,8 +39,8 @@ sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 	{"UZFS_GEN", sizeof (uint64_t), SA_UINT64_ARRAY, 3},
 	{"UZFS_NLINK", sizeof (uint32_t), SA_UINT32_ARRAY, 4},
 	{"UZFS_PERM", sizeof (uint32_t), SA_UINT32_ARRAY, 5},
-	{"UZFS_UID", sizeof (uint64_t), SA_UINT32_ARRAY, 6},
-	{"UZFS_GID", sizeof (uint64_t), SA_UINT32_ARRAY, 7},
+	{"UZFS_UID", sizeof (uint32_t), SA_UINT32_ARRAY, 6},
+	{"UZFS_GID", sizeof (uint32_t), SA_UINT32_ARRAY, 7},
 	{"UZFS_SIZE", sizeof (uint64_t), SA_UINT64_ARRAY, 8},
 	{"UZFS_BLKSIZE", sizeof (uint64_t), SA_UINT64_ARRAY, 9},
 	{"UZFS_BLOCKS", sizeof (uint64_t), SA_UINT64_ARRAY, 10},
@@ -75,9 +75,9 @@ libuzfs_add_bulk_attr(libuzfs_dataset_handle_t *dhp, sa_bulk_attr_t *sa_attrs,
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_GEN],
 	    NULL, &attr->gen, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_UID],
-	    NULL, &attr->uid, 8);
+	    NULL, &attr->uid, 4);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_GID],
-	    NULL, &attr->gid, 8);
+	    NULL, &attr->gid, 4);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_PINO],
 	    NULL, &attr->pino, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_PSID],

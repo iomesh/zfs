@@ -56,8 +56,8 @@ struct uzfs_attr {
 	uint64_t gen;
 	uint32_t nlink;
 	uint32_t perm;
-	uint64_t uid;
-	uint64_t gid;
+	uint32_t uid;
+	uint32_t gid;
 	uint64_t size;
 	uint64_t blksize;
 	uint64_t blocks;
