@@ -53,8 +53,8 @@ struct libuzfs_dataset_handle {
 #define	UZFS_SIZE_OFFSET 0
 #define	UZFS_GEN_OFFSET 8
 #define	UZFS_UID_OFFSET 16
-#define	UZFS_GID_OFFSET 24
-#define	UZFS_PARENT_OFFSET 32
+#define	UZFS_GID_OFFSET 20
+#define	UZFS_PARENT_OFFSET 24
 
 extern void libuzfs_object_attr_init(libuzfs_dataset_handle_t *dhp,
     sa_handle_t *sa_hdl, dmu_tx_t *tx);

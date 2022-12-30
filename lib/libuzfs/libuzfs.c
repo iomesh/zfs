@@ -536,16 +536,18 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 	VERIFY3U(hdrsize, >=, sizeof (sa_hdr_phys_t));
 
 	uintptr_t data_after_hdr = (uintptr_t)data + hdrsize;
-	zoi->zfi_user = *((uint64_t *)(data_after_hdr + UZFS_UID_OFFSET));
-	zoi->zfi_group = *((uint64_t *)(data_after_hdr + UZFS_GID_OFFSET));
+	uint32_t zfi_user = *((uint32_t *)(data_after_hdr + UZFS_UID_OFFSET));
+	uint32_t zfi_group = *((uint32_t *)(data_after_hdr + UZFS_GID_OFFSET));
 	zoi->zfi_generation = *((uint64_t *)(data_after_hdr + UZFS_GEN_OFFSET));
 
 	if (swap) {
-		zoi->zfi_user = BSWAP_64(zoi->zfi_user);
-		zoi->zfi_group = BSWAP_64(zoi->zfi_group);
+		zfi_user = BSWAP_32(zfi_user);
+		zfi_group = BSWAP_32(zfi_group);
 		zoi->zfi_project = BSWAP_64(zoi->zfi_project);
 		zoi->zfi_generation = BSWAP_64(zoi->zfi_generation);
 	}
+	zoi->zfi_user = zfi_user;
+	zoi->zfi_group = zfi_group;
 	return (0);
 }
 
