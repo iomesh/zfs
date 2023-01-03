@@ -104,17 +104,9 @@ extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
 
-extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    uint64_t *txg);
-
-extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *txg);
-
+extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj);
+extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
-
-// only for test, used in perf-object by uzfs
-extern int TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
-    uint64_t obj, uint64_t *txg);
 
 extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
@@ -122,7 +114,7 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf);
 
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf);
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync);
 
 extern int libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     void *attr, uint64_t size);

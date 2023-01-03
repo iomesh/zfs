@@ -25,6 +25,7 @@
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
+#include <sys/dbuf.h>
 #include <sys/zap.h>
 #include <sys/dmu_objset.h>
 #include <sys/stat.h>
@@ -280,18 +281,233 @@ libuzfs_dmu_objset_own(const char *name, dmu_objset_type_t type,
 	return (err);
 }
 
+static void
+libuzfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj)
+{
+	itx_t *itx;
+	lr_create_t *lr;
+
+	if (zil_replaying(zilog, tx))
+		return;
+
+	itx = zil_itx_create(TX_CREATE, sizeof (*lr));
+
+	lr = (lr_create_t *)&itx->itx_lr;
+	lr->lr_foid = obj;
+
+	zil_itx_assign(zilog, itx, tx);
+}
+
+static void
+libuzfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj)
+{
+	itx_t *itx;
+	lr_remove_t *lr;
+
+	if (zil_replaying(zilog, tx))
+		return;
+
+	itx = zil_itx_create(TX_REMOVE, sizeof (*lr));
+
+	lr = (lr_remove_t *)&itx->itx_lr;
+
+	// use lr_doid for obj
+	lr->lr_doid = obj;
+
+	itx->itx_oid = obj;
+	zil_itx_assign(zilog, itx, tx);
+}
+
+static void
+libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
+    uint64_t obj, offset_t off, ssize_t resid, boolean_t sync)
+{
+	zilog_t *zilog = dhp->zilog;
+	dmu_buf_t *db_fake;
+	dmu_buf_impl_t *db;
+	itx_wr_state_t write_state;
+
+	// TODO(hping): also return if obj is unlinked
+	if (zil_replaying(zilog, tx)) {
+		return;
+	}
+
+	VERIFY0(dmu_bonus_hold(zilog->zl_os, obj, FTAG, &db_fake));
+	db = (dmu_buf_impl_t *)db_fake;
+
+	write_state = WR_COPIED;
+
+	while (resid) {
+		itx_t *itx;
+		lr_write_t *lr;
+		itx_wr_state_t wr_state = write_state;
+		ssize_t len = resid;
+
+		/*
+		 * A WR_COPIED record must fit entirely in one log block.
+		 * Large writes can use WR_NEED_COPY, which the ZIL will
+		 * split into multiple records across several log blocks
+		 * if necessary.
+		 */
+		if (wr_state == WR_COPIED && resid > zil_max_copied_data(zilog))
+			wr_state = WR_NEED_COPY;
+
+		itx = zil_itx_create(txtype, sizeof (*lr) +
+		    (wr_state == WR_COPIED ? len : 0));
+		lr = (lr_write_t *)&itx->itx_lr;
+
+		/*
+		 * For WR_COPIED records, copy the data into the lr_write_t.
+		 */
+		if (wr_state == WR_COPIED) {
+			int err;
+			DB_DNODE_ENTER(db);
+			err = dmu_read_by_dnode(DB_DNODE(db), off, len, lr + 1,
+			    DMU_READ_NO_PREFETCH);
+			if (err != 0) {
+				zil_itx_destroy(itx);
+				itx = zil_itx_create(txtype, sizeof (*lr));
+				lr = (lr_write_t *)&itx->itx_lr;
+				wr_state = WR_NEED_COPY;
+			}
+			DB_DNODE_EXIT(db);
+		}
+
+		itx->itx_wr_state = wr_state;
+		lr->lr_foid = obj;
+		lr->lr_offset = off;
+		lr->lr_length = len;
+		lr->lr_blkoff = 0;
+		BP_ZERO(&lr->lr_blkptr);
+
+		itx->itx_private = NULL;
+
+		if (!sync)
+			itx->itx_sync = B_FALSE;
+
+		itx->itx_callback = NULL;
+		itx->itx_callback_data = NULL;
+		itx->itx_private = dhp;
+		zil_itx_assign(zilog, itx, tx);
+
+		off += len;
+		resid -= len;
+	}
+
+	dmu_buf_rele(db_fake, FTAG);
+}
+
+static int
+libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
+{
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_create_t *lr = arg2;
+	uint64_t obj;
+	int dnodesize;
+	int error;
+
+	if (byteswap) {
+		byteswap_uint64_array(lr, sizeof (*lr));
+	}
+
+	obj = LR_FOID_GET_OBJ(lr->lr_foid);
+
+	dnodesize = dmu_objset_dnodesize(dhp->os);
+
+	error = dnode_try_claim(dhp->os, obj, dnodesize >> DNODE_SHIFT);
+	if (error)
+		return (error);
+
+	printf("replay create, obj: %ld\n", obj);
+
+	return (libuzfs_object_claim(dhp, obj));
+}
+
+static int
+libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
+{
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_remove_t *lr = arg2;
+	objset_t *os = dhp->os;
+	int err;
+	uint64_t obj;
+	dmu_tx_t *tx;
+
+	if (byteswap)
+		byteswap_uint64_array(lr, sizeof (*lr));
+
+	obj = lr->lr_doid;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_free(tx, obj, 0, DMU_OBJECT_END);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	VERIFY0(dmu_object_free(os, obj, tx));
+
+	dmu_tx_commit(tx);
+
+	printf("replay remove, obj: %ld\n", obj);
+out:
+	return (err);
+}
+
+static int
+libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
+{
+	int err = 0;
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_write_t *lr = arg2;
+	objset_t *os = dhp->os;
+	void *data = lr + 1;
+	uint64_t offset, length, obj;
+	dmu_tx_t *tx;
+
+	if (byteswap)
+		byteswap_uint64_array(lr, sizeof (*lr));
+
+	obj = lr->lr_foid;
+	offset = lr->lr_offset;
+	length = lr->lr_length;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_write(tx, lr->lr_foid, offset, length);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	dmu_write(os, obj, offset, length, data, tx);
+
+	dmu_tx_commit(tx);
+
+	printf("replay write, obj: %ld, off: %ld, size: %ld\n",
+	    obj, offset, length);
+
+out:
+	return (err);
+}
+
 // TODO(hping): add zil support
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,			/* 0 no such transaction type */
-	NULL,			/* TX_CREATE */
+	libuzfs_replay_create,	/* TX_CREATE */
 	NULL,			/* TX_MKDIR */
 	NULL,			/* TX_MKXATTR */
 	NULL,			/* TX_SYMLINK */
-	NULL,			/* TX_REMOVE */
+	libuzfs_replay_remove,	/* TX_REMOVE */
 	NULL,			/* TX_RMDIR */
 	NULL,			/* TX_LINK */
 	NULL,			/* TX_RENAME */
-	NULL,			/* TX_WRITE */
+	libuzfs_replay_write,	/* TX_WRITE */
 	NULL,			/* TX_TRUNCATE */
 	NULL,			/* TX_SETATTR */
 	NULL,			/* TX_ACL */
@@ -304,15 +520,31 @@ zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,			/* TX_WRITE2 */
 };
 
-/*
- * ZIL get_data callbacks
- */
-
 static int
 libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
     struct lwb *lwb, zio_t *zio)
 {
-	return (0);
+	libuzfs_dataset_handle_t *dhp = arg;
+	objset_t *os = dhp->os;
+	uint64_t object = lr->lr_foid;
+	uint64_t offset = lr->lr_offset;
+	uint64_t size = lr->lr_length;
+	int error = 0;
+
+	ASSERT3P(lwb, !=, NULL);
+	ASSERT3P(zio, !=, NULL);
+	ASSERT3U(size, !=, 0);
+
+	if (buf != NULL) {	/* immediate write */
+		error = dmu_read(os, object, offset, size, buf,
+		    DMU_READ_NO_PREFETCH);
+		ASSERT0(error);
+	} else {
+		/* TODO(hping): support indirect write */
+		ASSERT(0);
+	}
+
+	return (error);
 }
 
 void
@@ -702,17 +934,49 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	return (0);
 }
 
+/*
+ * object creation is always SYNC, recorded in zil
+ */
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    uint64_t *txg)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
 {
-	return (libuzfs_create_inode_with_type(dhp, obj,
-	    B_FALSE, INODE_FILE, txg));
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		goto out;
+	}
+
+	int dnodesize = dmu_objset_dnodesize(os);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+	int blocksize = 0;
+	int ibshift = 0;
+
+	*obj = dmu_object_alloc_dnsize(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
+
+	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
+
+	libuzfs_log_create(dhp->zilog, tx, *obj);
+	dmu_tx_commit(tx);
+	zil_commit(dhp->zilog, *obj);
+
+out:
+	return (err);
 }
 
+/*
+ * object deletion is always SYNC, recorded in zil
+ */
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *txg)
+libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
@@ -730,8 +994,9 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	VERIFY0(dmu_object_free(os, obj, tx));
 
-	*txg = tx->tx_txg;
+	libuzfs_log_remove(dhp->zilog, tx, obj);
 	dmu_tx_commit(tx);
+	zil_commit(dhp->zilog, obj);
 
 out:
 	return (err);
@@ -740,16 +1005,37 @@ out:
 int
 libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
-	return (libuzfs_create_inode_with_type(dhp, &obj,
-	    B_TRUE, INODE_FILE, 0));
-}
+	int err = 0;
+	dmu_tx_t *tx = NULL;
+	objset_t *os = dhp->os;
 
-int
-TEST_libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *txg)
-{
-	return (libuzfs_create_inode_with_type(dhp, &obj,
-	    B_TRUE, INODE_FILE, txg));
+	int dnodesize = dmu_objset_dnodesize(os);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+	int blocksize = 0;
+	int ibs = 0;
+
+	tx = dmu_tx_create(os);
+
+	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err)
+		goto out;
+
+	err = dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
+	if (err)
+		goto out;
+
+	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
+
+	dmu_tx_commit(tx);
+
+	return (0);
+
+out:
+	dmu_tx_abort(tx);
+	return (err);
 }
 
 uint64_t
@@ -831,10 +1117,11 @@ out:
 
 int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf)
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
 {
 	int err = 0;
 	objset_t *os = dhp->os;
+	zilog_t *zilog = dhp->zilog;
 	dmu_tx_t *tx = NULL;
 
 	tx = dmu_tx_create(os);
@@ -849,7 +1136,12 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	dmu_write(os, obj, offset, size, buf, tx);
 
+	libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, size, sync);
+
 	dmu_tx_commit(tx);
+
+	if (sync)
+		zil_commit(zilog, obj);
 
 out:
 	return (err);
@@ -859,21 +1151,8 @@ int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf)
 {
-	int err = 0;
 	objset_t *os = dhp->os;
-	dmu_object_info_t doi;
-
-	memset(&doi, 0, sizeof (doi));
-
-	err = libuzfs_object_stat(dhp, obj, &doi);
-	if (err)
-		return (err);
-
-	err = dmu_read(os, obj, offset, size, buf, DMU_READ_NO_PREFETCH);
-	if (err)
-		return (err);
-
-	return (0);
+	return (dmu_read(os, obj, offset, size, buf, DMU_READ_NO_PREFETCH));
 }
 
 int

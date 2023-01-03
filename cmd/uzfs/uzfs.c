@@ -653,9 +653,8 @@ uzfs_object_create(int argc, char **argv)
 	}
 
 	uint64_t obj = 0;
-	uint64_t txg = 0;
 
-	err = libuzfs_object_create(dhp, &obj, &txg);
+	err = libuzfs_object_create(dhp, &obj);
 	if (err)
 		printf("failed to create object on dataset: %s\n", dsname);
 	else
@@ -681,9 +680,7 @@ uzfs_object_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t txg = 0;
-
-	err = libuzfs_object_delete(dhp, obj, &txg);
+	err = libuzfs_object_delete(dhp, obj);
 	if (err)
 		printf("failed to delete object: %s:%ld\n", dsname, obj);
 
@@ -827,6 +824,26 @@ uzfs_object_read(int argc, char **argv)
 	return (0);
 }
 
+static int
+verify_data(libuzfs_dataset_handle_t *dhp, uint64_t obj, int size, int offset,
+    char *buf)
+{
+	char *data = umem_zalloc(size, UMEM_NOFAIL);
+	VERIFY0(libuzfs_object_read(dhp, obj, offset, size, data));
+	int rc =  memcmp(buf, data, size);
+	umem_free(data, size);
+	return (rc);
+}
+
+static void
+pattern_get_bytes(char *buf, int size)
+{
+	char c = rand() % 26 + 'a';
+	memset(buf, c, size);
+	printf("pattern: %c, size: %d\n", c, size);
+}
+
+// TODO(hping): test zil functionality with crash scenario
 int
 uzfs_object_write(int argc, char **argv)
 {
@@ -834,7 +851,7 @@ uzfs_object_write(int argc, char **argv)
 	char *dsname = argv[1];
 	uint64_t obj = atoll(argv[2]);
 	int offset = atoi(argv[3]);
-	int size = strlen(argv[4]);
+	int size = atoi(argv[4]);
 	char *buf = NULL;
 
 	printf("writing %s: %ld, off: %d, size: %d\n", dsname, obj, offset,
@@ -847,11 +864,23 @@ uzfs_object_write(int argc, char **argv)
 	}
 
 	buf = umem_alloc(size, UMEM_NOFAIL);
-	memcpy(buf, argv[4], size);
 
-	err = libuzfs_object_write(dhp, obj, offset, size, buf);
+	random_get_bytes((uint8_t *)buf, size);
+
+	err = libuzfs_object_write(dhp, obj, offset, size, buf, B_FALSE);
 	if (err)
 		printf("failed to write object: %s:%ld\n", dsname, obj);
+
+	VERIFY0(verify_data(dhp, obj, size, offset, buf));
+
+	srand(time(NULL));
+	pattern_get_bytes(buf, size);
+
+	err = libuzfs_object_write(dhp, obj, offset, size, buf, B_TRUE);
+	if (err)
+		printf("failed to write object: %s:%ld\n", dsname, obj);
+
+	VERIFY0(verify_data(dhp, obj, size, offset, buf));
 
 	umem_free(buf, size);
 	libuzfs_dataset_close(dhp);
@@ -2601,7 +2630,6 @@ static void* do_object_perf(void *object_perf_args)
 	int op = args->op;
 	int num = args->num;
 	uint64_t tid = args->tid + 1;
-	uint64_t txg = 0;
 	int err = 0;
 	int i = 0;
 	uint64_t obj = 0;
@@ -2612,13 +2640,13 @@ static void* do_object_perf(void *object_perf_args)
 	for (i = 0; i < num; i++) {
 		obj = tid << 32 | i;
 		if (op == 0) {
-			err = libuzfs_object_delete(dhp, obj, &txg);
+			err = libuzfs_object_delete(dhp, obj);
 			if (err) {
 				printf("Failed to rm obj %ld\n", obj);
 				goto out;
 			}
 		} else if (op == 1) {
-			err = TEST_libuzfs_object_claim(dhp, obj, &txg);
+			err = libuzfs_object_claim(dhp, obj);
 			if (err) {
 				printf("Failed to claim obj %ld\n", obj);
 				goto out;
