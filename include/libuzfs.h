@@ -104,7 +104,9 @@ extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
 
-extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj);
+extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
+    uint64_t *gen);
+
 extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 
@@ -116,11 +118,8 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync);
 
-extern int libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    void *attr, uint64_t size);
-
-extern int libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    const void *attr, uint64_t size, uint64_t *txg);
+extern int libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *gen);
 
 extern uint64_t libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp);

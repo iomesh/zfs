@@ -53,6 +53,7 @@ static int uzfs_dataset_get_sbino(int argc, char **argv);
 static int uzfs_object_create(int argc, char **argv);
 static int uzfs_object_delete(int argc, char **argv);
 static int uzfs_object_claim(int argc, char **argv);
+static int uzfs_object_get_gen(int argc, char **argv);
 static int uzfs_object_stat(int argc, char **argv);
 static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
@@ -109,6 +110,7 @@ typedef enum {
 	HELP_OBJECT_CREATE,
 	HELP_OBJECT_DELETE,
 	HELP_OBJECT_CLAIM,
+	HELP_OBJECT_GET_GEN,
 	HELP_OBJECT_STAT,
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
@@ -173,6 +175,7 @@ static uzfs_command_t command_table[] = {
 	{ "create-object",	uzfs_object_create, 	HELP_OBJECT_CREATE  },
 	{ "delete-object",	uzfs_object_delete, 	HELP_OBJECT_DELETE  },
 	{ "claim-object",	uzfs_object_claim, 	HELP_OBJECT_CLAIM   },
+	{ "get-gen-object",	uzfs_object_get_gen, 	HELP_OBJECT_GET_GEN },
 	{ "stat-object",	uzfs_object_stat, 	HELP_OBJECT_STAT    },
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
@@ -237,6 +240,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tcreate-object ...\n"));
 	case HELP_OBJECT_DELETE:
 		return (gettext("\tdelete-object ...\n"));
+	case HELP_OBJECT_GET_GEN:
+		return (gettext("\tget-gen-object ...\n"));
 	case HELP_OBJECT_STAT:
 		return (gettext("\tstat-object ...\n"));
 	case HELP_OBJECT_LIST:
@@ -653,12 +658,13 @@ uzfs_object_create(int argc, char **argv)
 	}
 
 	uint64_t obj = 0;
+	uint64_t gen = 0;
 
-	err = libuzfs_object_create(dhp, &obj);
+	err = libuzfs_object_create(dhp, &obj, &gen);
 	if (err)
 		printf("failed to create object on dataset: %s\n", dsname);
 	else
-		printf("created object %s:%ld\n", dsname, obj);
+		printf("created object %s:%ld, gen: %ld\n", dsname, obj, gen);
 
 	libuzfs_dataset_close(dhp);
 
@@ -711,6 +717,33 @@ uzfs_object_claim(int argc, char **argv)
 
 	return (err);
 }
+
+int
+uzfs_object_get_gen(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoll(argv[2]);
+
+	printf("getting gen of object %s:%ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint64_t gen = 0;
+	err = libuzfs_object_get_gen(dhp, obj, &gen);
+	if (err)
+		printf("failed to get gen of object: %s:%ld\n", dsname, obj);
+	else
+		printf("got object: %s:%ld, gen: %ld\n", dsname, obj, gen);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
 
 static char *
 uzfs_ot_name(dmu_object_type_t type)

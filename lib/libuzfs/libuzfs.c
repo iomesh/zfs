@@ -63,6 +63,11 @@ static void libuzfs_create_inode_with_type_impl(
     boolean_t claiming, libuzfs_inode_type_t type,
     dmu_tx_t *tx);
 
+// TODO(hping): consider store attr when supporting delegation
+typedef struct object_attr {
+	uint64_t gen;
+} object_attr_t;
+
 static void
 dump_debug_buffer(void)
 {
@@ -294,6 +299,7 @@ libuzfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj)
 
 	lr = (lr_create_t *)&itx->itx_lr;
 	lr->lr_foid = obj;
+	lr->lr_gen = tx->tx_txg;
 
 	zil_itx_assign(zilog, itx, tx);
 }
@@ -938,11 +944,13 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
  * object creation is always SYNC, recorded in zil
  */
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
+libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
+    uint64_t *gen)
 {
 	int err = 0;
 	dmu_tx_t *tx = NULL;
 	objset_t *os = dhp->os;
+	dmu_buf_t *db = NULL;
 
 	tx = dmu_tx_create(os);
 
@@ -965,6 +973,21 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj)
 	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
 
 	libuzfs_log_create(dhp->zilog, tx, *obj);
+
+	object_attr_t attr;
+	attr.gen = tx->tx_txg;
+
+	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
+	dmu_buf_will_dirty(db, tx);
+	VERIFY0(dmu_set_bonus(db, sizeof (object_attr_t), tx));
+
+	bcopy(&attr, db->db_data, sizeof (object_attr_t));
+	dmu_buf_rele(db, FTAG);
+
+	if (gen != NULL) {
+		*gen = tx->tx_txg;
+	}
+
 	dmu_tx_commit(tx);
 	zil_commit(dhp->zilog, *obj);
 
@@ -1062,57 +1085,38 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 	return (i);
 }
 
-int
-libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, void *attr,
-    uint64_t size)
+static int
+object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, object_attr_t *attr)
 {
+	int err = 0;
 	objset_t *os = dhp->os;
 	dmu_buf_t *db;
 
-	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
+	err = dmu_bonus_hold(os, obj, FTAG, &db);
+	if (err)
+		return (err);
 
-	bcopy(db->db_data + 8, attr, size);
+	bcopy(db->db_data, attr, sizeof (object_attr_t));
 	dmu_buf_rele(db, FTAG);
 
 	return (0);
 }
 
 int
-libuzfs_object_setattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    const void *attr, uint64_t size, uint64_t *txg)
+libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *gen)
 {
 	int err = 0;
-	objset_t *os = dhp->os;
-	dmu_buf_t *db;
-	dmu_tx_t *tx;
+	object_attr_t attr;
+	memset(&attr, 0, sizeof (object_attr_t));
+	err = object_getattr(dhp, obj, &attr);
+	if (err != 0)
+		return (err);
 
-	tx = dmu_tx_create(os);
+	if (gen != NULL)
+		*gen = attr.gen;
 
-	dmu_tx_hold_bonus(tx, obj);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_buf_rele(db, FTAG);
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
-
-	// 8 Bytes for kv obj
-	ASSERT(size + 8 < db->db_size);
-
-	dmu_buf_will_dirty(db, tx);
-
-	VERIFY0(dmu_set_bonus(db, size + 8, tx));
-	bcopy(attr, db->db_data + 8, size);
-	dmu_buf_rele(db, FTAG);
-
-	*txg = tx->tx_txg;
-	dmu_tx_commit(tx);
-
-out:
-	return (err);
+	return (0);
 }
 
 int
