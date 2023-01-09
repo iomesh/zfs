@@ -58,6 +58,8 @@ static int uzfs_object_stat(int argc, char **argv);
 static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
 static int uzfs_object_write(int argc, char **argv);
+static int uzfs_object_sync(int argc, char **argv);
+static int uzfs_object_truncate(int argc, char **argv);
 
 static int uzfs_object_perf(int argc, char **argv);
 
@@ -115,6 +117,8 @@ typedef enum {
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
 	HELP_OBJECT_WRITE,
+	HELP_OBJECT_SYNC,
+	HELP_OBJECT_TRUNC,
 	HELP_OBJECT_PERF,
 	HELP_ZAP_CREATE,
 	HELP_ZAP_DELETE,
@@ -180,6 +184,8 @@ static uzfs_command_t command_table[] = {
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
 	{ "write-object",	uzfs_object_write, 	HELP_OBJECT_WRITE   },
+	{ "sync-object",	uzfs_object_sync, 	HELP_OBJECT_SYNC    },
+	{ "trunc-object",	uzfs_object_truncate, 	HELP_OBJECT_TRUNC   },
 	{ "perf-object",	uzfs_object_perf, 	HELP_OBJECT_PERF    },
 	{ "create-zap",		uzfs_zap_create, 	HELP_ZAP_CREATE	},
 	{ "delete-zap",		uzfs_zap_delete, 	HELP_ZAP_DELETE },
@@ -250,6 +256,10 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tread-object ...\n"));
 	case HELP_OBJECT_WRITE:
 		return (gettext("\twrite-object ...\n"));
+	case HELP_OBJECT_SYNC:
+		return (gettext("\tsync-object ...\n"));
+	case HELP_OBJECT_TRUNC:
+		return (gettext("\ttrunc-object ...\n"));
 	case HELP_OBJECT_PERF:
 		return (gettext("\tperf-object ...\n"));
 	case HELP_OBJECT_CLAIM:
@@ -916,6 +926,78 @@ uzfs_object_write(int argc, char **argv)
 	VERIFY0(verify_data(dhp, obj, size, offset, buf));
 
 	umem_free(buf, size);
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_object_sync(int argc, char **argv)
+{
+	char *dsname = argv[1];
+	uint64_t obj = atoll(argv[2]);
+	int offset = atoi(argv[3]);
+	int size = atoi(argv[4]);
+	char *buf = NULL;
+	int err = 0;
+
+	printf("syncing %s: %ld\n", dsname, obj);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	buf = umem_alloc(size, UMEM_NOFAIL);
+
+	srand(time(NULL));
+	pattern_get_bytes(buf, size);
+
+	err = libuzfs_object_write(dhp, obj, offset, size, buf, B_TRUE);
+	if (err)
+		printf("failed to write object: %s:%ld\n", dsname, obj);
+
+	VERIFY0(verify_data(dhp, obj, size, offset, buf));
+
+	pattern_get_bytes(buf, size);
+
+	err = libuzfs_object_write(dhp, obj, offset, size, buf, B_FALSE);
+	if (err)
+		printf("failed to write object: %s:%ld\n", dsname, obj);
+
+	VERIFY0(verify_data(dhp, obj, size, offset, buf));
+
+	umem_free(buf, size);
+
+	libuzfs_object_sync(dhp, obj);
+
+	ASSERT(0);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+int
+uzfs_object_truncate(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t obj = atoll(argv[2]);
+	int offset = atoi(argv[3]);
+	int size = atoi(argv[4]);
+
+	printf("truncating %s: %ld, off: %d, size: %d\n", dsname, obj, offset, size);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	err = libuzfs_object_truncate(dhp, obj, offset, size);
+	if (err)
+		printf("failed to truncate object: %s:%ld\n", dsname, obj);
+
 	libuzfs_dataset_close(dhp);
 	return (0);
 }

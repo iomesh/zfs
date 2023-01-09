@@ -124,6 +124,11 @@ extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *gen);
 
+extern void libuzfs_object_sync(libuzfs_dataset_handle_t *dhp, uint64_t obj);
+
+extern int libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t offset, uint64_t size);
+
 extern uint64_t libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp);
 

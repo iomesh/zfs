@@ -325,6 +325,26 @@ libuzfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj)
 }
 
 static void
+libuzfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+    uint64_t obj, uint64_t offset, uint64_t size)
+{
+	itx_t *itx;
+	lr_truncate_t *lr;
+
+	if (zil_replaying(zilog, tx))
+		return;
+
+	itx = zil_itx_create(txtype, sizeof (*lr));
+	lr = (lr_truncate_t *)&itx->itx_lr;
+	lr->lr_foid = obj;
+	lr->lr_offset = offset;
+	lr->lr_length = size;
+
+	itx->itx_sync = B_TRUE;
+	zil_itx_assign(zilog, itx, tx);
+}
+
+static void
 libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
     uint64_t obj, offset_t off, ssize_t resid, boolean_t sync)
 {
@@ -464,6 +484,27 @@ out:
 }
 
 static int
+libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
+{
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_truncate_t *lr = arg2;
+	uint64_t obj;
+	uint64_t offset;
+	uint64_t size;
+
+	if (byteswap)
+		byteswap_uint64_array(lr, sizeof (*lr));
+
+	obj = lr->lr_foid;
+	offset = lr->lr_offset;
+	size = lr->lr_length;
+
+	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset, size);
+
+	return libuzfs_object_truncate(dhp, obj, offset, size);
+}
+
+static int
 libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 {
 	int err = 0;
@@ -502,7 +543,6 @@ out:
 	return (err);
 }
 
-// TODO(hping): add zil support
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,			/* 0 no such transaction type */
 	libuzfs_replay_create,	/* TX_CREATE */
@@ -514,7 +554,7 @@ zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,			/* TX_LINK */
 	NULL,			/* TX_RENAME */
 	libuzfs_replay_write,	/* TX_WRITE */
-	NULL,			/* TX_TRUNCATE */
+	libuzfs_replay_truncate,/* TX_TRUNCATE */
 	NULL,			/* TX_SETATTR */
 	NULL,			/* TX_ACL */
 	NULL,			/* TX_CREATE_ACL */
@@ -849,6 +889,37 @@ libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	dmu_object_info_from_db(db, doi);
 
 	dmu_buf_rele(db, FTAG);
+	return (0);
+}
+
+void
+libuzfs_object_sync(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+{
+	zil_commit(dhp->zilog, obj);
+}
+
+int
+libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t offset, uint64_t size)
+{
+	int err = 0;
+	dmu_tx_t *tx;
+
+	err = dmu_free_long_range(dhp->os, obj, offset, size);
+	if (err)
+		return (err);
+
+	tx = dmu_tx_create(dhp->os);
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+		return (err);
+	}
+
+	libuzfs_log_truncate(dhp->zilog, tx, TX_TRUNCATE, obj, offset, size);
+	dmu_tx_commit(tx);
+	zil_commit(dhp->zilog, obj);
+
 	return (0);
 }
 
