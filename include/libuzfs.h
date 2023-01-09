@@ -62,6 +62,9 @@ struct uzfs_attr {
 	uint64_t blksize;
 	uint64_t blocks;
 	uint32_t nsid;
+	uint32_t dsid;
+	uint64_t oid;
+	uint64_t ogen;
 	struct timespec atime;
 	struct timespec mtime;
 	struct timespec ctime;

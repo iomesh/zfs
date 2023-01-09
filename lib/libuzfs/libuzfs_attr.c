@@ -23,6 +23,9 @@ typedef enum uzfs_attr_type {
 	UZFS_BLKSIZE,
 	UZFS_BLOCKS,
 	UZFS_NSID,
+	UZFS_DSID,
+	UZFS_OID,
+	UZFS_OGEN,
 	UZFS_ATIME,
 	UZFS_MTIME,
 	UZFS_CTIME,
@@ -45,11 +48,14 @@ sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 	{"UZFS_BLKSIZE", sizeof (uint64_t), SA_UINT64_ARRAY, 9},
 	{"UZFS_BLOCKS", sizeof (uint64_t), SA_UINT64_ARRAY, 10},
 	{"UZFS_NSID", sizeof (uint32_t), SA_UINT32_ARRAY, 11},
-	{"UZFS_ATIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 12},
-	{"UZFS_MTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 13},
-	{"UZFS_CTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 14},
-	{"UZFS_BTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 15},
-	{"UZFS_ZXATTR", sizeof (uint64_t), SA_UINT64_ARRAY, 16},
+	{"UZFS_DSID", sizeof (uint32_t), SA_UINT32_ARRAY, 12},
+	{"UZFS_OID", sizeof (uint64_t), SA_UINT64_ARRAY, 13},
+	{"UZFS_OGEN", sizeof (uint64_t), SA_UINT64_ARRAY, 14},
+	{"UZFS_ATIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 15},
+	{"UZFS_MTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 16},
+	{"UZFS_CTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 17},
+	{"UZFS_BTIME", sizeof (uint64_t) * 2, SA_UINT64_ARRAY, 18},
+	{"UZFS_ZXATTR", sizeof (uint64_t), SA_UINT64_ARRAY, 19},
 	{"UZFS_XATTR", 0, SA_UINT8_ARRAY, 0},
 	{NULL, 0, 0, 0}
 };
@@ -94,6 +100,12 @@ libuzfs_add_bulk_attr(libuzfs_dataset_handle_t *dhp, sa_bulk_attr_t *sa_attrs,
 	    NULL, &attr->blocks, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_NSID],
 	    NULL, &attr->nsid, 4);
+	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_DSID],
+	    NULL, &attr->dsid, 4);
+	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_OID],
+	    NULL, &attr->oid, 8);
+	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_OGEN],
+	    NULL, &attr->ogen, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_ATIME],
 	    NULL, &attr->atime, 16);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_MTIME],
