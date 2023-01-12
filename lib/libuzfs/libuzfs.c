@@ -832,14 +832,17 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname)
 {
+	int err = 0;
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
 	zilog_t *zilog = NULL;
 
 	dhp = umem_alloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
 
-	VERIFY0(libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
-	    dhp, &os));
+	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
+	    dhp, &os);
+	if (err)
+		return (NULL);
 
 	libuzfs_dhp_init(dhp, os);
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
