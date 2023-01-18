@@ -177,6 +177,7 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	int cnt = 0;
 	libuzfs_add_bulk_attr(dhp, sa_attrs, &cnt, attr);
 	err = sa_bulk_lookup(sa_hdl, sa_attrs, cnt);
+	attr->ino = ino;
 
 	sa_handle_destroy(sa_hdl);
 	return (err);
