@@ -170,13 +170,13 @@ extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *kvobj);
 
 extern int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino,
-    const char *name, uint64_t *value, uint64_t num, uint64_t *txg);
+    const char *name, uint64_t value, uint64_t *txg);
 
 extern int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino,
     const char *name, uint64_t *txg);
 
 extern int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
-    const char *name, uint64_t *value, uint64_t num);
+    const char *name, uint64_t *value);
 
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);

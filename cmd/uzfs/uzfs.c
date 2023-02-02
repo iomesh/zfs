@@ -1667,10 +1667,10 @@ uzfs_dentry_create(int argc, char **argv)
 	uint64_t dino = atoll(argv[2]);
 	char *name = argv[3];
 	uint64_t ino = atoll(argv[4]);
-	uint64_t payload = atoll(argv[5]);
+	uint64_t type = atoll(argv[5]);
 
-	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld\n",
-	    dsname, dino, name, ino);
+	printf("creating dentry %s, dino: %ld, name: %s, ino: 0x%lx, type: %ld\n",
+	    dsname, dino, name, ino, type);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1679,16 +1679,15 @@ uzfs_dentry_create(int argc, char **argv)
 	}
 
 	uint64_t txg = 0;
-	uint64_t value[2];
-	value[0] = ino;
-	value[1] = payload;
+	uint64_t value = ino;
+	value |= type << 60;
 
-	err = libuzfs_dentry_create(dhp, dino, name, value, 2, &txg);
+	err = libuzfs_dentry_create(dhp, dino, name, value, &txg);
 	if (err)
 		printf("failed to create dentry on dataset: %s\n", dsname);
 	else
-		printf("created dentry %s, dino: %ld, name: %s, [%ld, %ld]\n",
-		    dsname, dino, name, ino, payload);
+		printf("created dentry %s, dino: %ld, name: %s, [0x%lx]\n",
+		    dsname, dino, name, value);
 
 	libuzfs_dataset_close(dhp);
 
@@ -1739,15 +1738,15 @@ uzfs_dentry_lookup(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t value[2] = {0};
+	uint64_t value = 0;
 
-	err = libuzfs_dentry_lookup(dhp, dino, name, value, 2);
+	err = libuzfs_dentry_lookup(dhp, dino, name, &value);
 	if (err)
 		printf("failed to lookup dentry: %s:%ld/%s\n",
 		    dsname, dino, name);
 	else
-		printf("looked up dentry: %s:%ld/%s: [%ld, %ld]\n",
-		    dsname, dino, name, value[0], value[1]);
+		printf("looked up dentry: %s:%ld/%s: [0x%lx]\n",
+		    dsname, dino, name, value);
 
 	libuzfs_dataset_close(dhp);
 	return (0);

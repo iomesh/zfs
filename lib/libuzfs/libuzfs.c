@@ -1499,9 +1499,9 @@ libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 }
 
 int libuzfs_dentry_create(libuzfs_dataset_handle_t *dhp, uint64_t dino,
-    const char *name, uint64_t *value, uint64_t num, uint64_t *txg)
+    const char *name, uint64_t value, uint64_t *txg)
 {
-	return (libuzfs_zap_add(dhp, dino, name, 8, num, value, txg));
+	return (libuzfs_zap_add(dhp, dino, name, 8, 1, &value, txg));
 }
 
 int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino,
@@ -1511,9 +1511,9 @@ int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino,
 }
 
 int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
-    const char *name, uint64_t *value, uint64_t num)
+    const char *name, uint64_t *value)
 {
-	return (libuzfs_zap_lookup(dhp, dino, name, 8, num, value));
+	return (libuzfs_zap_lookup(dhp, dino, name, 8, 1, value));
 }
 
 // FIXME(hping)
