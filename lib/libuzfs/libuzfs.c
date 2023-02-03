@@ -68,6 +68,12 @@ typedef struct object_attr {
 	uint64_t gen;
 } object_attr_t;
 
+typedef struct dir_emit_ctx {
+	char *buf;
+	char *cur;
+	uint32_t size;
+} dir_emit_ctx_t;
+
 static void
 dump_debug_buffer(void)
 {
@@ -499,9 +505,10 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	offset = lr->lr_offset;
 	size = lr->lr_length;
 
-	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset, size);
+	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset,
+	    size);
 
-	return libuzfs_object_truncate(dhp, obj, offset, size);
+	return (libuzfs_object_truncate(dhp, obj, offset, size));
 }
 
 static int
@@ -544,26 +551,26 @@ out:
 }
 
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
-	NULL,			/* 0 no such transaction type */
-	libuzfs_replay_create,	/* TX_CREATE */
-	NULL,			/* TX_MKDIR */
-	NULL,			/* TX_MKXATTR */
-	NULL,			/* TX_SYMLINK */
-	libuzfs_replay_remove,	/* TX_REMOVE */
-	NULL,			/* TX_RMDIR */
-	NULL,			/* TX_LINK */
-	NULL,			/* TX_RENAME */
-	libuzfs_replay_write,	/* TX_WRITE */
-	libuzfs_replay_truncate,/* TX_TRUNCATE */
-	NULL,			/* TX_SETATTR */
-	NULL,			/* TX_ACL */
-	NULL,			/* TX_CREATE_ACL */
-	NULL,			/* TX_CREATE_ATTR */
-	NULL,			/* TX_CREATE_ACL_ATTR */
-	NULL,			/* TX_MKDIR_ACL */
-	NULL,			/* TX_MKDIR_ATTR */
-	NULL,			/* TX_MKDIR_ACL_ATTR */
-	NULL,			/* TX_WRITE2 */
+	NULL,				/* 0 no such transaction type */
+	libuzfs_replay_create,		/* TX_CREATE */
+	NULL,				/* TX_MKDIR */
+	NULL,				/* TX_MKXATTR */
+	NULL,				/* TX_SYMLINK */
+	libuzfs_replay_remove,		/* TX_REMOVE */
+	NULL,				/* TX_RMDIR */
+	NULL,				/* TX_LINK */
+	NULL,				/* TX_RENAME */
+	libuzfs_replay_write,		/* TX_WRITE */
+	libuzfs_replay_truncate,	/* TX_TRUNCATE */
+	NULL,				/* TX_SETATTR */
+	NULL,				/* TX_ACL */
+	NULL,				/* TX_CREATE_ACL */
+	NULL,				/* TX_CREATE_ATTR */
+	NULL,				/* TX_CREATE_ACL_ATTR */
+	NULL,				/* TX_MKDIR_ACL */
+	NULL,				/* TX_MKDIR_ATTR */
+	NULL,				/* TX_MKDIR_ACL_ATTR */
+	NULL,				/* TX_WRITE2 */
 };
 
 static int
@@ -1514,6 +1521,80 @@ int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
     const char *name, uint64_t *value)
 {
 	return (libuzfs_zap_lookup(dhp, dino, name, 8, 1, value));
+}
+
+static boolean_t
+dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
+    uint32_t name_len)
+{
+	int size = sizeof (struct uzfs_dentry) + name_len;
+	if (ctx->cur + size > ctx->buf + ctx->size) {
+		return (B_TRUE);
+	}
+
+	struct uzfs_dentry *dentry = (struct uzfs_dentry *)ctx->cur;
+	dentry->size = size;
+	dentry->whence = whence;
+	dentry->value = value;
+	memcpy(dentry->name, name, name_len);
+
+	ctx->cur += size;
+
+	return (B_FALSE);
+}
+
+int
+libuzfs_dentry_iterate(libuzfs_dataset_handle_t *dhp, uint64_t dino,
+    uint64_t whence, uint32_t size, char *buf, uint32_t *num)
+{
+	int		error = 0;
+	zap_cursor_t	zc;
+	zap_attribute_t	zap;
+	boolean_t	done = B_FALSE;
+	dir_emit_ctx_t  ctx;
+
+	*num = 0;
+	ctx.buf = buf;
+	ctx.cur = buf;
+	ctx.size = size;
+
+	zap_cursor_init_serialized(&zc, dhp->os, dino, whence);
+
+	while (!done) {
+		if ((error = zap_cursor_retrieve(&zc, &zap)))
+			break;
+
+		/*
+		 * Allow multiple entries provided the first entry is
+		 * the object id.  Non-zpl consumers may safely make
+		 * use of the additional space.
+		 *
+		 * XXX: This should be a feature flag for compatibility
+		 */
+		if (zap.za_integer_length != 8 || zap.za_num_integers == 0) {
+			printf("zap_readdir: bad directory entry, obj = %ld,"
+			    " whence = %ld, length = %d, num = %ld\n",
+			    zap.za_first_integer, whence,
+			    zap.za_integer_length, zap.za_num_integers);
+			error = SET_ERROR(ENXIO);
+			break;
+		}
+
+		zap_cursor_advance(&zc);
+		whence = zap_cursor_serialize(&zc);
+
+		done = dir_emit(&ctx, whence, zap.za_first_integer, zap.za_name,
+		    strlen(zap.za_name));
+		if (done)
+			break;
+		(*num)++;
+	}
+
+	zap_cursor_fini(&zc);
+	if (error == ENOENT) {
+		error = 0;
+	}
+	return (error);
 }
 
 // FIXME(hping)

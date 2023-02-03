@@ -71,6 +71,13 @@ struct uzfs_attr {
 	struct timespec btime;
 };
 
+struct uzfs_dentry {
+	uint64_t value;
+	uint64_t whence;
+	uint32_t size;
+	char name[0];
+};
+
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_attr uzfs_attr_t;
@@ -177,6 +184,9 @@ extern int libuzfs_dentry_delete(libuzfs_dataset_handle_t *dhp, uint64_t dino,
 
 extern int libuzfs_dentry_lookup(libuzfs_dataset_handle_t *dhp, uint64_t dino,
     const char *name, uint64_t *value);
+
+extern int libuzfs_dentry_iterate(libuzfs_dataset_handle_t *dhp, uint64_t dino,
+    uint64_t whence, uint32_t size, char *buf, uint32_t *num);
 
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);

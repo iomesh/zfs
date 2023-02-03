@@ -100,6 +100,7 @@ static int uzfs_attr_random_test(int argc, char **argv);
 static int uzfs_dentry_create(int argc, char **argv);
 static int uzfs_dentry_delete(int argc, char **argv);
 static int uzfs_dentry_lookup(int argc, char **argv);
+static int uzfs_dentry_list(int argc, char **argv);
 
 typedef enum {
 	HELP_ZPOOL_CREATE,
@@ -150,6 +151,7 @@ typedef enum {
 	HELP_DENTRY_CREATE,
 	HELP_DENTRY_DELETE,
 	HELP_DENTRY_LOOKUP,
+	HELP_DENTRY_LIST,
 	HELP_ATTR_TEST,
 } uzfs_help_t;
 
@@ -216,7 +218,8 @@ static uzfs_command_t command_table[] = {
 	{ "rmkvattr-inode",	uzfs_inode_rm_kvattr, 	HELP_INODE_RM_KVATTR },
 	{ "create-dentry",	uzfs_dentry_create, 	HELP_DENTRY_CREATE   },
 	{ "delete-dentry",	uzfs_dentry_delete, 	HELP_DENTRY_DELETE   },
-	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_DELETE   },
+	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_LOOKUP   },
+	{ "list-dentry",	uzfs_dentry_list, 	HELP_DENTRY_LIST  },
 	{ "attr-test",		uzfs_attr_random_test,	HELP_ATTR_TEST	},
 };
 
@@ -324,6 +327,8 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tdelete-dentry ...\n"));
 	case HELP_DENTRY_LOOKUP:
 		return (gettext("\tlookup-dentry ...\n"));
+	case HELP_DENTRY_LIST:
+		return (gettext("\tlist-dentry ...\n"));
 	case HELP_ATTR_TEST:
 		return (gettext("\tattr-test ...\n"));
 	default:
@@ -986,7 +991,8 @@ uzfs_object_truncate(int argc, char **argv)
 	int offset = atoi(argv[3]);
 	int size = atoi(argv[4]);
 
-	printf("truncating %s: %ld, off: %d, size: %d\n", dsname, obj, offset, size);
+	printf("truncating %s: %ld, off: %d, size: %d\n", dsname, obj, offset,
+	    size);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
 	if (!dhp) {
@@ -1669,7 +1675,7 @@ uzfs_dentry_create(int argc, char **argv)
 	uint64_t ino = atoll(argv[4]);
 	uint64_t type = atoll(argv[5]);
 
-	printf("creating dentry %s, dino: %ld, name: %s, ino: 0x%lx, type: %ld\n",
+	printf("creating dentry %s, dino: %ld, name: %s, ino: %ld, type: %ld\n",
 	    dsname, dino, name, ino, type);
 
 	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
@@ -1748,6 +1754,60 @@ uzfs_dentry_lookup(int argc, char **argv)
 		printf("looked up dentry: %s:%ld/%s: [0x%lx]\n",
 		    dsname, dino, name, value);
 
+	libuzfs_dataset_close(dhp);
+	return (0);
+}
+
+static uint64_t
+dump_dentries(char *buf, uint32_t size, uint32_t num)
+{
+	uint64_t whence = 0;
+	struct uzfs_dentry *cur = (struct uzfs_dentry *)buf;
+	for (int i = 0; i < num; i++) {
+		printf("%s\t0x%lx\n", cur->name, cur->value);
+		whence = cur->whence;
+		cur = (struct uzfs_dentry *)((char *)cur + cur->size);
+	}
+
+	return (whence);
+}
+
+int
+uzfs_dentry_list(int argc, char **argv)
+{
+	int err = 0;
+	char *dsname = argv[1];
+	uint64_t dino = atoll(argv[2]);
+
+	printf("list dentry %s: dino: %ld\n", dsname, dino);
+
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (!dhp) {
+		printf("failed to open dataset: %s\n", dsname);
+		return (-1);
+	}
+
+	uint32_t num = 0;
+	uint64_t whence = 0;
+	uint32_t size = 4096;
+	char *buf = umem_zalloc(size, UMEM_NOFAIL);
+
+	while (1) {
+		num = 0;
+		memset(buf, 0, size);
+		err = libuzfs_dentry_iterate(dhp, dino, whence, size, buf,
+		    &num);
+		if (err) {
+			printf("failed to iterate dentry: %s:%ld\n", dsname,
+			    dino);
+			break;
+		} else if (num == 0)
+			break;
+		else
+			whence = dump_dentries(buf, size, num);
+	}
+
+	umem_free(buf, size);
 	libuzfs_dataset_close(dhp);
 	return (0);
 }
