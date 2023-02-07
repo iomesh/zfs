@@ -1527,7 +1527,7 @@ static boolean_t
 dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
     uint32_t name_len)
 {
-	int size = sizeof (struct uzfs_dentry) + name_len;
+	int size = sizeof (struct uzfs_dentry) + name_len + 1;
 	if (ctx->cur + size > ctx->buf + ctx->size) {
 		return (B_TRUE);
 	}
@@ -1536,7 +1536,7 @@ dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
 	dentry->size = size;
 	dentry->whence = whence;
 	dentry->value = value;
-	memcpy(dentry->name, name, name_len);
+	memcpy(dentry->name, name, name_len + 1);
 
 	ctx->cur += size;
 
