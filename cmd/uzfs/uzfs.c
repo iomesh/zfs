@@ -45,6 +45,9 @@ static int uzfs_zpool_destroy(int argc, char **argv);
 static int uzfs_zpool_set(int argc, char **argv);
 static int uzfs_zpool_get(int argc, char **argv);
 
+static int uzfs_zpool_import(int argc, char **argv);
+static int uzfs_zpool_export(int argc, char ** argv);
+
 static int uzfs_dataset_create(int argc, char **argv);
 static int uzfs_dataset_destroy(int argc, char **argv);
 
@@ -105,6 +108,8 @@ static int uzfs_dentry_list(int argc, char **argv);
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
+	HELP_ZPOOL_IMPORT,
+	HELP_ZPOOL_EXPORT,
 	HELP_ZPOOL_SET,
 	HELP_ZPOOL_GET,
 	HELP_DATASET_CREATE,
@@ -173,6 +178,8 @@ typedef struct uzfs_command {
 static uzfs_command_t command_table[] = {
 	{ "create-zpool",	uzfs_zpool_create, 	HELP_ZPOOL_CREATE   },
 	{ "destroy-zpool",	uzfs_zpool_destroy, 	HELP_ZPOOL_DESTROY  },
+	{ "import-zpool",	uzfs_zpool_import,	HELP_ZPOOL_IMPORT},
+	{ "export-zpool",	uzfs_zpool_export,	HELP_ZPOOL_EXPORT},
 	{ "set-zpool",		uzfs_zpool_set, 	HELP_ZPOOL_SET	},
 	{ "get-zpool",		uzfs_zpool_get, 	HELP_ZPOOL_GET	},
 	{ "create-dataset",	uzfs_dataset_create, 	HELP_DATASET_CREATE },
@@ -331,6 +338,10 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tlist-dentry ...\n"));
 	case HELP_ATTR_TEST:
 		return (gettext("\tattr-test ...\n"));
+	case HELP_ZPOOL_IMPORT:
+		return (gettext("\timport-zpool ...\n"));
+	case HELP_ZPOOL_EXPORT:
+		return (gettext("\texport-zpool ...\n"));
 	default:
 		__builtin_unreachable();
 	}
@@ -600,6 +611,28 @@ uzfs_zpool_get(int argc, char **argv)
 		printf("prop: %s=%ld\n", prop_name, value);
 
 	libuzfs_zpool_close(zhp);
+
+	return (err);
+}
+
+int
+uzfs_zpool_import(int argc, char **argv)
+{
+	char *dev_path = argv[1];
+	int err = libuzfs_zpool_import(dev_path);
+
+	printf("import zpool, dev_path: %s, result: %d\n", dev_path, err);
+
+	return (err);
+}
+
+int
+uzfs_zpool_export(int argc, char **argv)
+{
+	char *pool_name = argv[1];
+	int err = libuzfs_zpool_export(pool_name);
+
+	printf("export zpool: %s, result: %d\n", pool_name, err);
 
 	return (err);
 }
