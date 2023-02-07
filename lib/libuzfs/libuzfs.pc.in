@@ -8,4 +8,4 @@ Description: LibUZFS library
 Version: @VERSION@
 URL: https://github.com/iomesh/zfs
 Cflags: -I${includedir}/libzfs -I${includedir}/libspl
-Libs: -L${libdir} -luzfs -lzpool -lnvpair -lz -ltirpc
+Libs: -L${libdir} -luzfs -lzpool -lnvpair -lz -ltirpc -lblkid -ludev -luuid

@@ -97,6 +97,9 @@ extern int libuzfs_zpool_destroy(const char *zpool);
 extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool);
 extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
 
+extern int libuzfs_zpool_import(const char *dev_path);
+extern int libuzfs_zpool_export(const char *pool_name);
+
 extern void libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp,
     zpool_prop_t prop, uint64_t value);
 

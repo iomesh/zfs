@@ -88,6 +88,7 @@ dump_debug_buffer(void)
 }
 
 #define	FATAL_MSG_SZ	1024
+#define	MAX_POOLS_IN_ONE_DEV	256
 
 char *fatal_msg;
 
@@ -671,6 +672,62 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 {
 	spa_close(zhp->spa, FTAG);
 	free(zhp);
+}
+
+int
+libuzfs_zpool_import(const char *dev_path)
+{
+	importargs_t args = { 0 };
+	args.path = (char **)&dev_path;
+	args.paths = 1;
+
+	nvlist_t *pools = zpool_search_import(NULL,
+	    &args, &libzpool_config_ops);
+
+	if (pools == NULL) {
+		return (ENOMEM);
+	}
+
+	if (nvlist_empty(pools)) {
+		nvlist_free(pools);
+		return (ENOENT);
+	}
+
+	int err = 0;
+	nvpair_t *elem = NULL;
+	while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
+		nvlist_t *config = NULL;
+		VERIFY0(nvpair_value_nvlist(elem, &config));
+
+		char *pool_name;
+		VERIFY0(nvlist_lookup_string(config,
+		    ZPOOL_CONFIG_POOL_NAME, &pool_name));
+
+		err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
+
+		if (err != 0) {
+			if (err == ENOENT) {
+				err = EINVAL;
+			}
+			break;
+		}
+	}
+
+	nvlist_free(pools);
+
+	return (err);
+}
+
+int
+libuzfs_zpool_export(const char *pool_name)
+{
+	int err = spa_export(pool_name, NULL, B_TRUE, B_FALSE);
+
+	if (err == ENOENT) {
+		err = 0;
+	}
+
+	return (err);
 }
 
 void
