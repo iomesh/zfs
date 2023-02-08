@@ -1527,7 +1527,7 @@ static boolean_t
 dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
     uint32_t name_len)
 {
-	int size = sizeof (struct uzfs_dentry) + name_len + 1;
+	int size = offsetof(struct uzfs_dentry, name) + name_len + 1;
 	if (ctx->cur + size > ctx->buf + ctx->size) {
 		return (B_TRUE);
 	}
