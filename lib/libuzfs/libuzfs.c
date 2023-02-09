@@ -674,6 +674,20 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 	free(zhp);
 }
 
+static int
+pool_active(void *unused, const char *name, uint64_t guid,
+    boolean_t *isactive)
+{
+	*isactive = B_FALSE;
+	return (0);
+}
+
+static nvlist_t *
+refresh_config(void *unused, nvlist_t *tryconfig)
+{
+	return (spa_tryimport(tryconfig));
+}
+
 int
 libuzfs_zpool_import(const char *dev_path)
 {
@@ -681,8 +695,12 @@ libuzfs_zpool_import(const char *dev_path)
 	args.path = (char **)&dev_path;
 	args.paths = 1;
 
+	pool_config_ops_t ops = {
+		.pco_refresh_config = refresh_config,
+		.pco_pool_active = pool_active,
+	};
 	nvlist_t *pools = zpool_search_import(NULL,
-	    &args, &libzpool_config_ops);
+	    &args, &ops);
 
 	if (pools == NULL) {
 		return (ENOMEM);
