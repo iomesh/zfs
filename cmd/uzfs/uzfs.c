@@ -619,9 +619,12 @@ int
 uzfs_zpool_import(int argc, char **argv)
 {
 	char *dev_path = argv[1];
-	int err = libuzfs_zpool_import(dev_path);
+	const int max_pool_name_len = 256;
+	char pool_name[max_pool_name_len];
+	pool_name[0] = 0;
+	int err = libuzfs_zpool_import(dev_path, pool_name, max_pool_name_len);
 
-	printf("import zpool, dev_path: %s, result: %d\n", dev_path, err);
+	printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n", dev_path, err, pool_name);
 
 	return (err);
 }

@@ -689,7 +689,7 @@ refresh_config(void *unused, nvlist_t *tryconfig)
 }
 
 int
-libuzfs_zpool_import(const char *dev_path)
+libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
 	importargs_t args = { 0 };
 	args.path = (char **)&dev_path;
@@ -711,24 +711,21 @@ libuzfs_zpool_import(const char *dev_path)
 		return (ENOENT);
 	}
 
-	int err = 0;
-	nvpair_t *elem = NULL;
-	while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
-		nvlist_t *config = NULL;
-		VERIFY0(nvpair_value_nvlist(elem, &config));
+	nvpair_t *elem = nvlist_next_nvpair(pools, NULL);
+	VERIFY3U(elem, !=, NULL);
+	VERIFY3U(nvlist_next_nvpair(pools, elem), ==, NULL);
 
-		char *pool_name;
-		VERIFY0(nvlist_lookup_string(config,
-		    ZPOOL_CONFIG_POOL_NAME, &pool_name));
+	nvlist_t *config = NULL;
+	VERIFY0(nvpair_value_nvlist(elem, &config));
 
-		err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
+	char *stored_pool_name;
+	VERIFY0(nvlist_lookup_string(config,
+	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
+	strncpy(pool_name, stored_pool_name, size);
 
-		if (err != 0) {
-			if (err == ENOENT) {
-				err = EINVAL;
-			}
-			break;
-		}
+	int err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
+	if (err == ENOENT) {
+		err = EINVAL;
 	}
 
 	nvlist_free(pools);
