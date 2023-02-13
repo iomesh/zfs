@@ -685,7 +685,9 @@ pool_active(void *unused, const char *name, uint64_t guid,
 static nvlist_t *
 refresh_config(void *unused, nvlist_t *tryconfig)
 {
-	return (spa_tryimport(tryconfig));
+	nvlist_t *res;
+	nvlist_dup(tryconfig, &res, KM_SLEEP);
+	return (res);
 }
 
 int
