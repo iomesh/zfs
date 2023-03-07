@@ -1200,10 +1200,8 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	if (err)
 		goto out;
 
-	err = dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-	if (err)
-		goto out;
+	VERIFY0(dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx));
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
 
@@ -1364,12 +1362,8 @@ libuzfs_zap_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
 
-	err = zap_create_claim_dnsize(os, obj, DMU_OT_DIRECTORY_CONTENTS,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
+	VERIFY0(zap_create_claim_dnsize(os, obj, DMU_OT_DIRECTORY_CONTENTS,
+	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx));
 
 	dmu_tx_commit(tx);
 
@@ -1422,10 +1416,6 @@ libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 	}
 
 	err = zap_add(os, obj, key, integer_size, num_integers, val, tx);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
 
 	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
@@ -1453,10 +1443,6 @@ libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 	}
 
 	err = zap_remove(os, obj, key, tx);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
 
 	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
@@ -1484,10 +1470,6 @@ libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
 	}
 
 	err = zap_update(os, obj, key, integer_size, num_integers, val, tx);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
 
 	*txg = tx->tx_txg;
 	dmu_tx_commit(tx);
@@ -1563,7 +1545,7 @@ libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type)
 {
 	return (libuzfs_create_inode_with_type(dhp, &ino,
-	    B_FALSE, type, NULL));
+	    B_TRUE, type, NULL));
 }
 
 int
