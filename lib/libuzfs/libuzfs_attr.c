@@ -610,3 +610,88 @@ libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	sa_handle_destroy(sa_hdl);
 	return (err);
 }
+
+libuzfs_kvattr_iterator_t *
+libuzfs_new_kvattr_iterator(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, int *err)
+{
+	sa_handle_t *sa_hdl = NULL;
+	objset_t *os = dhp->os;
+	*err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (*err != 0) {
+		return (NULL);
+	}
+
+	libuzfs_kvattr_iterator_t *iter =
+	    umem_alloc(sizeof (libuzfs_kvattr_iterator_t), UMEM_NOFAIL);
+	memset(iter, 0, sizeof (libuzfs_kvattr_iterator_t));
+
+	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
+	*err = libuzfs_get_nvlist_from_handle(sa_tbl,
+	    &iter->kvattrs_in_sa, sa_hdl);
+	if (*err != 0) {
+		goto fail;
+	}
+
+	iter->current_pair = nvlist_next_nvpair(iter->kvattrs_in_sa, NULL);
+
+	*err = sa_lookup(sa_hdl, sa_tbl[UZFS_ZXATTR],
+	    &iter->zap_obj, sizeof (iter->zap_obj));
+	if (*err != 0 && *err != ENOENT) {
+		goto fail;
+	}
+
+	if (*err == 0) {
+		zap_cursor_init(&iter->zc, dhp->os, iter->zap_obj);
+	}
+	sa_handle_destroy(sa_hdl);
+	return (iter);
+
+fail:
+	if (iter->kvattrs_in_sa != NULL) {
+		nvlist_free(iter->kvattrs_in_sa);
+	}
+	umem_free(iter, sizeof (libuzfs_kvattr_iterator_t));
+	sa_handle_destroy(sa_hdl);
+	return (NULL);
+}
+
+ssize_t
+libuzfs_next_kvattr_name(libuzfs_kvattr_iterator_t *iter, char *buf, int size)
+{
+	if (iter->current_pair != NULL) {
+		char *name = nvpair_name(iter->current_pair);
+		int name_len = strlen(name);
+		if (size - 1 < name_len) {
+			return (-ERANGE);
+		}
+		strncpy(buf, name, size);
+		iter->current_pair =
+		    nvlist_next_nvpair(iter->kvattrs_in_sa, iter->current_pair);
+		return (name_len);
+	}
+
+	zap_attribute_t za;
+	if (iter->zap_obj != 0 && zap_cursor_retrieve(&iter->zc, &za) == 0) {
+		int name_len = strlen(za.za_name);
+		if (size - 1 < name_len) {
+			return (-ERANGE);
+		}
+		strncpy(buf, za.za_name, size);
+		zap_cursor_advance(&iter->zc);
+		return (name_len);
+	}
+
+	return (0);
+}
+
+void
+libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter)
+{
+	VERIFY3P(iter, !=, NULL);
+	nvlist_free(iter->kvattrs_in_sa);
+	if (iter->zap_obj != 0) {
+		zap_cursor_fini(&iter->zc);
+	}
+	umem_free(iter, sizeof (libuzfs_kvattr_iterator_t));
+}
