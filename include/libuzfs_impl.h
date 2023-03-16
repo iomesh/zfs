@@ -50,6 +50,13 @@ struct libuzfs_dataset_handle {
 	sa_attr_type_t	*uzfs_attr_table;
 };
 
+struct libuzfs_kvattr_iterator {
+	nvlist_t *kvattrs_in_sa;
+	nvpair_t *current_pair;
+	zap_cursor_t zc;
+	uint64_t zap_obj;
+};
+
 #define	UZFS_SIZE_OFFSET 0
 #define	UZFS_GEN_OFFSET 8
 #define	UZFS_UID_OFFSET 16

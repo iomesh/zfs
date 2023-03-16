@@ -81,6 +81,7 @@ struct uzfs_dentry {
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_attr uzfs_attr_t;
+typedef struct libuzfs_kvattr_iterator libuzfs_kvattr_iterator_t;
 
 typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
@@ -97,7 +98,8 @@ extern int libuzfs_zpool_destroy(const char *zpool);
 extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool);
 extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
 
-extern int libuzfs_zpool_import(const char *dev_path, char *pool_name, int size);
+extern int libuzfs_zpool_import(const char *dev_path,
+    char *pool_name, int size);
 extern int libuzfs_zpool_export(const char *pool_name);
 
 extern void libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp,
@@ -235,6 +237,12 @@ extern ssize_t libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, const char *name, char *value, uint64_t size, int flags);
 extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, const char *name, uint64_t *txg);
+
+extern libuzfs_kvattr_iterator_t *libuzfs_new_kvattr_iterator(
+    libuzfs_dataset_handle_t *dhp, uint64_t ino, int *err);
+extern ssize_t libuzfs_next_kvattr_name(libuzfs_kvattr_iterator_t *iter,
+    char *buf, int size);
+extern void libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter);
 
 #ifdef	__cplusplus
 }

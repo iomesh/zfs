@@ -624,7 +624,8 @@ uzfs_zpool_import(int argc, char **argv)
 	pool_name[0] = 0;
 	int err = libuzfs_zpool_import(dev_path, pool_name, max_pool_name_len);
 
-	printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n", dev_path, err, pool_name);
+	printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n",
+	    dev_path, err, pool_name);
 
 	return (err);
 }
@@ -1514,11 +1515,12 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 	int getkvattr_proportion = 2;
 	int setkvattr_proportion = 4;
 	int deletekvattr_proportion = 2;
+	int listkvattr_proportion = 1;
 	int getattr_proportion = 6;
 	int setattr_proportion = 6;
 	int total_proportion = delete_proportion + getkvattr_proportion +
 	    setkvattr_proportion + deletekvattr_proportion +
-	    getattr_proportion + setattr_proportion;
+	    listkvattr_proportion + getattr_proportion + setattr_proportion;
 
 	int op = rand() % total_proportion;
 	*reset = B_FALSE;
@@ -1620,6 +1622,24 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 		return (B_TRUE);
 	}
 	op -= deletekvattr_proportion;
+
+	if (op < listkvattr_proportion) {
+		int err;
+		libuzfs_kvattr_iterator_t *iter =
+		    libuzfs_new_kvattr_iterator(dhp, *ino, &err);
+		if (iter == NULL) {
+			VERIFY3U(err, !=, 0);
+			return (B_TRUE);
+		}
+
+		char buf[256];
+		while (libuzfs_next_kvattr_name(iter, buf, 256) > 0) {
+			ASSERT(nvlist_exists(nvl, buf));
+		}
+		libuzfs_kvattr_iterator_fini(iter);
+		return (B_TRUE);
+	}
+	op -= listkvattr_proportion;
 
 	if (op < getattr_proportion) {
 		// get attr
