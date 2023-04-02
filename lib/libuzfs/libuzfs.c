@@ -1203,11 +1203,22 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	int err = 0;
 	dmu_tx_t *tx = NULL;
 	objset_t *os = dhp->os;
+	dmu_buf_t *db = NULL;
 
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
 	int blocksize = 0;
 	int ibs = 0;
+
+	err = dnode_try_claim(os, obj, dnodesize >> DNODE_SHIFT);
+
+	// FIXME(hping): double comfirm the waived error codes
+	if (err == ENOSPC || err == EEXIST) {
+		printf("object %ld already created\n", obj);
+		return (0);
+	} else if (err != 0) {
+		return (err);
+	}
 
 	tx = dmu_tx_create(os);
 
@@ -1221,6 +1232,16 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx));
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
+
+	object_attr_t attr;
+	attr.gen = tx->tx_txg;
+
+	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
+	dmu_buf_will_dirty(db, tx);
+	VERIFY0(dmu_set_bonus(db, sizeof (object_attr_t), tx));
+
+	bcopy(&attr, db->db_data, sizeof (object_attr_t));
+	dmu_buf_rele(db, FTAG);
 
 	dmu_tx_commit(tx);
 
@@ -1561,6 +1582,19 @@ int
 libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type)
 {
+	int err = 0;
+	int dnodesize = dmu_objset_dnodesize(dhp->os);
+
+	err = dnode_try_claim(dhp->os, ino, dnodesize >> DNODE_SHIFT);
+
+	// FIXME(hping): double comfirm the waived error codes
+	if (err == ENOSPC || err == EEXIST) {
+		printf("object %ld already created\n", ino);
+		return (0);
+	} else if (err != 0) {
+		return (err);
+	}
+
 	return (libuzfs_create_inode_with_type(dhp, &ino,
 	    B_TRUE, type, NULL));
 }
