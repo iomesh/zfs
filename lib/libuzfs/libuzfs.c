@@ -492,9 +492,12 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 {
 	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_truncate_t *lr = arg2;
+	int err = 0;
 	uint64_t obj;
 	uint64_t offset;
 	uint64_t size;
+	dmu_buf_t *db;
+	uzfs_object_attr_t *attr = NULL;
 
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
@@ -506,7 +509,28 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset,
 	    size);
 
-	return (libuzfs_object_truncate(dhp, obj, offset, size));
+	if (offset != 0) {
+		err = EINVAL;
+		goto out;
+	}
+
+	err = dmu_bonus_hold(dhp->os, obj, FTAG, &db);
+	if (err)
+		return (err);
+
+	attr = db->db_data;
+
+	if (size < attr->size) {
+		err = dmu_free_long_range(dhp->os, obj, size, attr->size);
+		if (err)
+			goto out;
+	}
+
+	attr->size = size;
+
+out:
+	dmu_buf_rele(db, FTAG);
+	return (err);
 }
 
 static int
@@ -1012,14 +1036,33 @@ int
 libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size)
 {
+	// FIXME(hping): only support truncate now, thus offset is always 0,
+	// support fallocate in future, in which case offset could be non-zero
+	if (offset != 0)
+		return (EINVAL);
+
 	int err = 0;
 	dmu_tx_t *tx;
+	dmu_buf_t *db;
+	uzfs_object_attr_t *attr = NULL;
+	err = dmu_bonus_hold(dhp->os, obj, FTAG, &db);
+ 	if (err)
+ 		return (err);
 
-	err = dmu_free_long_range(dhp->os, obj, offset, size);
-	if (err)
-		return (err);
+	attr = db->db_data;
 
-	tx = dmu_tx_create(dhp->os);
+	if (size == attr->size)
+		goto out;
+
+	if (size < attr->size) {
+		err = dmu_free_long_range(dhp->os, obj, size, attr->size);
+		if (err)
+			goto out;
+	}
+
+ 	tx = dmu_tx_create(dhp->os);
+	dmu_tx_hold_bonus(tx, obj);
+
 	err = dmu_tx_assign(tx, TXG_WAIT);
 	if (err) {
 		dmu_tx_abort(tx);
@@ -1027,10 +1070,17 @@ libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	}
 
 	libuzfs_log_truncate(dhp->zilog, tx, TX_TRUNCATE, obj, offset, size);
+
+	attr->size = size;
+
+	dmu_buf_will_dirty(db, tx);
+
 	dmu_tx_commit(tx);
 	zil_commit(dhp->zilog, obj);
 
-	return (0);
+out:
+	dmu_buf_rele(db, FTAG);
+	return (err);
 }
 
 uint64_t
