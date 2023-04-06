@@ -65,11 +65,6 @@ static void libuzfs_create_inode_with_type_impl(
     boolean_t claiming, libuzfs_inode_type_t type,
     dmu_tx_t *tx);
 
-// TODO(hping): consider store attr when supporting delegation
-typedef struct object_attr {
-	uint64_t gen;
-} object_attr_t;
-
 typedef struct dir_emit_ctx {
 	char *buf;
 	char *cur;
@@ -524,6 +519,8 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	void *data = lr + 1;
 	uint64_t offset, length, obj;
 	dmu_tx_t *tx;
+	uzfs_object_attr_t *attr = NULL;
+	dmu_buf_t *db;
 
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
@@ -531,6 +528,13 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	obj = lr->lr_foid;
 	offset = lr->lr_offset;
 	length = lr->lr_length;
+
+	err = dmu_bonus_hold(os, obj, FTAG, &db);
+	if (err)
+		return (err);
+
+	attr = db->db_data;
+
 
 	tx = dmu_tx_create(os);
 
@@ -544,12 +548,17 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 
 	dmu_write(os, obj, offset, length, data, tx);
 
+	if (offset + length > attr->size) {
+		attr->size = offset + length;
+	}
+
 	dmu_tx_commit(tx);
 
-	printf("replay write, obj: %ld, off: %ld, size: %ld\n",
-	    obj, offset, length);
+	printf("replay write, obj: %ld, off: %ld, length: %ld, size: %ld\n",
+	    obj, offset, length, attr->size);
 
 out:
+	dmu_buf_rele(db, FTAG);
 	return (err);
 }
 
@@ -1146,14 +1155,15 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 
 	libuzfs_log_create(dhp->zilog, tx, *obj);
 
-	object_attr_t attr;
+	uzfs_object_attr_t attr;
 	attr.gen = tx->tx_txg;
+	attr.size = 0;
 
 	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
-	VERIFY0(dmu_set_bonus(db, sizeof (object_attr_t), tx));
+	VERIFY0(dmu_set_bonus(db, sizeof (uzfs_object_attr_t), tx));
 
-	bcopy(&attr, db->db_data, sizeof (object_attr_t));
+	bcopy(&attr, db->db_data, sizeof (uzfs_object_attr_t));
 	dmu_buf_rele(db, FTAG);
 
 	if (gen != NULL) {
@@ -1233,14 +1243,14 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 
 	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
 
-	object_attr_t attr;
+	uzfs_object_attr_t attr;
 	attr.gen = tx->tx_txg;
 
 	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
-	VERIFY0(dmu_set_bonus(db, sizeof (object_attr_t), tx));
+	VERIFY0(dmu_set_bonus(db, sizeof (uzfs_object_attr_t), tx));
 
-	bcopy(&attr, db->db_data, sizeof (object_attr_t));
+	bcopy(&attr, db->db_data, sizeof (uzfs_object_attr_t));
 	dmu_buf_rele(db, FTAG);
 
 	dmu_tx_commit(tx);
@@ -1276,8 +1286,9 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 	return (i);
 }
 
-static int
-object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, object_attr_t *attr)
+int
+libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uzfs_object_attr_t *attr)
 {
 	int err = 0;
 	objset_t *os = dhp->os;
@@ -1287,7 +1298,7 @@ object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj, object_attr_t *attr)
 	if (err)
 		return (err);
 
-	bcopy(db->db_data, attr, sizeof (object_attr_t));
+	bcopy(db->db_data, attr, sizeof (uzfs_object_attr_t));
 	dmu_buf_rele(db, FTAG);
 
 	return (0);
@@ -1298,14 +1309,31 @@ libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *gen)
 {
 	int err = 0;
-	object_attr_t attr;
-	memset(&attr, 0, sizeof (object_attr_t));
-	err = object_getattr(dhp, obj, &attr);
+	uzfs_object_attr_t attr;
+	memset(&attr, 0, sizeof (uzfs_object_attr_t));
+	err = libuzfs_object_getattr(dhp, obj, &attr);
 	if (err != 0)
 		return (err);
 
 	if (gen != NULL)
 		*gen = attr.gen;
+
+	return (0);
+}
+
+int
+libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *size)
+{
+	int err = 0;
+	uzfs_object_attr_t attr;
+	memset(&attr, 0, sizeof (uzfs_object_attr_t));
+	err = libuzfs_object_getattr(dhp, obj, &attr);
+	if (err != 0)
+		return (err);
+
+	if (size != NULL)
+		*size = attr.size;
 
 	return (0);
 }
@@ -1318,6 +1346,14 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	objset_t *os = dhp->os;
 	zilog_t *zilog = dhp->zilog;
 	dmu_tx_t *tx = NULL;
+	uzfs_object_attr_t *attr = NULL;
+	dmu_buf_t *db;
+
+	err = dmu_bonus_hold(os, obj, FTAG, &db);
+	if (err)
+		return (err);
+
+	attr = db->db_data;
 
 	tx = dmu_tx_create(os);
 
@@ -1333,12 +1369,18 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, size, sync);
 
+	if (offset + size > attr->size) {
+		attr->size = offset + size;
+		dmu_buf_will_dirty(db, tx);
+	}
+
 	dmu_tx_commit(tx);
 
 	if (sync)
 		zil_commit(zilog, obj);
 
 out:
+	dmu_buf_rele(db, FTAG);
 	return (err);
 }
 
