@@ -78,6 +78,11 @@ struct uzfs_dentry {
 	char name[0];
 };
 
+typedef struct uzfs_object_attr {
+	uint64_t gen;
+	uint64_t size;
+} uzfs_object_attr_t;
+
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_attr uzfs_attr_t;
@@ -119,6 +124,9 @@ extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
 
+extern int libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uzfs_object_attr_t *attr);
+
 extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     uint64_t *gen);
 
@@ -135,6 +143,9 @@ extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 extern int libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *gen);
+
+extern int libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *size);
 
 extern void libuzfs_object_sync(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 
