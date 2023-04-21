@@ -948,7 +948,7 @@ uzfs_object_list(int argc, char **argv)
 int
 uzfs_object_read(int argc, char **argv)
 {
-	int err = 0;
+	int res = 0;
 	char *dsname = argv[1];
 	uint64_t obj = atoll(argv[2]);
 	int offset = atoi(argv[3]);
@@ -966,12 +966,12 @@ uzfs_object_read(int argc, char **argv)
 
 	buf = umem_zalloc(size + 1, UMEM_NOFAIL);
 
-	err = libuzfs_object_read(dhp, obj, offset, size, buf);
-	if (err)
-		printf("failed to read object: %s:%ld\n", dsname, obj);
+	res = libuzfs_object_read(dhp, obj, offset, size, buf);
+	if (res < 0)
+		printf("failed to read object: %s:%ld, err: %d\n", dsname, obj, res);
 	else
 		printf("read %s: %ld, off: %d, size: %d\n%s\n", dsname, obj,
-		    offset, size, buf);
+		    offset, res, buf);
 
 	umem_free(buf, size + 1);
 	libuzfs_dataset_close(dhp);
@@ -983,7 +983,7 @@ verify_data(libuzfs_dataset_handle_t *dhp, uint64_t obj, int size, int offset,
     char *buf)
 {
 	char *data = umem_zalloc(size, UMEM_NOFAIL);
-	VERIFY0(libuzfs_object_read(dhp, obj, offset, size, data));
+	VERIFY3U(libuzfs_object_read(dhp, obj, offset, size, data), >=, 0);
 	int rc =  memcmp(buf, data, size);
 	umem_free(data, size);
 	return (rc);
