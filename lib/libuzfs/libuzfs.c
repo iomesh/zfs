@@ -1438,8 +1438,26 @@ int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf)
 {
+	int err = 0;
+	uint64_t obj_size = 0;
+	uint64_t read_size = 0;
 	objset_t *os = dhp->os;
-	return (dmu_read(os, obj, offset, size, buf, DMU_READ_NO_PREFETCH));
+
+	err = libuzfs_object_get_size(dhp, obj, &obj_size);
+	if (err)
+		return (err);
+
+	if (offset > obj_size)
+		return (0);
+
+	read_size = offset + size > obj_size ? obj_size - offset : size;
+
+	err = dmu_read(os, obj, offset, read_size, buf, DMU_READ_NO_PREFETCH);
+	if (err)
+		return (err);
+
+	// FIXME(hping): define a reasonable interface to return read_size
+	return (read_size);
 }
 
 int
