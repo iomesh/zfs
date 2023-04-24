@@ -1445,7 +1445,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	err = libuzfs_object_get_size(dhp, obj, &obj_size);
 	if (err)
-		return (err);
+		return (-err);
 
 	if (offset > obj_size)
 		return (0);
@@ -1454,7 +1454,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	err = dmu_read(os, obj, offset, read_size, buf, DMU_READ_NO_PREFETCH);
 	if (err)
-		return (err);
+		return (-err);
 
 	// FIXME(hping): define a reasonable interface to return read_size
 	return (read_size);
