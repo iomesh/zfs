@@ -1745,6 +1745,9 @@ dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
     uint32_t name_len)
 {
 	int size = offsetof(struct uzfs_dentry, name) + name_len + 1;
+
+	// ensure dentry is aligned to 8 bytes to make Rust happy
+	size = roundup(size, sizeof (uint64_t));
 	if (ctx->cur + size > ctx->buf + ctx->size) {
 		return (B_TRUE);
 	}
@@ -1774,6 +1777,7 @@ libuzfs_dentry_iterate(libuzfs_dataset_handle_t *dhp, uint64_t dino,
 	ctx.buf = buf;
 	ctx.cur = buf;
 	ctx.size = size;
+	memset(ctx.buf, 0, size);
 
 	zap_cursor_init_serialized(&zc, dhp->os, dino, whence);
 
