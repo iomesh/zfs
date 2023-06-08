@@ -101,6 +101,7 @@ static int uzfs_inode_get_kvattr(int argc, char **argv);
 static int uzfs_inode_set_kvattr(int argc, char **argv);
 static int uzfs_inode_rm_kvattr(int argc, char **argv);
 static int uzfs_attr_random_test(int argc, char **argv);
+static int uzfs_write_test(int argc, char **argv);
 
 static int uzfs_dentry_create(int argc, char **argv);
 static int uzfs_dentry_delete(int argc, char **argv);
@@ -162,6 +163,7 @@ typedef enum {
 	HELP_DENTRY_LOOKUP,
 	HELP_DENTRY_LIST,
 	HELP_ATTR_TEST,
+	HELP_WRITE_TEST,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -234,6 +236,7 @@ static uzfs_command_t command_table[] = {
 	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_LOOKUP   },
 	{ "list-dentry",	uzfs_dentry_list, 	HELP_DENTRY_LIST  },
 	{ "attr-test",		uzfs_attr_random_test,	HELP_ATTR_TEST	},
+	{ "write-test",		uzfs_write_test, 	HELP_WRITE_TEST},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -968,7 +971,8 @@ uzfs_object_read(int argc, char **argv)
 
 	res = libuzfs_object_read(dhp, obj, offset, size, buf);
 	if (res < 0)
-		printf("failed to read object: %s:%ld, err: %d\n", dsname, obj, res);
+		printf("failed to read object: %s:%ld, err: %d\n",
+		    dsname, obj, res);
 	else
 		printf("read %s: %ld, off: %d, size: %d\n%s\n", dsname, obj,
 		    offset, res, buf);
@@ -1786,6 +1790,60 @@ uzfs_attr_random_test(int argc, char **argv)
 	libuzfs_dataset_close(dhp);
 
 	printf("test end\n");
+
+	return (0);
+}
+
+static void
+file_write_op(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    int *cur_file_size, char *file_content, int max_size)
+{
+	uint64_t offset = rand() % max_size;
+	uint64_t size = rand() % (max_size - offset);
+	*cur_file_size = MAX(*cur_file_size, offset + size);
+	for (int i = offset; i < offset + size; ++i) {
+		file_content[i] = rand() % 256;
+	}
+
+	VERIFY0(libuzfs_object_write(dhp, obj, offset,
+	    size, file_content + offset, FALSE));
+	char *actual_content = umem_zalloc(max_size, UMEM_NOFAIL);
+	VERIFY3U(libuzfs_object_read(dhp, obj,
+	    0, max_size, actual_content), ==, *cur_file_size);
+	VERIFY0(memcmp(actual_content, file_content, max_size));
+
+	umem_free(actual_content, max_size);
+}
+
+static int
+uzfs_write_test(int argc, char **argv)
+{
+#define	FILE_SIZE (1<<20)
+	assert(argc >= 2);
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(argv[1]);
+	if (dhp == NULL) {
+		printf("failed to open %s\n", argv[1]);
+		return (-1);
+	}
+
+	for (int i = 0; i < 100; ++i) {
+		uint64_t obj;
+		uint64_t gen;
+		VERIFY0(libuzfs_object_create(dhp, &obj, &gen));
+
+		char *file_content = umem_zalloc(FILE_SIZE, UMEM_NOFAIL);
+		int cur_file_size = 0;
+		srand(time(NULL));
+		for (int j = 0; j < 100; ++j) {
+			file_write_op(dhp, obj, &cur_file_size,
+			    file_content, FILE_SIZE);
+		}
+
+		umem_free(file_content, FILE_SIZE);
+		VERIFY0(libuzfs_object_delete(dhp, obj));
+	}
+
+	libuzfs_dataset_close(dhp);
 
 	return (0);
 }
