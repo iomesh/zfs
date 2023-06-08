@@ -47,6 +47,7 @@ struct libuzfs_dataset_handle {
 	objset_t *os;
 	zilog_t	*zilog;
 	uint64_t sb_ino;
+	uint64_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
 };
 

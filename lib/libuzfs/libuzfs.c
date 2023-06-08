@@ -627,7 +627,6 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	if (buf != NULL) {	/* immediate write */
 		error = dmu_read(os, object, offset, size, buf,
 		    DMU_READ_NO_PREFETCH);
-		ASSERT0(error);
 	} else {
 		/* TODO(hping): support indirect write */
 		ASSERT(0);
@@ -969,6 +968,7 @@ libuzfs_dataset_open(const char *dsname)
 	zilog_t *zilog = NULL;
 
 	dhp = umem_alloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
+	dhp->max_blksz = SPA_OLD_MAXBLOCKSIZE;
 
 	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
@@ -1046,8 +1046,8 @@ libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	dmu_buf_t *db;
 	uzfs_object_attr_t *attr = NULL;
 	err = dmu_bonus_hold(dhp->os, obj, FTAG, &db);
- 	if (err)
- 		return (err);
+	if (err)
+		return (err);
 
 	attr = db->db_data;
 
@@ -1060,7 +1060,7 @@ libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			goto out;
 	}
 
- 	tx = dmu_tx_create(dhp->os);
+	tx = dmu_tx_create(dhp->os);
 	dmu_tx_hold_bonus(tx, obj);
 
 	err = dmu_tx_assign(tx, TXG_WAIT);
@@ -1392,45 +1392,61 @@ int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
 {
-	int err = 0;
-	objset_t *os = dhp->os;
-	zilog_t *zilog = dhp->zilog;
-	dmu_tx_t *tx = NULL;
-	uzfs_object_attr_t *attr = NULL;
-	dmu_buf_t *db;
-
-	err = dmu_bonus_hold(os, obj, FTAG, &db);
-	if (err)
+	dnode_t *dn;
+	int err;
+	if ((err = dnode_hold(dhp->os, obj, FTAG, &dn)) != 0) {
 		return (err);
-
-	attr = db->db_data;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_write(tx, obj, offset, size);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
 	}
 
-	dmu_write(os, obj, offset, size, buf, tx);
-
-	libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, size, sync);
-
-	if (offset + size > attr->size) {
-		attr->size = offset + size;
-		dmu_buf_will_dirty(db, tx);
+	dmu_buf_t *bonus_buf;
+	err = dmu_bonus_hold_by_dnode(dn, FTAG,
+	    &bonus_buf, DMU_READ_NO_PREFETCH);
+	if (err != 0) {
+		dnode_rele(dn, FTAG);
+		return (err);
 	}
 
-	dmu_tx_commit(tx);
+	uzfs_object_attr_t *attr = dn->dn_bonus->db.db_data;
+	uint64_t end_size = MAX(offset + size, attr->size);
+	uint64_t max_blksz = dhp->max_blksz;
+	objset_t *os = dhp->os;
+	while (size > 0) {
+		uint64_t nwrite = MIN(size,
+		    max_blksz - P2PHASE(offset, max_blksz));
+		dmu_tx_t *tx = dmu_tx_create(os);
+		dmu_tx_hold_write_by_dnode(tx, dn, offset, nwrite);
+		if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
+			dmu_tx_abort(tx);
+			goto out;
+		}
 
-	if (sync)
-		zil_commit(zilog, obj);
+		// update max blocksize when current blksz too small
+		if (dn->dn_datablksz < max_blksz &&
+		    dn->dn_datablksz < end_size) {
+			uint64_t new_blksz = MIN(max_blksz, end_size);
+			VERIFY0(dnode_set_blksz(dn, new_blksz, 0, tx));
+		}
+
+		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
+		if (offset + nwrite > attr->size) {
+			attr->size = offset + nwrite;
+			dmu_buf_will_dirty(bonus_buf, tx);
+		}
+		libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, nwrite, sync);
+		dmu_tx_commit(tx);
+
+		size -= nwrite;
+		offset += nwrite;
+		buf += nwrite;
+	}
+
+	if (sync) {
+		zil_commit(dhp->zilog, obj);
+	}
 
 out:
-	dmu_buf_rele(db, FTAG);
+	dnode_rele(dn, FTAG);
+	dmu_buf_rele(bonus_buf, FTAG);
 	return (err);
 }
 
