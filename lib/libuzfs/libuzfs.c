@@ -1195,7 +1195,7 @@ libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int blocksize = 0;
+	int blocksize = (1<<17);
 	int ibshift = 0;
 
 	*obj = dmu_object_alloc_dnsize(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
