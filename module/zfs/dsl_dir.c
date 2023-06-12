@@ -1320,6 +1320,7 @@ top_of_function:
 	 * we're very close to full, this will allow a steady trickle of
 	 * removes to get through.
 	 */
+#if 0
 	if (dd->dd_parent == NULL) {
 		uint64_t avail = dsl_pool_unreserved_space(dd->dd_pool,
 		    (netfree) ?
@@ -1330,6 +1331,7 @@ top_of_function:
 			retval = SET_ERROR(ENOSPC);
 		}
 	}
+#endif
 
 	/*
 	 * If they are requesting more space, and our current estimate
