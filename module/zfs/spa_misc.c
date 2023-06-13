@@ -343,7 +343,7 @@ char *zfs_deadman_failmode = "wait";
  * the worst case is:
  *     (VDEV_RAIDZ_MAXPARITY + 1) * SPA_DVAS_PER_BP * 2 == 24
  */
-int spa_asize_inflation = 24;
+int spa_asize_inflation = 1;
 
 /*
  * Normally, we don't allow the last 3.2% (1/(2^spa_slop_shift)) of space in
