@@ -662,6 +662,7 @@ extern int __spl_pf_fstrans_check(void);
 extern int kmem_cache_reap_active(void);
 
 #define	UZFS_SB_OBJ		"UZFS_SB_OBJ"
+#define	UZFS_UNLINK_OBJ		"UZFS_UNLINK_OBJ"
 
 #include <sys/kernel.h>
 

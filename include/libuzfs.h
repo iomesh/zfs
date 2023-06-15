@@ -85,6 +85,7 @@ typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_attr uzfs_attr_t;
 typedef struct libuzfs_kvattr_iterator libuzfs_kvattr_iterator_t;
+typedef struct libuzfs_zap_iterator libuzfs_zap_iterator_t;
 
 typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
@@ -152,6 +153,18 @@ extern void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp);
 
 extern uint64_t libuzfs_get_last_synced_txg(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp);
+
+extern libuzfs_zap_iterator_t *libuzfs_new_zap_iterator(
+    libuzfs_dataset_handle_t *dhp, uint64_t obj, int *err);
+
+extern int libuzfs_zap_iterator_advance(libuzfs_zap_iterator_t *iter);
+
+extern ssize_t libuzfs_zap_iterator_name(libuzfs_zap_iterator_t *iter,
+    char *name, size_t size);
+
+extern size_t libuzfs_zap_iterator_value_size(libuzfs_zap_iterator_t *iter);
+
+extern void libuzfs_zap_iterator_fini(libuzfs_zap_iterator_t *iter);
 
 extern int libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     uint64_t *txg);
