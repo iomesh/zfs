@@ -83,6 +83,11 @@ struct libuzfs_kvattr_iterator {
 	uint64_t zap_obj;
 };
 
+struct libuzfs_zap_iterator {
+	zap_cursor_t zc;
+	zap_attribute_t za;
+};
+
 #define	UZFS_SIZE_OFFSET 0
 #define	UZFS_GEN_OFFSET 8
 #define	UZFS_UID_OFFSET 16

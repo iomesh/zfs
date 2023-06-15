@@ -841,8 +841,8 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 	dhp->zilog = dmu_objset_zil(os);
 	dmu_objset_name(os, dhp->name);
 
-	zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
-	    &dhp->sb_ino);
+	VERIFY0(zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
+	    &dhp->sb_ino));
 }
 
 static void
@@ -1269,6 +1269,57 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	return (read_size);
 }
 
+libuzfs_zap_iterator_t *
+libuzfs_new_zap_iterator(libuzfs_dataset_handle_t *dhp, uint64_t obj, int *err)
+{
+	libuzfs_zap_iterator_t *iter =
+	    umem_alloc(sizeof (libuzfs_zap_iterator_t), UMEM_NOFAIL);
+	zap_cursor_init(&iter->zc, dhp->os, obj);
+
+	if ((*err = zap_cursor_retrieve(&iter->zc, &iter->za)) != 0) {
+		zap_cursor_fini(&iter->zc);
+		umem_free(iter, sizeof (libuzfs_zap_iterator_t));
+		return (NULL);
+	}
+
+	return (iter);
+}
+
+int
+libuzfs_zap_iterator_advance(libuzfs_zap_iterator_t *iter)
+{
+	zap_cursor_advance(&iter->zc);
+	return (zap_cursor_retrieve(&iter->zc, &iter->za));
+}
+
+ssize_t
+libuzfs_zap_iterator_name(libuzfs_zap_iterator_t *iter, char *name, size_t size)
+{
+	int name_len = strlen(iter->za.za_name);
+	if (size < name_len + 1) {
+		return (-ERANGE);
+	}
+
+	strncpy(name, iter->za.za_name, name_len);
+
+	return (name_len);
+}
+
+size_t
+libuzfs_zap_iterator_value_size(libuzfs_zap_iterator_t *iter)
+{
+	return (iter->za.za_integer_length * iter->za.za_num_integers);
+}
+
+void
+libuzfs_zap_iterator_fini(libuzfs_zap_iterator_t *iter)
+{
+	if (iter != NULL) {
+		zap_cursor_fini(&iter->zc);
+		umem_free(iter, sizeof (libuzfs_zap_iterator_t));
+	}
+}
+
 int
 libuzfs_zap_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj, uint64_t *txg)
 {
@@ -1440,7 +1491,6 @@ libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj, const char *key,
     int integer_size, uint64_t num_integers, void *val)
 {
 	return (zap_lookup(dhp->os, obj, key, integer_size, num_integers, val));
-
 }
 
 int
