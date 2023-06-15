@@ -36,6 +36,7 @@ extern "C" {
 typedef enum {
 	INODE_FILE = 0,
 	INODE_DIR  = 1,
+	INODE_DATA_OBJ = 2,
 } libuzfs_inode_type_t;
 
 typedef enum {
@@ -48,6 +49,8 @@ typedef enum {
 	TYPE_BLK
 } FileType;
 
+// objects in ds also use this struct for convenience,
+// even if we don't need so many attrs in ds obj
 struct uzfs_attr {
 	uint64_t ino;
 	uint64_t pino;
@@ -77,11 +80,6 @@ struct uzfs_dentry {
 	uint32_t size;
 	char name[0];
 };
-
-typedef struct uzfs_object_attr {
-	uint64_t gen;
-	uint64_t size;
-} uzfs_object_attr_t;
 
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
@@ -123,9 +121,6 @@ extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
 
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
-
-extern int libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uzfs_object_attr_t *attr);
 
 extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     uint64_t *gen);
