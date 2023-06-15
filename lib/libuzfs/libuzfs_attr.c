@@ -10,31 +10,6 @@
 #include <sys/zfs_znode.h>
 #include <sys/sa_impl.h>
 
-typedef enum uzfs_attr_type {
-	UZFS_PINO,
-	UZFS_PSID,
-	UZFS_FTYPE,
-	UZFS_GEN,
-	UZFS_NLINK,
-	UZFS_PERM,
-	UZFS_UID,
-	UZFS_GID,
-	UZFS_SIZE,
-	UZFS_BLKSIZE,
-	UZFS_BLOCKS,
-	UZFS_NSID,
-	UZFS_DSID,
-	UZFS_OID,
-	UZFS_OGEN,
-	UZFS_ATIME,
-	UZFS_MTIME,
-	UZFS_CTIME,
-	UZFS_BTIME,
-	UZFS_ZXATTR, // sa index for dir xattr inode
-	UZFS_XATTR,  // sa index for sa xattr (name, value) pairs
-	UZFS_END
-} uzfs_attr_type_t;
-
 sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 	{"UZFS_PINO", sizeof (uint64_t), SA_UINT64_ARRAY, 0},
 	{"UZFS_PSID", sizeof (uint32_t), SA_UINT32_ARRAY, 1},
@@ -94,10 +69,6 @@ libuzfs_add_bulk_attr(libuzfs_dataset_handle_t *dhp, sa_bulk_attr_t *sa_attrs,
 	    NULL, &attr->nlink, 4);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_PERM],
 	    NULL, &attr->perm, 4);
-	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_BLKSIZE],
-	    NULL, &attr->blksize, 8);
-	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_BLOCKS],
-	    NULL, &attr->blocks, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_NSID],
 	    NULL, &attr->nsid, 4);
 	SA_ADD_BULK_ATTR(sa_attrs, (*cnt), sa_tbl[UZFS_DSID],
@@ -117,14 +88,19 @@ libuzfs_add_bulk_attr(libuzfs_dataset_handle_t *dhp, sa_bulk_attr_t *sa_attrs,
 }
 
 void
-libuzfs_object_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx)
+libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
+    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type)
 {
 	sa_bulk_attr_t sa_attrs[UZFS_END];
 	int cnt = 0;
 	uzfs_attr_t attr;
 	memset(&attr, 0, sizeof (attr));
 	libuzfs_add_bulk_attr(dhp, sa_attrs, &cnt, &attr);
+	if (type == INODE_DATA_OBJ) {
+		attr.gen = tx->tx_txg;
+		VERIFY0(sa_replace_all_by_template(sa_hdl, sa_attrs, cnt, tx));
+		return;
+	}
 
 	nvlist_t *nvl;
 	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
@@ -178,6 +154,42 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	libuzfs_add_bulk_attr(dhp, sa_attrs, &cnt, attr);
 	err = sa_bulk_lookup(sa_hdl, sa_attrs, cnt);
 	attr->ino = ino;
+
+	sa_handle_destroy(sa_hdl);
+	return (err);
+}
+
+int
+libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *gen)
+{
+	ASSERT3P(gen, !=, NULL);
+	sa_handle_t *sa_hdl;
+	int err = sa_handle_get(dhp->os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (err != 0) {
+		return (err);
+	}
+
+	err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_GEN],
+	    gen, sizeof (uint64_t));
+
+	sa_handle_destroy(sa_hdl);
+	return (err);
+}
+
+int
+libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *size)
+{
+	ASSERT3P(size, !=, NULL);
+	sa_handle_t *sa_hdl;
+	int err = sa_handle_get(dhp->os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (err != 0) {
+		return (err);
+	}
+
+	err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_SIZE],
+	    size, sizeof (uint64_t));
 
 	sa_handle_destroy(sa_hdl);
 	return (err);

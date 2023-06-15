@@ -430,160 +430,109 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
 static int
 libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
 {
-	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_create_t *lr = arg2;
-	uint64_t obj;
-	int dnodesize;
-	int error;
-
 	if (byteswap) {
 		byteswap_uint64_array(lr, sizeof (*lr));
 	}
 
-	obj = LR_FOID_GET_OBJ(lr->lr_foid);
-
-	dnodesize = dmu_objset_dnodesize(dhp->os);
-
-	error = dnode_try_claim(dhp->os, obj, dnodesize >> DNODE_SHIFT);
-	if (error)
-		return (error);
-
+	uint64_t obj = LR_FOID_GET_OBJ(lr->lr_foid);
 	printf("replay create, obj: %ld\n", obj);
 
-	return (libuzfs_object_claim(dhp, obj));
+	return (libuzfs_object_claim((libuzfs_dataset_handle_t *)arg1, obj));
 }
 
 static int
 libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
 {
-	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_remove_t *lr = arg2;
-	objset_t *os = dhp->os;
-	int err;
-	uint64_t obj;
-	dmu_tx_t *tx;
-
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
-	obj = lr->lr_doid;
+	printf("replay remove, obj: %ld\n", lr->lr_doid);
 
-	tx = dmu_tx_create(os);
+	return (libuzfs_inode_delete((libuzfs_dataset_handle_t *)arg1,
+	    lr->lr_doid, INODE_DATA_OBJ, NULL));
+}
 
-	dmu_tx_hold_free(tx, obj, 0, DMU_OBJECT_END);
+static int
+libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t offset, uint64_t size)
+{
+	sa_handle_t *sa_hdl;
+	objset_t *os = dhp->os;
+	int err = sa_handle_get(os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (err != 0) {
+		return (err);
+	}
 
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
+	uint64_t obj_size;
+	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
+	err = sa_lookup(sa_hdl, sa_tbl[UZFS_SIZE],
+	    &obj_size, sizeof (uint64_t));
+	if (err != 0) {
 		goto out;
 	}
 
-	VERIFY0(dmu_object_free(os, obj, tx));
+	if (size < obj_size) {
+		err = dmu_free_long_range(os, obj, size, obj_size);
+		if (err)
+			goto out;
+	}
 
-	dmu_tx_commit(tx);
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
+		dmu_tx_abort(tx);
+	} else {
+		VERIFY0(sa_update(sa_hdl, sa_tbl[UZFS_SIZE],
+		    &size, sizeof (size), tx));
+		libuzfs_log_truncate(dhp->zilog, tx,
+		    TX_TRUNCATE, obj, offset, size);
+		dmu_tx_commit(tx);
+	}
 
-	printf("replay remove, obj: %ld\n", obj);
 out:
+	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
 static int
 libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 {
-	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_truncate_t *lr = arg2;
-	int err = 0;
-	uint64_t obj;
-	uint64_t offset;
-	uint64_t size;
-	dmu_buf_t *db;
-	uzfs_object_attr_t *attr = NULL;
-
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
-	obj = lr->lr_foid;
-	offset = lr->lr_offset;
-	size = lr->lr_length;
+	uint64_t obj = lr->lr_foid;
+	uint64_t offset = lr->lr_offset;
+	uint64_t size = lr->lr_length;
 
 	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset,
 	    size);
 
-	if (offset != 0) {
-		err = EINVAL;
-		goto out;
-	}
+	ASSERT3U(offset, ==, 0);
 
-	err = dmu_bonus_hold(dhp->os, obj, FTAG, &db);
-	if (err)
-		return (err);
-
-	attr = db->db_data;
-
-	if (size < attr->size) {
-		err = dmu_free_long_range(dhp->os, obj, size, attr->size);
-		if (err)
-			goto out;
-	}
-
-	attr->size = size;
-
-out:
-	dmu_buf_rele(db, FTAG);
-	return (err);
+	return (libuzfs_object_truncate_impl((libuzfs_dataset_handle_t *)arg1,
+	    obj, offset, size));
 }
 
 static int
 libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 {
-	int err = 0;
-	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_write_t *lr = arg2;
-	objset_t *os = dhp->os;
 	void *data = lr + 1;
-	uint64_t offset, length, obj;
-	dmu_tx_t *tx;
-	uzfs_object_attr_t *attr = NULL;
-	dmu_buf_t *db;
-
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
-	obj = lr->lr_foid;
-	offset = lr->lr_offset;
-	length = lr->lr_length;
+	uint64_t obj = lr->lr_foid;
+	uint64_t offset = lr->lr_offset;
+	uint64_t length = lr->lr_length;
 
-	err = dmu_bonus_hold(os, obj, FTAG, &db);
-	if (err)
-		return (err);
+	printf("replay write, obj: %ld, off: %ld, length: %ld\n",
+	    obj, offset, length);
 
-	attr = db->db_data;
-
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_write(tx, lr->lr_foid, offset, length);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	dmu_write(os, obj, offset, length, data, tx);
-
-	if (offset + length > attr->size) {
-		attr->size = offset + length;
-	}
-
-	dmu_tx_commit(tx);
-
-	printf("replay write, obj: %ld, off: %ld, length: %ld, size: %ld\n",
-	    obj, offset, length, attr->size);
-
-out:
-	dmu_buf_rele(db, FTAG);
-	return (err);
+	return (libuzfs_object_write((libuzfs_dataset_handle_t *)arg1,
+	    obj, offset, length, data, FALSE));
 }
 
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
@@ -980,11 +929,10 @@ libuzfs_dataset_open(const char *dsname)
 
 	zilog = dhp->zilog;
 
+	libuzfs_setup_dataset_sa(dhp);
 	zil_replay(os, dhp, libuzfs_replay_vector);
 
 	zilog = zil_open(os, libuzfs_get_data);
-
-	libuzfs_setup_dataset_sa(dhp);
 	return (dhp);
 }
 
@@ -1041,45 +989,11 @@ libuzfs_object_truncate(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	if (offset != 0)
 		return (EINVAL);
 
-	int err = 0;
-	dmu_tx_t *tx;
-	dmu_buf_t *db;
-	uzfs_object_attr_t *attr = NULL;
-	err = dmu_bonus_hold(dhp->os, obj, FTAG, &db);
-	if (err)
-		return (err);
-
-	attr = db->db_data;
-
-	if (size == attr->size)
-		goto out;
-
-	if (size < attr->size) {
-		err = dmu_free_long_range(dhp->os, obj, size, attr->size);
-		if (err)
-			goto out;
+	int err = libuzfs_object_truncate_impl(dhp, obj, offset, size);
+	if (err == 0) {
+		zil_commit(dhp->zilog, obj);
 	}
 
-	tx = dmu_tx_create(dhp->os);
-	dmu_tx_hold_bonus(tx, obj);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		return (err);
-	}
-
-	libuzfs_log_truncate(dhp->zilog, tx, TX_TRUNCATE, obj, offset, size);
-
-	attr->size = size;
-
-	dmu_buf_will_dirty(db, tx);
-
-	dmu_tx_commit(tx);
-	zil_commit(dhp->zilog, obj);
-
-out:
-	dmu_buf_rele(db, FTAG);
 	return (err);
 }
 
@@ -1116,7 +1030,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	objset_t *os = dhp->os;
 	int dnodesize = dmu_objset_dnodesize(os);
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	if (type == INODE_FILE) {
+	if (type == INODE_FILE || type == INODE_DATA_OBJ) {
 		if (claiming) {
 			ASSERT(*obj != 0);
 			VERIFY0(dmu_object_claim_dnsize(os, *obj,
@@ -1127,7 +1041,13 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 			    DMU_OT_PLAIN_FILE_CONTENTS, 0,
 			    DMU_OT_SA, bonuslen, dnodesize, tx);
 		}
-	} else {
+		if (type == INODE_DATA_OBJ) {
+			VERIFY0(dmu_object_set_blocksize(os, *obj, 0, 0, tx));
+			if (!claiming) {
+				libuzfs_log_create(dhp->zilog, tx, *obj);
+			}
+		}
+	} else if (type == INODE_DIR) {
 		if (claiming) {
 			ASSERT(*obj != 0);
 			VERIFY0(zap_create_claim_dnsize(os, *obj,
@@ -1137,11 +1057,13 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 			*obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
 			    DMU_OT_SA, bonuslen, dnodesize, tx);
 		}
+	} else {
+		VERIFY0(1);
 	}
 
 	sa_handle_t *sa_hdl;
 	VERIFY0(sa_handle_get(os, *obj, NULL, SA_HDL_PRIVATE, &sa_hdl));
-	libuzfs_object_attr_init(dhp, sa_hdl, tx);
+	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type);
 	sa_handle_destroy(sa_hdl);
 }
 
@@ -1168,6 +1090,10 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	}
 	dmu_tx_commit(tx);
 
+	if (type == INODE_DATA_OBJ && !claiming) {
+		zil_commit(dhp->zilog, *obj);
+	}
+
 	return (0);
 }
 
@@ -1178,53 +1104,8 @@ int
 libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     uint64_t *gen)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-	dmu_buf_t *db = NULL;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
-	}
-
-	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int blocksize = 0;
-	int ibshift = 0;
-
-	*obj = dmu_object_alloc_dnsize(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx);
-
-	VERIFY0(dmu_object_set_blocksize(os, *obj, blocksize, ibshift, tx));
-
-	libuzfs_log_create(dhp->zilog, tx, *obj);
-
-	uzfs_object_attr_t attr;
-	attr.gen = tx->tx_txg;
-	attr.size = 0;
-
-	VERIFY0(dmu_bonus_hold(os, *obj, FTAG, &db));
-	dmu_buf_will_dirty(db, tx);
-	VERIFY0(dmu_set_bonus(db, sizeof (uzfs_object_attr_t), tx));
-
-	bcopy(&attr, db->db_data, sizeof (uzfs_object_attr_t));
-	dmu_buf_rele(db, FTAG);
-
-	if (gen != NULL) {
-		*gen = tx->tx_txg;
-	}
-
-	dmu_tx_commit(tx);
-	zil_commit(dhp->zilog, *obj);
-
-out:
-	return (err);
+	return (libuzfs_create_inode_with_type(dhp, obj,
+	    FALSE, INODE_DATA_OBJ, gen));
 }
 
 /*
@@ -1233,44 +1114,20 @@ out:
 int
 libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
-	objset_t *os = dhp->os;
-
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_free(tx, obj, 0, DMU_OBJECT_END);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err) {
-		dmu_tx_abort(tx);
-		goto out;
+	int err = libuzfs_inode_delete(dhp, obj, INODE_DATA_OBJ, NULL);
+	if (err == 0) {
+		zil_commit(dhp->zilog, obj);
 	}
 
-	VERIFY0(dmu_object_free(os, obj, tx));
-
-	libuzfs_log_remove(dhp->zilog, tx, obj);
-	dmu_tx_commit(tx);
-	zil_commit(dhp->zilog, obj);
-
-out:
 	return (err);
 }
 
 int
 libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
-	int err = 0;
-	dmu_tx_t *tx = NULL;
 	objset_t *os = dhp->os;
-	dmu_buf_t *db = NULL;
-
 	int dnodesize = dmu_objset_dnodesize(os);
-	int bonuslen = DN_BONUS_SIZE(dnodesize);
-	int blocksize = 0;
-	int ibs = 0;
-
-	err = dnode_try_claim(os, obj, dnodesize >> DNODE_SHIFT);
+	int err = dnode_try_claim(os, obj, dnodesize >> DNODE_SHIFT);
 
 	// FIXME(hping): double comfirm the waived error codes
 	if (err == ENOSPC || err == EEXIST) {
@@ -1280,36 +1137,8 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 		return (err);
 	}
 
-	tx = dmu_tx_create(os);
-
-	dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-
-	err = dmu_tx_assign(tx, TXG_WAIT);
-	if (err)
-		goto out;
-
-	VERIFY0(dmu_object_claim_dnsize(os, obj, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-	    DMU_OT_PLAIN_OTHER, bonuslen, dnodesize, tx));
-
-	VERIFY0(dmu_object_set_blocksize(os, obj, blocksize, ibs, tx));
-
-	uzfs_object_attr_t attr;
-	attr.gen = tx->tx_txg;
-
-	VERIFY0(dmu_bonus_hold(os, obj, FTAG, &db));
-	dmu_buf_will_dirty(db, tx);
-	VERIFY0(dmu_set_bonus(db, sizeof (uzfs_object_attr_t), tx));
-
-	bcopy(&attr, db->db_data, sizeof (uzfs_object_attr_t));
-	dmu_buf_rele(db, FTAG);
-
-	dmu_tx_commit(tx);
-
-	return (0);
-
-out:
-	dmu_tx_abort(tx);
-	return (err);
+	return (libuzfs_create_inode_with_type(dhp, &obj,
+	    TRUE, INODE_DATA_OBJ, NULL));
 }
 
 uint64_t
@@ -1337,58 +1166,6 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 }
 
 int
-libuzfs_object_getattr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uzfs_object_attr_t *attr)
-{
-	int err = 0;
-	objset_t *os = dhp->os;
-	dmu_buf_t *db;
-
-	err = dmu_bonus_hold(os, obj, FTAG, &db);
-	if (err)
-		return (err);
-
-	bcopy(db->db_data, attr, sizeof (uzfs_object_attr_t));
-	dmu_buf_rele(db, FTAG);
-
-	return (0);
-}
-
-int
-libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *gen)
-{
-	int err = 0;
-	uzfs_object_attr_t attr;
-	memset(&attr, 0, sizeof (uzfs_object_attr_t));
-	err = libuzfs_object_getattr(dhp, obj, &attr);
-	if (err != 0)
-		return (err);
-
-	if (gen != NULL)
-		*gen = attr.gen;
-
-	return (0);
-}
-
-int
-libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *size)
-{
-	int err = 0;
-	uzfs_object_attr_t attr;
-	memset(&attr, 0, sizeof (uzfs_object_attr_t));
-	err = libuzfs_object_getattr(dhp, obj, &attr);
-	if (err != 0)
-		return (err);
-
-	if (size != NULL)
-		*size = attr.size;
-
-	return (0);
-}
-
-int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
 {
@@ -1398,22 +1175,28 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		return (err);
 	}
 
-	dmu_buf_t *bonus_buf;
-	err = dmu_bonus_hold_by_dnode(dn, FTAG,
-	    &bonus_buf, DMU_READ_NO_PREFETCH);
+	sa_handle_t *sa_hdl;
+	objset_t *os = dhp->os;
+	err = sa_handle_get(os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
 	if (err != 0) {
-		dnode_rele(dn, FTAG);
 		return (err);
 	}
 
-	uzfs_object_attr_t *attr = dn->dn_bonus->db.db_data;
-	uint64_t end_size = MAX(offset + size, attr->size);
+	uint64_t obj_size;
+	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
+	err = sa_lookup(sa_hdl, sa_tbl[UZFS_SIZE],
+	    &obj_size, sizeof (obj_size));
+	if (err != 0) {
+		goto out;
+	}
+
+	uint64_t end_size = MAX(offset + size, obj_size);
 	uint64_t max_blksz = dhp->max_blksz;
-	objset_t *os = dhp->os;
 	while (size > 0) {
 		uint64_t nwrite = MIN(size,
 		    max_blksz - P2PHASE(offset, max_blksz));
 		dmu_tx_t *tx = dmu_tx_create(os);
+		dmu_tx_hold_sa(tx, sa_hdl, FALSE);
 		dmu_tx_hold_write_by_dnode(tx, dn, offset, nwrite);
 		if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 			dmu_tx_abort(tx);
@@ -1427,11 +1210,21 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			VERIFY0(dnode_set_blksz(dn, new_blksz, 0, tx));
 		}
 
-		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
-		if (offset + nwrite > attr->size) {
-			attr->size = offset + nwrite;
-			dmu_buf_will_dirty(bonus_buf, tx);
+		if (offset + nwrite > obj_size) {
+			obj_size = offset + nwrite;
+			VERIFY0(sa_update(sa_hdl, sa_tbl[UZFS_SIZE],
+			    &obj_size, sizeof (obj_size), tx));
 		}
+
+		// set mtime in the last iteration
+		if (size == nwrite) {
+			struct timespec mtime;
+			gethrestime(&mtime);
+			VERIFY0(sa_update(sa_hdl, sa_tbl[UZFS_MTIME],
+			    &mtime, sizeof (mtime), tx));
+		}
+
+		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
 		libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, nwrite, sync);
 		dmu_tx_commit(tx);
 
@@ -1446,7 +1239,7 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 out:
 	dnode_rele(dn, FTAG);
-	dmu_buf_rele(bonus_buf, FTAG);
+	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
@@ -1688,6 +1481,11 @@ libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		if (txg != NULL) {
 			*txg = tx->tx_txg;
 		}
+
+		if (type == INODE_DATA_OBJ) {
+			libuzfs_log_remove(dhp->zilog, tx, ino);
+		}
+
 		dmu_tx_commit(tx);
 	} else {
 		dmu_tx_abort(tx);

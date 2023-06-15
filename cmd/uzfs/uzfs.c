@@ -58,7 +58,6 @@ static int uzfs_object_delete(int argc, char **argv);
 static int uzfs_object_claim(int argc, char **argv);
 static int uzfs_object_get_gen(int argc, char **argv);
 static int uzfs_object_get_size(int argc, char **argv);
-static int uzfs_object_getattr(int argc, char **argv);
 static int uzfs_object_stat(int argc, char **argv);
 static int uzfs_object_list(int argc, char **argv);
 static int uzfs_object_read(int argc, char **argv);
@@ -101,7 +100,7 @@ static int uzfs_inode_get_kvattr(int argc, char **argv);
 static int uzfs_inode_set_kvattr(int argc, char **argv);
 static int uzfs_inode_rm_kvattr(int argc, char **argv);
 static int uzfs_attr_random_test(int argc, char **argv);
-static int uzfs_write_test(int argc, char **argv);
+static int uzfs_object_test(int argc, char **argv);
 
 static int uzfs_dentry_create(int argc, char **argv);
 static int uzfs_dentry_delete(int argc, char **argv);
@@ -123,7 +122,6 @@ typedef enum {
 	HELP_OBJECT_CLAIM,
 	HELP_OBJECT_GET_GEN,
 	HELP_OBJECT_GET_SIZE,
-	HELP_OBJECT_GET_ATTR,
 	HELP_OBJECT_STAT,
 	HELP_OBJECT_LIST,
 	HELP_OBJECT_READ,
@@ -163,7 +161,7 @@ typedef enum {
 	HELP_DENTRY_LOOKUP,
 	HELP_DENTRY_LIST,
 	HELP_ATTR_TEST,
-	HELP_WRITE_TEST,
+	HELP_OBJECT_TEST,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -196,7 +194,6 @@ static uzfs_command_t command_table[] = {
 	{ "claim-object",	uzfs_object_claim, 	HELP_OBJECT_CLAIM   },
 	{ "get-gen-object",	uzfs_object_get_gen, 	HELP_OBJECT_GET_GEN },
 	{ "get-size-object",	uzfs_object_get_size, 	HELP_OBJECT_GET_SIZE },
-	{ "getattr-object",	uzfs_object_getattr, 	HELP_OBJECT_GET_ATTR },
 	{ "stat-object",	uzfs_object_stat, 	HELP_OBJECT_STAT    },
 	{ "list-object",	uzfs_object_list, 	HELP_OBJECT_LIST    },
 	{ "read-object",	uzfs_object_read, 	HELP_OBJECT_READ    },
@@ -236,7 +233,7 @@ static uzfs_command_t command_table[] = {
 	{ "lookup-dentry",	uzfs_dentry_lookup, 	HELP_DENTRY_LOOKUP   },
 	{ "list-dentry",	uzfs_dentry_list, 	HELP_DENTRY_LIST  },
 	{ "attr-test",		uzfs_attr_random_test,	HELP_ATTR_TEST	},
-	{ "write-test",		uzfs_write_test, 	HELP_WRITE_TEST},
+	{ "object-test",	uzfs_object_test, 	HELP_OBJECT_TEST},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -269,8 +266,6 @@ get_usage(uzfs_help_t idx)
 		return (gettext("\tget-gen-object ...\n"));
 	case HELP_OBJECT_GET_SIZE:
 		return (gettext("\tget-size-object ...\n"));
-	case HELP_OBJECT_GET_ATTR:
-		return (gettext("\tget-object-attr ...\n"));
 	case HELP_OBJECT_STAT:
 		return (gettext("\tstat-object ...\n"));
 	case HELP_OBJECT_LIST:
@@ -830,40 +825,6 @@ uzfs_object_get_size(int argc, char **argv)
 		printf("failed to get gen of object: %s:%ld\n", dsname, obj);
 	else
 		printf("got object: %s:%ld, size: %ld\n", dsname, obj, size);
-
-	libuzfs_dataset_close(dhp);
-	return (0);
-}
-
-static void
-uzfs_dump_object_attr(uint64_t object, uzfs_object_attr_t *attr)
-{
-	printf("object: %ld\n", object);
-	printf("\tgen: %ld\n", attr->gen);
-	printf("\tsize: %ld\n", attr->size);
-}
-
-int
-uzfs_object_getattr(int argc, char **argv)
-{
-	int err = 0;
-	char *dsname = argv[1];
-	uint64_t obj = atoll(argv[2]);
-
-	printf("getting attr of object %s:%ld\n", dsname, obj);
-
-	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
-	if (!dhp) {
-		printf("failed to open dataset: %s\n", dsname);
-		return (-1);
-	}
-
-	uzfs_object_attr_t attr = {0};
-	err = libuzfs_object_getattr(dhp, obj, &attr);
-	if (err)
-		printf("failed to get gen of object: %s:%ld\n", dsname, obj);
-	else
-		uzfs_dump_object_attr(obj, &attr);
 
 	libuzfs_dataset_close(dhp);
 	return (0);
@@ -1795,28 +1756,55 @@ uzfs_attr_random_test(int argc, char **argv)
 }
 
 static void
-file_write_op(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+random_object_op(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     int *cur_file_size, char *file_content, int max_size)
 {
-	uint64_t offset = rand() % max_size;
-	uint64_t size = rand() % (max_size - offset);
-	*cur_file_size = MAX(*cur_file_size, offset + size);
-	for (int i = offset; i < offset + size; ++i) {
-		file_content[i] = rand() % 256;
+	int write_proportion = 2;
+	int truncate_proportion = 1;
+	int read_proportion = 2;
+	int total_proportion = write_proportion + truncate_proportion +
+	    read_proportion;
+
+	int op = rand() % total_proportion;
+
+	if (op < write_proportion) {
+		uint64_t offset = rand() % max_size;
+		uint64_t size = rand() % (max_size - offset);
+		*cur_file_size = MAX(*cur_file_size, offset + size);
+		for (int i = offset; i < offset + size; ++i) {
+			file_content[i] = rand() % 256;
+		}
+		VERIFY0(libuzfs_object_write(dhp, obj, offset,
+		    size, file_content + offset, FALSE));
+		return;
 	}
+	op -= write_proportion;
 
-	VERIFY0(libuzfs_object_write(dhp, obj, offset,
-	    size, file_content + offset, FALSE));
-	char *actual_content = umem_zalloc(max_size, UMEM_NOFAIL);
-	VERIFY3U(libuzfs_object_read(dhp, obj,
-	    0, max_size, actual_content), ==, *cur_file_size);
-	VERIFY0(memcmp(actual_content, file_content, max_size));
+	if (op < truncate_proportion) {
+		int res_size = rand() % max_size + 1;
+		if (res_size < *cur_file_size) {
+			memset(file_content + res_size, 0,
+			    *cur_file_size - res_size);
+		}
+		*cur_file_size = res_size;
+		VERIFY0(libuzfs_object_truncate(dhp, obj, 0, res_size));
+		return;
+	}
+	op -= truncate_proportion;
 
-	umem_free(actual_content, max_size);
+	if (op < read_proportion) {
+		char *actual_content = umem_zalloc(max_size, UMEM_NOFAIL);
+		VERIFY3U(libuzfs_object_read(dhp, obj, 0,
+		    max_size, actual_content), ==, *cur_file_size);
+		VERIFY0(memcmp(actual_content, file_content, max_size));
+		umem_free(actual_content, max_size);
+		return;
+	}
+	op -= read_proportion;
 }
 
 static int
-uzfs_write_test(int argc, char **argv)
+uzfs_object_test(int argc, char **argv)
 {
 #define	FILE_SIZE (1<<20)
 	assert(argc >= 2);
@@ -1826,16 +1814,17 @@ uzfs_write_test(int argc, char **argv)
 		return (-1);
 	}
 
-	for (int i = 0; i < 100; ++i) {
+	for (int i = 0; i < 10; ++i) {
 		uint64_t obj;
 		uint64_t gen;
 		VERIFY0(libuzfs_object_create(dhp, &obj, &gen));
+		printf("new object: %lu, gen: %lu\n", obj, gen);
 
 		char *file_content = umem_zalloc(FILE_SIZE, UMEM_NOFAIL);
 		int cur_file_size = 0;
 		srand(time(NULL));
-		for (int j = 0; j < 100; ++j) {
-			file_write_op(dhp, obj, &cur_file_size,
+		for (int j = 0; j < 1000; ++j) {
+			random_object_op(dhp, obj, &cur_file_size,
 			    file_content, FILE_SIZE);
 		}
 

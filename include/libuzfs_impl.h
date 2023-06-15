@@ -37,6 +37,31 @@
 extern "C" {
 #endif
 
+typedef enum uzfs_attr_type {
+	UZFS_PINO,
+	UZFS_PSID,
+	UZFS_FTYPE,
+	UZFS_GEN,
+	UZFS_NLINK,
+	UZFS_PERM,
+	UZFS_UID,
+	UZFS_GID,
+	UZFS_SIZE,
+	UZFS_BLKSIZE,
+	UZFS_BLOCKS,
+	UZFS_NSID,
+	UZFS_DSID,
+	UZFS_OID,
+	UZFS_OGEN,
+	UZFS_ATIME,
+	UZFS_MTIME,
+	UZFS_CTIME,
+	UZFS_BTIME,
+	UZFS_ZXATTR, // sa index for dir xattr inode
+	UZFS_XATTR,  // sa index for sa xattr (name, value) pairs
+	UZFS_END
+} uzfs_attr_type_t;
+
 struct libuzfs_zpool_handle {
 	char zpool_name[ZFS_MAX_DATASET_NAME_LEN];
 	spa_t *spa;
@@ -64,8 +89,8 @@ struct libuzfs_kvattr_iterator {
 #define	UZFS_GID_OFFSET 20
 #define	UZFS_PARENT_OFFSET 24
 
-extern void libuzfs_object_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx);
+extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
+    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *xattr_zap_obj);
