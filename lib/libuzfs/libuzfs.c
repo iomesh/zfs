@@ -721,7 +721,13 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	char *stored_pool_name;
 	VERIFY0(nvlist_lookup_string(config,
 	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
-	strncpy(pool_name, stored_pool_name, size);
+	int name_len = strlen(stored_pool_name);
+	if (name_len >= size) {
+		nvlist_free(pools);
+		return (ERANGE);
+	}
+	strncpy(pool_name, stored_pool_name, name_len);
+	pool_name[name_len] = '\0';
 
 	int err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
 	if (err == ENOENT) {
