@@ -1587,7 +1587,7 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 			    (char *)umem_alloc(size, UMEM_NOFAIL);
 			ssize_t rc = libuzfs_inode_get_kvattr(dhp, *ino, name,
 			    stored_value, (uint64_t)(size), 0);
-			ASSERT3U(rc, ==, size);
+			VERIFY3U(rc, ==, size);
 			if (memcmp(value, stored_value, size) != 0) {
 				return (B_FALSE);
 			}
@@ -1668,7 +1668,7 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 
 		char buf[256];
 		while (libuzfs_next_kvattr_name(iter, buf, 256) > 0) {
-			ASSERT(nvlist_exists(nvl, buf));
+			VERIFY(nvlist_exists(nvl, buf));
 		}
 		libuzfs_kvattr_iterator_fini(iter);
 		return (B_TRUE);

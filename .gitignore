@@ -68,3 +68,7 @@ venv
 *.so
 *.so.debug
 *.so.full
+
+.vscode
+.cache
+compile_commands.json
