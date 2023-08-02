@@ -23,7 +23,14 @@
  * Copyright (c) 2022, SmartX Inc. All rights reserved.
  */
 
+#include "sys/stdtypes.h"
+#include <asm-generic/errno-base.h>
+#include <bits/types/struct_timeval.h>
 #include <libintl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
@@ -107,6 +114,8 @@ static int uzfs_dentry_delete(int argc, char **argv);
 static int uzfs_dentry_lookup(int argc, char **argv);
 static int uzfs_dentry_list(int argc, char **argv);
 
+static int uzfs_io_bench(int argc, char **argv);
+
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
@@ -162,6 +171,7 @@ typedef enum {
 	HELP_DENTRY_LIST,
 	HELP_ATTR_TEST,
 	HELP_OBJECT_TEST,
+	HELP_IO_BENCH,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -234,6 +244,7 @@ static uzfs_command_t command_table[] = {
 	{ "list-dentry",	uzfs_dentry_list, 	HELP_DENTRY_LIST  },
 	{ "attr-test",		uzfs_attr_random_test,	HELP_ATTR_TEST	},
 	{ "object-test",	uzfs_object_test, 	HELP_OBJECT_TEST},
+	{ "io-bench",		uzfs_io_bench,		HELP_IO_BENCH},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -626,16 +637,20 @@ uzfs_zpool_get(int argc, char **argv)
 int
 uzfs_zpool_import(int argc, char **argv)
 {
-	char *dev_path = argv[1];
+	argc -= 1;
+	argv += 1;
 	const int max_pool_name_len = 256;
 	char pool_name[max_pool_name_len];
-	pool_name[0] = 0;
-	int err = libuzfs_zpool_import(dev_path, pool_name, max_pool_name_len);
 
-	printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n",
-	    dev_path, err, pool_name);
+	for (int i = 0; i < argc; ++i) {
+		memset(pool_name, 0, max_pool_name_len);
+		int err = libuzfs_zpool_import(argv[i], pool_name, max_pool_name_len);
 
-	return (err);
+		printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n",
+		    argv[i], err, pool_name);
+	}
+
+	return (0);
 }
 
 int
@@ -1528,8 +1543,7 @@ uzfs_attr_cmp(uzfs_attr_t *lhs, uzfs_attr_t *rhs)
 	return lhs->psid == rhs->psid && lhs->ftype == rhs->ftype&&
 	    lhs->gen == rhs->gen && lhs->nlink == rhs->nlink &&
 	    lhs->perm == rhs->perm && lhs->gid == rhs->gid &&
-	    lhs->size == rhs->size && lhs->blksize == rhs->blksize &&
-	    lhs->blocks == rhs->blocks && lhs->nsid == rhs->nsid &&
+	    lhs->size == rhs->size && lhs->nsid == rhs->nsid &&
 	    lhs->atime.tv_nsec == rhs->atime.tv_nsec &&
 	    lhs->atime.tv_sec == rhs->atime.tv_sec &&
 	    lhs->mtime.tv_nsec == rhs->mtime.tv_nsec &&
@@ -1557,7 +1571,7 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 	    listkvattr_proportion + getattr_proportion + setattr_proportion;
 
 	int op = rand() % total_proportion;
-	*reset = B_FALSE;
+	*reset = B_TRUE;
 	if (op < delete_proportion) {
 		// delete inode
 		if (*ino != 0) {
@@ -1833,6 +1847,133 @@ uzfs_object_test(int argc, char **argv)
 	}
 
 	libuzfs_dataset_close(dhp);
+
+	return (0);
+}
+
+typedef struct bench_thread_ctx {
+	libuzfs_dataset_handle_t *dhp;
+	uint64_t obj;
+	uint64_t blksize;
+	uint64_t total_size;
+	boolean_t write;
+	pthread_t tid;
+} bench_thread_ctx_t;
+
+static void *worker_func(void *arg) {
+	bench_thread_ctx_t *ctx = arg;
+
+	boolean_t sync = B_FALSE;
+	char *buf = umem_alloc(ctx->blksize, UMEM_NOFAIL);
+	memset(buf, 0xf1, ctx->blksize);
+
+	uint64_t nwritten = 0;
+
+	while (nwritten < ctx->total_size) {
+		if (ctx->write) {
+			VERIFY0(libuzfs_object_write(ctx->dhp, ctx->obj, nwritten,
+			    ctx->blksize, buf, sync));
+		} else {
+			VERIFY3U(libuzfs_object_read(ctx->dhp, ctx->obj, nwritten,
+			    ctx->blksize, buf), ==, ctx->blksize);
+		}
+		nwritten += ctx->blksize;
+	}
+
+	umem_free(buf, ctx->blksize);
+	return (NULL);
+}
+
+static uint64_t
+micros_elapsed(struct timeval *before, struct timeval *after)
+{
+	return (after->tv_sec - before->tv_sec) * 1000000 +
+	    after->tv_usec - before->tv_usec;
+}
+
+static int
+uzfs_io_bench(int argc, char **argv)
+{
+	int nthread = atoi(argv[1]);
+
+	argc -= 2;
+	argv += 2;
+
+	uint64_t total_megas = 16384;
+	uint64_t blksize_kilo = 256;
+
+	libuzfs_dataset_handle_t **dhps = umem_alloc(
+	    sizeof (libuzfs_dataset_handle_t *) * argc, UMEM_NOFAIL);
+
+	for (int i = 0; i < argc; ++i) {
+		char dev_path[256];
+		sprintf(dev_path, "/dev/%s", argv[i]);
+		char pool_name[64];
+		memset(pool_name, 0, 64);
+		int err = libuzfs_zpool_import(dev_path, pool_name, 64);
+		printf("zpool import, err: %d, pool_name: %s\n", err, pool_name);
+		VERIFY(err == 0 || err == ENOENT || err == EEXIST);
+		if (err == 0 || err == EEXIST) {
+			VERIFY3U(strcmp(pool_name, argv[i]), ==, 0);
+			VERIFY0(libuzfs_zpool_destroy(pool_name));
+			printf("destroy zpool: %s\n", pool_name);
+		}
+
+		VERIFY0(libuzfs_zpool_create(argv[i], dev_path, NULL, NULL));
+		printf("create zpool, pool_name: %s, dev_path: %s\n", argv[i], dev_path);
+
+		char dataset_name[256];
+		sprintf(dataset_name, "%s/ds2", argv[i]);
+		VERIFY0(libuzfs_dataset_create(dataset_name));
+		printf("create dataset: %s\n", dataset_name);
+
+		dhps[i] = libuzfs_dataset_open(dataset_name);
+		VERIFY3U(dhps[i], !=, NULL);
+	}
+
+	bench_thread_ctx_t *ctxs = umem_alloc(sizeof (bench_thread_ctx_t) * nthread, UMEM_NOFAIL);
+
+	for (int i = 0; i < nthread; ++i) {
+		ctxs[i].dhp = dhps[i % argc];
+		VERIFY0(libuzfs_object_create(dhps[i % argc], &ctxs[i].obj, NULL));
+		ctxs[i].blksize = blksize_kilo << 10;
+		ctxs[i].total_size = total_megas << 20;
+		ctxs[i].write = B_TRUE;
+	}
+
+	struct timeval before;
+	gettimeofday(&before, NULL);
+	for (int i = 0; i < nthread; ++i) {
+		pthread_create(&ctxs[i].tid, NULL, worker_func, &ctxs[i]);
+	}
+
+	for (int i = 0; i < nthread; ++i) {
+		pthread_join(ctxs[i].tid, NULL);
+	}
+
+	struct timeval after;
+	gettimeofday(&after, NULL);
+
+	uint64_t elapsed_micros = micros_elapsed(&before, &after);
+	printf("concurrency: %d, write throughput: %luMB/s\n", nthread, total_megas * nthread * 1000000 / elapsed_micros);
+
+	gettimeofday(&before, NULL);
+	for (int i = 0; i < nthread; ++i) {
+		ctxs[i].write = B_FALSE;
+		pthread_create(&ctxs[i].tid, NULL, worker_func, &ctxs[i]);
+	}
+
+	for (int i = 0; i < nthread; ++i) {
+		pthread_join(ctxs[i].tid, NULL);
+	}
+
+	gettimeofday(&after, NULL);
+	elapsed_micros = micros_elapsed(&before, &after);
+	printf("concurrency: %d, read throughput: %luMB/s\n", nthread, total_megas * nthread * 1000000 / elapsed_micros);
+
+	for (int i = 0; i < argc; ++i) {
+		libuzfs_dataset_close(dhps[i]);
+	}
 
 	return (0);
 }

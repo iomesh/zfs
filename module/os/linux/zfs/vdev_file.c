@@ -23,6 +23,7 @@
  * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
  */
 
+#include "atomic.h"
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
@@ -44,6 +45,8 @@
  */
 
 static taskq_t *vdev_file_taskq;
+uint64_t bytes_written_to_disk;
+uint64_t bytes_submitted;
 
 /*
  * By default, the logical/physical ashift for file vdevs is set to
@@ -216,6 +219,7 @@ vdev_file_io_strategy(void *arg)
 	} else {
 		buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
 		err = zfs_file_pwrite(vf->vf_file, buf, size, off, &resid);
+		atomic_add_64(&bytes_written_to_disk, size);
 		abd_return_buf(zio->io_abd, buf, size);
 	}
 	zio->io_error = err;
@@ -332,6 +336,8 @@ vdev_ops_t vdev_file_ops = {
 void
 vdev_file_init(void)
 {
+	bytes_written_to_disk = 0;
+	bytes_submitted = 0;
 	vdev_file_taskq = taskq_create("z_vdev_file", MAX(boot_ncpus, 16),
 	    minclsyspri, boot_ncpus, INT_MAX, TASKQ_DYNAMIC);
 
