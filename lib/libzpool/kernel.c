@@ -52,6 +52,7 @@
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
 #include <zlib.h>
+#include <minitrace_c/minitrace_c.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -793,6 +794,24 @@ umem_out_of_memory(void)
 	return (0);
 }
 
+// TODO: move to a indepentdent
+static mtr_otel_rptr *rptr;
+static mtr_coll_cfg *cfg;
+
+// TODO: move to a indepentdent
+static void mtr_otel_init(void)
+{
+	cfg = mtr_create_glob_coll_def_cfg();
+	rptr = mtr_create_otel_rptr();
+	mtr_set_otel_rptr(rptr, cfg);
+}
+
+static void mtr_otel_fini(void)
+{
+	mtr_free_glob_coll_def_cfg(cfg);
+	mtr_free_otel_rptr(rptr);
+}
+
 void
 kernel_init(int mode)
 {
@@ -828,6 +847,8 @@ kernel_init(int mode)
 	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
 	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
+
+	mtr_otel_init();
 }
 
 void
@@ -848,6 +869,8 @@ kernel_fini(void)
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);
 	tsd_destroy(&zfs_allow_log_key);
+
+	mtr_otel_fini();
 }
 
 uid_t

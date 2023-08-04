@@ -15,7 +15,7 @@ fi
 
 AC_DEFUN([ZFS_CHECK_MINITRACE_C], [
 enable_minitrace_c=no
-AC_ARG_WITH([minitrace_c], [AS_HELP_STRING([--with-minitrace_c=DIR], [use a specific telemetry library])],
+AC_ARG_WITH([minitrace_c], [AS_HELP_STRING([--with-minitrace_c=DIR], [use a specific minitrace_c library])],
 [
   if test "$withval" != "no"; then
     enable_minitrace_c=yes
@@ -38,7 +38,6 @@ AC_ARG_WITH([minitrace_c], [AS_HELP_STRING([--with-minitrace_c=DIR], [use a spec
     esac
   fi
 ])
-
 has_minitrace_c=0
 if test "$enable_minitrace_c" != "no"; then
   minitrace_c_have_headers=0
@@ -48,17 +47,14 @@ if test "$enable_minitrace_c" != "no"; then
     LDFLAGS="${LDFLAGS} -L${minitrace_c_ldflags}"
     LIBTOOL_LINK_FLAGS="${LIBTOOL_LINK_FLAGS} -R${minitrace_c_ldflags}"
   fi
+  func="${minitrace_c_prefix}mtr_c_ver"
   AC_CHECK_LIB(minitrace_c, ${func}, [minitrace_c_have_libs=1])
-  echo "XXXXXXXXXXXXXXXXXXXXX"
-  echo "$minitrace_c_have_libs"
   if test "$minitrace_c_have_libs" != "0"; then
     AC_CHECK_HEADERS([minitrace_c/minitrace_c.h], [minitrace_c_have_headers=1])
   fi
-  echo "YYYYYYYYYYYYYYYYYYYYY"
-  echo "$minitrace_c_have_headers"
   if test "$minitrace_c_have_headers" != "0"; then
     has_minitrace_c=1
-    LIBS="${LIBS} -lminitrace_c"
+    LIBS="${LIBS} -lminitrace_c -lstdc++"
     AC_DEFINE(has_minitrace_c, [1], [Link/compile against minitrace_c])
   else
     AC_MSG_ERROR([Couldn't find a minitrace_c installation])

@@ -53,6 +53,7 @@
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/sa_impl.h>
+#include <minitrace_c/minitrace_c.h>
 
 #include "libuzfs_impl.h"
 
@@ -584,11 +585,23 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	return (error);
 }
 
+// // TODO: move to a indepentdent
+// static mtr_otel_rptr *rptr;
+//
+// // TODO: move to a indepentdent
+// static void mtr_otel_rptr_init(void)
+// {
+// 	mtr_coll_cfg *cfg = mtr_create_glob_coll_def_cfg();
+// 	rptr = mtr_create_otel_rptr();
+// 	mtr_set_otel_rptr(rptr, cfg);
+// }
+
 void
 libuzfs_init()
 {
 	(void) pthread_mutex_lock(&g_lock);
 	if (g_refcount == 0) {
+	//	mtr_otel_rptr_init();
 		kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
 	}
 	g_refcount++;
@@ -1253,6 +1266,10 @@ int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf)
 {
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_read",p);
+	mtr_guard *g = mtr_set_loc_parent_to_span(r);
+
 	int err = 0;
 	uint64_t obj_size = 0;
 	uint64_t read_size = 0;
@@ -1260,19 +1277,25 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	err = libuzfs_object_get_size(dhp, obj, &obj_size);
 	if (err)
-		return (-err);
+		goto flush;
 
 	if (offset > obj_size)
-		return (0);
+		goto flush;
 
 	read_size = offset + size > obj_size ? obj_size - offset : size;
 
 	err = dmu_read(os, obj, offset, read_size, buf, DMU_READ_NO_PREFETCH);
 	if (err)
-		return (-err);
+		goto flush;
+
+flush:
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+	mtr_flush();
 
 	// FIXME(hping): define a reasonable interface to return read_size
-	return (read_size);
+	return  err == 0 ? (read_size) : (-err);
 }
 
 libuzfs_zap_iterator_t *

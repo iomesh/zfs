@@ -39,6 +39,7 @@
 #include <sys/range_tree.h>
 #include <sys/trace_zfs.h>
 #include <sys/zfs_project.h>
+#include <minitrace_c/minitrace_c.h>
 
 dnode_stats_t dnode_stats = {
 	{ "dnode_hold_dbuf_hold",		KSTAT_DATA_UINT64 },
@@ -1566,8 +1567,11 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 int
 dnode_hold(objset_t *os, uint64_t object, void *tag, dnode_t **dnp)
 {
-	return (dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, 0, tag,
-	    dnp));
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dnode_hold");
+	int err = dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, 0, tag,
+				  dnp);
+	mtr_free_loc_span(ls);
+	return (err);
 }
 
 /*

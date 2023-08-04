@@ -53,6 +53,7 @@
 #include <cityhash.h>
 #include <sys/spa_impl.h>
 #include <sys/wmsum.h>
+#include <minitrace_c/minitrace_c.h>
 
 kstat_t *dbuf_ksp;
 
@@ -1634,6 +1635,8 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 int
 dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 {
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read");
+
 	int err = 0;
 	boolean_t prefetch;
 	dnode_t *dn;
@@ -1644,8 +1647,10 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	 */
 	ASSERT(!zfs_refcount_is_zero(&db->db_holds));
 
-	if (db->db_state == DB_NOFILL)
+	if (db->db_state == DB_NOFILL) {
+		mtr_free_loc_span(ls);
 		return (SET_ERROR(EIO));
+	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1761,6 +1766,7 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 		}
 	}
 
+	mtr_free_loc_span(ls);
 	return (err);
 }
 
@@ -3577,8 +3583,10 @@ dbuf_hold(dnode_t *dn, uint64_t blkid, void *tag)
 dmu_buf_impl_t *
 dbuf_hold_level(dnode_t *dn, int level, uint64_t blkid, void *tag)
 {
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_null");
 	dmu_buf_impl_t *db;
 	int err = dbuf_hold_impl(dn, level, blkid, FALSE, FALSE, tag, &db);
+	mtr_free_loc_span(ls);
 	return (err ? NULL : db);
 }
 

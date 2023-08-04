@@ -28,6 +28,7 @@
  * Copyright (c) 2021, Datto, Inc.
  */
 
+#include <minitrace_c/minitrace_c.h>
 #include <sys/sysmacros.h>
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
@@ -906,11 +907,15 @@ zio_t *
 zio_null(zio_t *pio, spa_t *spa, vdev_t *vd, zio_done_func_t *done,
     void *private, enum zio_flag flags)
 {
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_null");
+
 	zio_t *zio;
 
 	zio = zio_create(pio, spa, 0, NULL, NULL, 0, 0, done, private,
 	    ZIO_TYPE_NULL, ZIO_PRIORITY_NOW, flags, vd, 0, NULL,
 	    ZIO_STAGE_OPEN, ZIO_INTERLOCK_PIPELINE);
+
+	mtr_free_loc_span(ls);
 
 	return (zio);
 }
@@ -2241,6 +2246,8 @@ zio_wait(zio_t *zio)
 	if (zio == NULL)
 		return (0);
 
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_wait");
+
 	long timeout = MSEC_TO_TICK(zfs_deadman_ziotime_ms);
 	int error;
 
@@ -2272,6 +2279,7 @@ zio_wait(zio_t *zio)
 	error = zio->io_error;
 	zio_destroy(zio);
 
+	mtr_free_loc_span(ls);
 	return (error);
 }
 
