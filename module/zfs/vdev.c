@@ -2091,6 +2091,8 @@ vdev_open(vdev_t *vd)
 		vd->vdev_max_asize = max_asize;
 	}
 
+	vd->vdev_ashift = 12;
+
 	/*
 	 * If all children are healthy we update asize if either:
 	 * The asize has increased, due to a device expansion caused by dynamic

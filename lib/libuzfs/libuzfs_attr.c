@@ -20,8 +20,6 @@ sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 	{"UZFS_UID", sizeof (uint32_t), SA_UINT32_ARRAY, 6},
 	{"UZFS_GID", sizeof (uint32_t), SA_UINT32_ARRAY, 7},
 	{"UZFS_SIZE", sizeof (uint64_t), SA_UINT64_ARRAY, 8},
-	{"UZFS_BLKSIZE", sizeof (uint64_t), SA_UINT64_ARRAY, 9},
-	{"UZFS_BLOCKS", sizeof (uint64_t), SA_UINT64_ARRAY, 10},
 	{"UZFS_NSID", sizeof (uint32_t), SA_UINT32_ARRAY, 11},
 	{"UZFS_DSID", sizeof (uint32_t), SA_UINT32_ARRAY, 12},
 	{"UZFS_OID", sizeof (uint64_t), SA_UINT64_ARRAY, 13},
@@ -154,6 +152,9 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	libuzfs_add_bulk_attr(dhp, sa_attrs, &cnt, attr);
 	err = sa_bulk_lookup(sa_hdl, sa_attrs, cnt);
 	attr->ino = ino;
+	// TODO(sundengyu): compute blksize and blocks
+	attr->blksize = 0;
+	attr->blocks = 0;
 
 	sa_handle_destroy(sa_hdl);
 	return (err);

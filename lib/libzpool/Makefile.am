@@ -14,8 +14,7 @@ if BUILD_LINUX
 DEFAULT_INCLUDES += -I$(top_srcdir)/include/os/linux/zfs
 endif
 
-# Unconditionally enable debugging for libzpool
-AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
+AM_CPPFLAGS += -UDEBUG -DNDEBUG -UZFS_DEBUG
 
 # Suppress unused but set variable warnings often due to ASSERTs
 AM_CFLAGS += $(NO_UNUSED_BUT_SET_VARIABLE)
@@ -230,7 +229,7 @@ libzpool_la_LIBADD = \
 	$(abs_top_builddir)/lib/libzstd/libzstd.la \
 	$(abs_top_builddir)/lib/libzutil/libzutil.la
 
-libzpool_la_LIBADD += $(LIBCLOCK_GETTIME) $(ZLIB_LIBS) -ldl -lm
+libzpool_la_LIBADD += $(LIBCLOCK_GETTIME) $(ZLIB_LIBS) -ldl -lm -luring
 
 libzpool_la_LDFLAGS = -pthread
 

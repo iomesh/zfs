@@ -23,27 +23,19 @@
  * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
  */
 
-#include <sys/zfs_context.h>
-#include <sys/spa.h>
-#include <sys/spa_impl.h>
+#include "atomic.h"
+#include "umem.h"
+#include <errno.h>
+#include <stdint.h>
 #include <sys/vdev_file.h>
 #include <sys/vdev_impl.h>
-#include <sys/vdev_trim.h>
 #include <sys/zio.h>
-#include <sys/fs/zfs.h>
-#include <sys/fm/fs/zfs.h>
 #include <sys/abd.h>
-#include <sys/fcntl.h>
-#include <sys/vnode.h>
-#include <sys/zfs_file.h>
+#include <liburing.h>
+#include <unistd.h>
 #ifdef _KERNEL
 #include <linux/falloc.h>
 #endif
-/*
- * Virtual device vector for files.
- */
-
-static taskq_t *vdev_file_taskq;
 
 /*
  * By default, the logical/physical ashift for file vdevs is set to
@@ -53,8 +45,36 @@ static taskq_t *vdev_file_taskq;
  * impact the vdev_ashift setting which can only be set at vdev creation
  * time.
  */
-unsigned long vdev_file_logical_ashift = SPA_MINBLOCKSHIFT;
-unsigned long vdev_file_physical_ashift = SPA_MINBLOCKSHIFT;
+unsigned long vdev_file_logical_ashift = 12;
+unsigned long vdev_file_physical_ashift = 12;
+
+#define	URING_SIZE 4096
+
+typedef enum task_stat {
+	INIT = 0,
+	TAIL = 1,
+	BODY = 2,
+} task_stat_t;
+
+typedef struct zio_task {
+	zio_t *zio;
+	void *buf;
+	uint32_t state;
+	struct zio_task *next;
+} zio_task_t;
+
+typedef struct uring_reaper_ctx {
+	struct io_uring ring;
+
+	kmutex_t mutex;
+	zio_task_t *tail;
+
+	// for thread control
+	kthread_t *reaper_thread;
+	boolean_t stop;
+} uring_reaper_ctx_t;
+
+static uring_reaper_ctx_t reaper_ctx;
 
 static void
 vdev_file_hold(vdev_t *vd)
@@ -89,9 +109,7 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
     uint64_t *logical_ashift, uint64_t *physical_ashift)
 {
 	vdev_file_t *vf;
-	zfs_file_t *fp;
-	zfs_file_attr_t zfa;
-	int error;
+	struct stat64 zfa;
 
 	/*
 	 * Rotational optimizations only make sense on block devices.
@@ -139,14 +157,13 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 */
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
 
-	error = zfs_file_open(vd->vdev_path,
-	    vdev_file_open_mode(spa_mode(vd->vdev_spa)), 0, &fp);
-	if (error) {
+	// TODO(sundengyu): register this fd
+	vf->vf_fd = open(vd->vdev_path,
+	    vdev_file_open_mode(spa_mode(vd->vdev_spa)));
+	if (vf->vf_fd < 0) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
-		return (error);
+		return (errno);
 	}
-
-	vf->vf_file = fp;
 
 #ifdef _KERNEL
 	/*
@@ -163,13 +180,13 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 
 skip_open:
 
-	error =  zfs_file_getattr(vf->vf_file, &zfa);
-	if (error) {
+	if (fstat64_blk(vf->vf_fd, &zfa) < 0) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
-		return (error);
+		return (errno);
 	}
 
-	*max_psize = *psize = zfa.zfa_size;
+	printf("disk capacity: %luGB\n", zfa.st_size >> 30);
+	*max_psize = *psize = zfa.st_size;
 	*logical_ashift = vdev_file_logical_ashift;
 	*physical_ashift = vdev_file_physical_ashift;
 
@@ -184,8 +201,8 @@ vdev_file_close(vdev_t *vd)
 	if (vd->vdev_reopening || vf == NULL)
 		return;
 
-	if (vf->vf_file != NULL) {
-		(void) zfs_file_close(vf->vf_file);
+	if (vf->vf_fd >= 0) {
+		close(vf->vf_fd);
 	}
 
 	vd->vdev_delayed_close = B_FALSE;
@@ -193,47 +210,121 @@ vdev_file_close(vdev_t *vd)
 	vd->vdev_tsd = NULL;
 }
 
-static void
-vdev_file_io_strategy(void *arg)
+static boolean_t
+insert_task(zio_task_t *task, zio_task_t **list_tail)
 {
-	zio_t *zio = (zio_t *)arg;
-	vdev_t *vd = zio->io_vd;
-	vdev_file_t *vf = vd->vdev_tsd;
-	ssize_t resid;
-	void *buf;
-	loff_t off;
-	ssize_t size;
-	int err;
+	zio_task_t *tail = atomic_load_ptr(list_tail);
+	while (1) {
+		// tail is null, try to be the leader
+		if (tail == NULL) {
+			tail = atomic_cas_ptr(list_tail, NULL, task);
+			if (tail == NULL) {
+				break;
+			}
+		}
 
-	off = zio->io_offset;
-	size = zio->io_size;
-	resid = 0;
+		zio_task_t *next = atomic_cas_ptr(&tail->next, NULL, task);
+		if (next == NULL) {
+			atomic_cas_ptr(list_tail, tail, task);
+			if (atomic_cas_32(&tail->state, INIT, BODY) == INIT) {
+				// joined the last group, just return
+				return B_TRUE;
+			}
+			break;
+		}
 
-	if (zio->io_type == ZIO_TYPE_READ) {
-		buf = abd_borrow_buf(zio->io_abd, zio->io_size);
-		err = zfs_file_pread(vf->vf_file, buf, size, off, &resid);
-		abd_return_buf_copy(zio->io_abd, buf, size);
-	} else {
-		buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-		err = zfs_file_pwrite(vf->vf_file, buf, size, off, &resid);
-		abd_return_buf(zio->io_abd, buf, size);
+		zio_task_t *cur_tail = atomic_cas_ptr(list_tail, tail, next);
+		if (tail == cur_tail) {
+			tail = next;
+		} else {
+			tail = cur_tail;
+		}
 	}
-	zio->io_error = err;
-	if (resid != 0 && zio->io_error == 0)
-		zio->io_error = SET_ERROR(ENOSPC);
 
-	zio_delay_interrupt(zio);
+	return B_FALSE;
+}
+
+static struct io_uring_sqe *
+get_uring_sqe_no_fail(struct io_uring *ring)
+{
+	struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+	if (unlikely(sqe == NULL)) {
+		// TODO(sundengyu): deal with submit error
+		VERIFY0(io_uring_submit(ring));
+		sqe = io_uring_get_sqe(ring);
+		VERIFY3P(sqe, !=, NULL);
+	}
+
+	return (sqe);
 }
 
 static void
-vdev_file_io_fsync(void *arg)
+prep_task(zio_task_t *task, struct io_uring_sqe *sqe)
 {
-	zio_t *zio = (zio_t *)arg;
-	vdev_file_t *vf = zio->io_vd->vdev_tsd;
+	zio_t *zio = task->zio;
+	void *buf;
+	int fd = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
+	switch (zio->io_type) {
+	case ZIO_TYPE_IOCTL:
+		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
+		io_uring_prep_fsync(sqe, fd, O_SYNC | O_DSYNC);
+		break;
+	case ZIO_TYPE_READ:
+		buf = abd_borrow_buf(zio->io_abd, zio->io_size);
+		task->buf = buf;
+		io_uring_prep_read(sqe, fd, buf,
+			zio->io_size, zio->io_offset);
+		break;
+	case ZIO_TYPE_WRITE:
+		buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
+		task->buf = buf;
+		io_uring_prep_write(sqe, fd, buf,
+			zio->io_size, zio->io_offset);
+		break;
+	default:
+		panic("zio type not expected: %d", zio->io_type);
+		break;
+	}
+}
 
-	zio->io_error = zfs_file_fsync(vf->vf_file, O_SYNC | O_DSYNC);
+static void
+submit_tasks(zio_task_t *task, struct io_uring *ring)
+{
+	while (1) {
+		struct io_uring_sqe *sqe = get_uring_sqe_no_fail(ring);
+		zio_t *zio = task->zio;
+		if (unlikely(zio == NULL)) {
+			io_uring_prep_nop(sqe);
+		} else {
+			prep_task(task, sqe);
+		}
 
-	zio_interrupt(zio);
+		io_uring_sqe_set_data(sqe, task);
+
+		if (atomic_cas_32(&task->state, INIT, TAIL) == INIT) {
+			break;
+		}
+
+		task = atomic_load_ptr(&task->next);
+	}
+	io_uring_submit(ring);
+}
+
+static void
+submit_zio_task(zio_t *zio)
+{
+	zio_task_t *task = umem_alloc(sizeof (zio_task_t), UMEM_NOFAIL);
+	task->zio = zio;
+	task->state = INIT;
+	task->next = NULL;
+
+	if (insert_task(task, &reaper_ctx.tail)) {
+		return;
+	}
+
+	mutex_enter(&reaper_ctx.mutex);
+	submit_tasks(task, &reaper_ctx.ring);
+	mutex_exit(&reaper_ctx.mutex);
 }
 
 static void
@@ -252,7 +343,6 @@ vdev_file_io_start(zio_t *zio)
 
 		switch (zio->io_cmd) {
 		case DKIOCFLUSHWRITECACHE:
-
 			if (zfs_nocacheflush)
 				break;
 
@@ -264,14 +354,13 @@ vdev_file_io_start(zio_t *zio)
 			 * the sync must be dispatched to a different context.
 			 */
 			if (__spl_pf_fstrans_check()) {
-				VERIFY3U(taskq_dispatch(vdev_file_taskq,
-				    vdev_file_io_fsync, zio, TQ_SLEEP), !=,
-				    TASKQID_INVALID);
+				submit_zio_task(zio);
 				return;
 			}
 
-			zio->io_error = zfs_file_fsync(vf->vf_file,
-			    O_SYNC | O_DSYNC);
+			if (fsync(vf->vf_fd) < 0) {
+				zio->io_error = errno;
+			}
 			break;
 		default:
 			zio->io_error = SET_ERROR(ENOTSUP);
@@ -286,16 +375,15 @@ vdev_file_io_start(zio_t *zio)
 #ifdef __linux__
 		mode = FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE;
 #endif
-		zio->io_error = zfs_file_fallocate(vf->vf_file,
-		    mode, zio->io_offset, zio->io_size);
+		zio->io_error = fallocate(vf->vf_fd, mode,
+		    zio->io_offset, zio->io_size);
 		zio_execute(zio);
 		return;
 	}
 
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
-	VERIFY3U(taskq_dispatch(vdev_file_taskq, vdev_file_io_strategy, zio,
-	    TQ_SLEEP), !=, TASKQID_INVALID);
+	submit_zio_task(zio);
 }
 
 static void
@@ -329,19 +417,65 @@ vdev_ops_t vdev_file_ops = {
 	.vdev_op_leaf = B_TRUE			/* leaf vdev */
 };
 
+static void
+zio_task_reaper(void *args)
+{
+	uring_reaper_ctx_t *ctx = args;
+	struct io_uring_cqe *cqe;
+	int err = 0;
+	while ((err = io_uring_wait_cqe(&ctx->ring, &cqe)) == 0) {
+		zio_task_t *task = io_uring_cqe_get_data(cqe);
+		zio_t *zio = task->zio;
+		if (zio == NULL) {
+			return;
+		}
+
+		if (cqe->res < 0) {
+			zio->io_error = cqe->res;
+		} else {
+			zio->io_error = 0;
+		}
+
+		if (zio->io_type == ZIO_TYPE_READ) {
+			abd_return_buf_copy(zio->io_abd,
+				task->buf, zio->io_size);
+		} else if (zio->io_type == ZIO_TYPE_WRITE) {
+			abd_return_buf(zio->io_abd,
+				task->buf, zio->io_size);
+		}
+
+		zio_delay_interrupt(zio);
+
+		io_uring_cqe_seen(&ctx->ring, cqe);
+	}
+
+	VERIFY0(err);
+}
+
 void
 vdev_file_init(void)
 {
-	vdev_file_taskq = taskq_create("z_vdev_file", MAX(boot_ncpus, 16),
-	    minclsyspri, boot_ncpus, INT_MAX, TASKQ_DYNAMIC);
+	mutex_init(&reaper_ctx.mutex, NULL, MUTEX_DEFAULT, NULL);
+	reaper_ctx.tail = NULL;
 
-	VERIFY(vdev_file_taskq);
+	VERIFY0(io_uring_queue_init(URING_SIZE, &reaper_ctx.ring, IORING_SETUP_SQPOLL));
+
+	reaper_ctx.stop = B_FALSE;
+	reaper_ctx.reaper_thread = thread_create(NULL, 0, zio_task_reaper,
+	    &reaper_ctx, 0, NULL, TS_RUN | TS_JOINABLE, defclsyspri);
+	pthread_setname_np((pthread_t)reaper_ctx.reaper_thread, "io-reaper");
 }
 
 void
 vdev_file_fini(void)
 {
-	taskq_destroy(vdev_file_taskq);
+	submit_zio_task(NULL);
+	thread_join(reaper_ctx.reaper_thread);
+
+	// destroy the uring
+	io_uring_queue_exit(&reaper_ctx.ring);
+
+	mutex_destroy(&reaper_ctx.mutex);
 }
 
 /*

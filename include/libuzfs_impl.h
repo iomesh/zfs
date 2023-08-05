@@ -47,8 +47,6 @@ typedef enum uzfs_attr_type {
 	UZFS_UID,
 	UZFS_GID,
 	UZFS_SIZE,
-	UZFS_BLKSIZE,
-	UZFS_BLOCKS,
 	UZFS_NSID,
 	UZFS_DSID,
 	UZFS_OID,
