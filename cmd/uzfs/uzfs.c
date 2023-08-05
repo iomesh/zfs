@@ -1894,7 +1894,7 @@ uzfs_io_bench(int argc, char **argv)
 	argc -= 2;
 	argv += 2;
 
-	uint64_t total_megas = 16384;
+	uint64_t total_megas = 1024;
 	uint64_t blksize_kilo = 256;
 
 	libuzfs_dataset_handle_t **dhps = umem_alloc(

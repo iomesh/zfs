@@ -24,9 +24,13 @@
  */
 
 #include "atomic.h"
+#include "sys/fs/zfs.h"
 #include "umem.h"
+#include <bits/types/struct_timeval.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <sys/time.h>
 #include <sys/vdev_file.h>
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
@@ -60,6 +64,8 @@ typedef struct zio_task {
 	zio_t *zio;
 	void *buf;
 	uint32_t state;
+	struct timeval create;
+	struct timeval submit;
 	struct zio_task *next;
 } zio_task_t;
 
@@ -287,6 +293,13 @@ prep_task(zio_task_t *task, struct io_uring_sqe *sqe)
 	}
 }
 
+static uint64_t
+micros_elapsed(struct timeval *before, struct timeval *after)
+{
+	return (after->tv_sec - before->tv_sec) * 1000000 +
+	    after->tv_usec - before->tv_usec;
+}
+
 static void
 submit_tasks(zio_task_t *task, struct io_uring *ring)
 {
@@ -301,13 +314,15 @@ submit_tasks(zio_task_t *task, struct io_uring *ring)
 
 		io_uring_sqe_set_data(sqe, task);
 
+		gettimeofday(&task->submit, NULL);
+		io_uring_submit(ring);
+
 		if (atomic_cas_32(&task->state, INIT, TAIL) == INIT) {
 			break;
 		}
 
 		task = atomic_load_ptr(&task->next);
 	}
-	io_uring_submit(ring);
 }
 
 static void
@@ -317,6 +332,7 @@ submit_zio_task(zio_t *zio)
 	task->zio = zio;
 	task->state = INIT;
 	task->next = NULL;
+	gettimeofday(&task->create, NULL);
 
 	if (insert_task(task, &reaper_ctx.tail)) {
 		return;
@@ -423,10 +439,21 @@ zio_task_reaper(void *args)
 	uring_reaper_ctx_t *ctx = args;
 	struct io_uring_cqe *cqe;
 	int err = 0;
+	uint64_t total_tasks_r = 0;
+	uint64_t total_tasks_w = 0;
+	uint64_t submit_latency_r = 0;
+	uint64_t submit_latency_w = 0;
+	uint64_t completion_latency_r = 0;
+	uint64_t completion_latency_w = 0;
 	while ((err = io_uring_wait_cqe(&ctx->ring, &cqe)) == 0) {
 		zio_task_t *task = io_uring_cqe_get_data(cqe);
 		zio_t *zio = task->zio;
+		struct timeval now;
 		if (zio == NULL) {
+			printf("READ: avg submit latency: %luus, avg completion latency: %luus\n",
+			    submit_latency_r / total_tasks_r, completion_latency_r / total_tasks_r);
+			printf("WRITE: avg submit latency: %luus, avg completion latency: %luus\n",
+			    submit_latency_w / total_tasks_w, completion_latency_w / total_tasks_w);
 			return;
 		}
 
@@ -436,10 +463,17 @@ zio_task_reaper(void *args)
 			zio->io_error = 0;
 		}
 
+		gettimeofday(&now, NULL);
 		if (zio->io_type == ZIO_TYPE_READ) {
+			total_tasks_r++;
+			submit_latency_r += micros_elapsed(&task->create, &task->submit);
+			completion_latency_r += micros_elapsed(&task->submit, &now);
 			abd_return_buf_copy(zio->io_abd,
 				task->buf, zio->io_size);
 		} else if (zio->io_type == ZIO_TYPE_WRITE) {
+			total_tasks_w++;
+			submit_latency_w += micros_elapsed(&task->create, &task->submit);
+			completion_latency_w += micros_elapsed(&task->submit, &now);
 			abd_return_buf(zio->io_abd,
 				task->buf, zio->io_size);
 		}
