@@ -338,9 +338,7 @@ submit_zio_task(zio_t *zio)
 		return;
 	}
 
-	mutex_enter(&reaper_ctx.mutex);
 	submit_tasks(task, &reaper_ctx.ring);
-	mutex_exit(&reaper_ctx.mutex);
 }
 
 static void
@@ -457,6 +455,8 @@ zio_task_reaper(void *args)
 			return;
 		}
 
+		io_uring_cqe_seen(&ctx->ring, cqe);
+
 		if (cqe->res < 0) {
 			zio->io_error = cqe->res;
 		} else {
@@ -479,11 +479,9 @@ zio_task_reaper(void *args)
 		}
 
 		zio_delay_interrupt(zio);
-
-		io_uring_cqe_seen(&ctx->ring, cqe);
 	}
 
-	VERIFY0(err);
+	VERIFY0(-err);
 }
 
 void
