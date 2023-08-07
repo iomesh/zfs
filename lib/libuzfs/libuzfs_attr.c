@@ -182,16 +182,12 @@ libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *size)
 {
 	ASSERT3P(size, !=, NULL);
-	sa_handle_t *sa_hdl;
-	int err = sa_handle_get(dhp->os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
+	libuzfs_node_t *up;
+	int err = libuzfs_acquire_node(dhp, obj, &up);
+	if (err == 0) {
+		*size = up->u_size;
+		libuzfs_release_node(dhp, up);
 	}
-
-	err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_SIZE],
-	    size, sizeof (uint64_t));
-
-	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
