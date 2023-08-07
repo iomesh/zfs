@@ -26,9 +26,11 @@
 #ifndef	_LIBUZFS_IMPL_H
 #define	_LIBUZFS_IMPL_H
 
+#include <sys/zap.h>
 #include <libuzfs.h>
 
 #include <sys/zfs_context.h>
+#include <sys/zfs_rlock.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
 #include <sys/sa.h>
@@ -67,6 +69,25 @@ struct libuzfs_zpool_handle {
 	spa_t *spa;
 };
 
+typedef struct hash_bucket {
+	avl_tree_t tree;
+	kmutex_t mutex;
+} hash_bucket_t;
+
+typedef struct libuzfs_node {
+	avl_node_t node;
+	zfs_rangelock_t rl;
+	sa_handle_t *sa_hdl;
+	uint64_t u_size;
+	uint64_t u_blksz;
+	uint64_t u_maxblksz;
+	uint64_t u_obj;
+
+	// access this using atomic function
+	uint64_t ref_count;
+} libuzfs_node_t;
+
+#define	NUM_NODE_BUCKETS 997
 struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	objset_t *os;
@@ -74,6 +95,7 @@ struct libuzfs_dataset_handle {
 	uint64_t sb_ino;
 	uint64_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
+	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
 };
 
 struct libuzfs_kvattr_iterator {
@@ -99,6 +121,11 @@ extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *xattr_zap_obj);
+extern int
+libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, libuzfs_node_t **upp);
+extern void
+libuzfs_release_node(libuzfs_dataset_handle_t *dhp, libuzfs_node_t *up);
 
 #ifdef	__cplusplus
 }
