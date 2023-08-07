@@ -34,6 +34,7 @@
 #ifndef _ZIO_H
 #define	_ZIO_H
 
+#include "sys/time.h"
 #include <sys/zio_priority.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
@@ -437,6 +438,12 @@ typedef struct zio_link {
 } zio_link_t;
 
 struct zio {
+	hrtime_t	ctime;
+	hrtime_t	prep_ts;
+	hrtime_t	ready_ts;
+	hrtime_t	io_start_ts;
+	hrtime_t	io_done_ts;
+	hrtime_t	io_done_done_ts;
 	/* Core information about this I/O */
 	zbookmark_phys_t	io_bookmark;
 	zio_prop_t	io_prop;

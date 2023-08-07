@@ -24,6 +24,7 @@
  */
 
 #include "sys/stdtypes.h"
+#include <bits/stdint-uintn.h>
 #include <bits/types/struct_timeval.h>
 #include <libintl.h>
 #include <stdint.h>
@@ -1871,6 +1872,7 @@ static void *worker_func(void *arg) {
 		} else {
 			VERIFY3U(libuzfs_object_read(ctx->dhp, ctx->obj, nwritten,
 			    ctx->blksize, buf), ==, ctx->blksize);
+			VERIFY((uint8_t)buf[101] == 0xf1);
 		}
 		nwritten += ctx->blksize;
 	}
@@ -1885,6 +1887,13 @@ micros_elapsed(struct timeval *before, struct timeval *after)
 	return (after->tv_sec - before->tv_sec) * 1000000 +
 	    after->tv_usec - before->tv_usec;
 }
+
+extern uint64_t zio_ready_wait;
+extern uint64_t before_io;
+extern uint64_t io;
+extern uint64_t schedule;
+extern uint64_t after_io;
+extern uint64_t read_times;
 
 static int
 uzfs_io_bench(int argc, char **argv)
@@ -1965,6 +1974,10 @@ uzfs_io_bench(int argc, char **argv)
 	gettimeofday(&after, NULL);
 	elapsed_micros = micros_elapsed(&before, &after);
 	printf("concurrency: %d, read throughput: %luMB/s\n", nthread, total_megas * nthread * 1000000 / elapsed_micros);
+
+	VERIFY(read_times != 0);
+	printf("read latency, zio_ready: %luus, before_io: %luus, io: %luus, schedule: %luus, after_io: %luus\n",
+	    zio_ready_wait / read_times, before_io / read_times, io / read_times, schedule / read_times, after_io / read_times);
 
 	for (int i = 0; i < argc; ++i) {
 		libuzfs_dataset_close(dhps[i]);

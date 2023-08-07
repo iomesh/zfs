@@ -96,6 +96,10 @@
  * B_FALSE.
  */
 
+#include "sys/abd.h"
+#include "umem.h"
+#include <bits/types/struct_iovec.h>
+#include <liburing.h>
 #include <sys/abd_impl.h>
 #include <sys/param.h>
 #include <sys/zio.h>
@@ -841,6 +845,53 @@ abd_copy_to_buf_off(void *buf, abd_t *abd, size_t off, size_t size)
 
 	(void) abd_iterate_func(abd, off, size, abd_copy_to_buf_off_cb,
 	    &ba_ptr);
+}
+
+struct prep_args {
+	struct iovec *iovecs;
+	int cur_vec_idx;
+};
+
+static int
+abd_prepare_iovec_cb(void *buf, size_t size, void *private)
+{
+	struct prep_args *args = private;
+
+	struct iovec *cur_vec = &args->iovecs[args->cur_vec_idx++];
+	cur_vec->iov_base = buf;
+	cur_vec->iov_len = size;
+
+	return (0);
+}
+
+static int
+abd_summarize(void *buf, size_t size, void *private)
+{
+	int *num_abds = private;
+	++(*num_abds);
+	return (0);
+}
+
+int
+abd_prep_iovecs(abd_t *abd, size_t size, struct iovec **iovecs)
+{
+	// determine how many iovec do we need
+	int num_abds = 0;
+	(void) abd_iterate_func(abd, 0, size, abd_summarize, &num_abds);
+
+	*iovecs = umem_alloc(sizeof (struct iovec) * num_abds, UMEM_NOFAIL);
+	struct prep_args args = {*iovecs, 0};
+	(void) abd_iterate_func(abd, 0, size, abd_prepare_iovec_cb, &args);
+
+	return num_abds;
+}
+
+void
+abd_free_iovecs(struct iovec *iovecs, int n_vecs)
+{
+	if (iovecs != NULL) {
+		umem_free(iovecs, sizeof (struct iovec) * n_vecs);
+	}
 }
 
 static int

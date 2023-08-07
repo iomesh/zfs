@@ -127,6 +127,9 @@ int abd_cmp_buf_off(abd_t *, const void *, size_t, size_t);
 void abd_zero_off(abd_t *, size_t, size_t);
 void abd_verify(abd_t *);
 
+int abd_prep_iovecs(abd_t *abd, size_t size, struct iovec **iovecs);
+void abd_free_iovecs(struct iovec *iovecs, int n_vecs);
+
 void abd_raidz_gen_iterate(abd_t **cabds, abd_t *dabd,
 	ssize_t csize, ssize_t dsize, const unsigned parity,
 	void (*func_raidz_gen)(void **, const void *, size_t, size_t));

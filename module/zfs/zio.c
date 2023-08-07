@@ -28,6 +28,8 @@
  * Copyright (c) 2021, Datto, Inc.
  */
 
+#include "atomic.h"
+#include <stdio.h>
 #include <sys/sysmacros.h>
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
@@ -885,15 +887,32 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 			zio->io_gang_leader = pio->io_gang_leader;
 		zio_add_child(pio, zio);
 	}
-
+	if (zio->io_type == ZIO_TYPE_READ) {
+		zio->ctime = gethrtime();
+	}
 	taskq_init_ent(&zio->io_tqent);
 
 	return (zio);
 }
 
+uint64_t zio_ready_wait = 0;
+uint64_t before_io = 0;
+uint64_t io = 0;
+uint64_t schedule = 0;
+uint64_t after_io = 0;
+uint64_t read_times = 0;
+
 static void
 zio_destroy(zio_t *zio)
 {
+	if (zio->ctime && zio->io_start_ts && zio->io_done_ts && zio->io_done_done_ts) {
+		hrtime_t now = gethrtime();
+		atomic_inc_64(&read_times);
+		atomic_add_64(&before_io, (zio->io_start_ts - zio->ctime) / 1000);
+		atomic_add_64(&io, (zio->io_done_ts - zio->io_start_ts) / 1000);
+		atomic_add_64(&schedule, (zio->io_done_done_ts - zio->io_done_ts) / 1000);
+		atomic_add_64(&after_io, (now - zio->io_done_done_ts) / 1000);
+	}
 	metaslab_trace_fini(&zio->io_alloc_list);
 	list_destroy(&zio->io_parent_list);
 	list_destroy(&zio->io_child_list);
@@ -3738,6 +3757,9 @@ zio_alloc_zil(spa_t *spa, objset_t *os, uint64_t txg, blkptr_t *new_bp,
 static zio_t *
 zio_vdev_io_start(zio_t *zio)
 {
+	if (zio->ctime) {
+		zio->io_start_ts = gethrtime();
+	}
 	vdev_t *vd = zio->io_vd;
 	uint64_t align;
 	spa_t *spa = zio->io_spa;
@@ -3889,6 +3911,9 @@ zio_vdev_io_start(zio_t *zio)
 static zio_t *
 zio_vdev_io_done(zio_t *zio)
 {
+	if (zio->ctime) {
+		zio->io_done_done_ts = gethrtime();
+	}
 	vdev_t *vd = zio->io_vd;
 	vdev_ops_t *ops = vd ? vd->vdev_ops : &vdev_mirror_ops;
 	boolean_t unexpected_error = B_FALSE;

@@ -26,6 +26,7 @@
 #include "atomic.h"
 #include "sys/fs/zfs.h"
 #include "umem.h"
+#include <bits/types/struct_iovec.h>
 #include <bits/types/struct_timeval.h>
 #include <errno.h>
 #include <stdint.h>
@@ -60,10 +61,12 @@ typedef enum task_stat {
 	BODY = 2,
 } task_stat_t;
 
+#define NUM_IOVECS	64
 typedef struct zio_task {
 	zio_t *zio;
-	void *buf;
 	uint32_t state;
+	struct iovec *iovecs;
+	int n_vecs;
 	struct timeval create;
 	struct timeval submit;
 	struct zio_task *next;
@@ -268,7 +271,6 @@ static void
 prep_task(zio_task_t *task, struct io_uring_sqe *sqe)
 {
 	zio_t *zio = task->zio;
-	void *buf;
 	int fd = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
 	switch (zio->io_type) {
 	case ZIO_TYPE_IOCTL:
@@ -276,16 +278,12 @@ prep_task(zio_task_t *task, struct io_uring_sqe *sqe)
 		io_uring_prep_fsync(sqe, fd, O_SYNC | O_DSYNC);
 		break;
 	case ZIO_TYPE_READ:
-		buf = abd_borrow_buf(zio->io_abd, zio->io_size);
-		task->buf = buf;
-		io_uring_prep_read(sqe, fd, buf,
-			zio->io_size, zio->io_offset);
+		task->n_vecs = abd_prep_iovecs(zio->io_abd, zio->io_size, &task->iovecs);
+		io_uring_prep_readv(sqe, fd, task->iovecs, task->n_vecs, zio->io_offset);
 		break;
 	case ZIO_TYPE_WRITE:
-		buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-		task->buf = buf;
-		io_uring_prep_write(sqe, fd, buf,
-			zio->io_size, zio->io_offset);
+		task->n_vecs = abd_prep_iovecs(zio->io_abd, zio->io_size, &task->iovecs);
+		io_uring_prep_writev(sqe, fd, task->iovecs, task->n_vecs, zio->io_offset);
 		break;
 	default:
 		panic("zio type not expected: %d", zio->io_type);
@@ -468,14 +466,25 @@ zio_task_reaper(void *args)
 			total_tasks_r++;
 			submit_latency_r += micros_elapsed(&task->create, &task->submit);
 			completion_latency_r += micros_elapsed(&task->submit, &now);
-			abd_return_buf_copy(zio->io_abd,
-				task->buf, zio->io_size);
+			zio->io_done_ts = gethrtime();
+			VERIFY(zio->ctime);
+			VERIFY(zio->io_start_ts);
+			abd_free_iovecs(task->iovecs, task->n_vecs);
+			// int trace = zio->io_pipeline_trace;
+			// int stage = 0;
+			// while (trace > 0) {
+			// 	if (trace & 1) {
+			// 		printf("stage%d ", stage);
+			// 	}
+			// 	stage++;
+			// 	trace >>= 1;
+			// }
+			// printf("\n");
 		} else if (zio->io_type == ZIO_TYPE_WRITE) {
 			total_tasks_w++;
 			submit_latency_w += micros_elapsed(&task->create, &task->submit);
 			completion_latency_w += micros_elapsed(&task->submit, &now);
-			abd_return_buf(zio->io_abd,
-				task->buf, zio->io_size);
+			abd_free_iovecs(task->iovecs, task->n_vecs);
 		}
 
 		zio_delay_interrupt(zio);
