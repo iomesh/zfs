@@ -6,7 +6,11 @@ This feature is **under development**. Follow below steps to play with it.
 
 1. build it (assume you've already installed the dependency building standard ZFS)
 
-- to use zfs_fuse, you will need to install fuse3-libs
+- install fuse3 related packages
+```
+yum install fuse3-libs fuse3-devel
+```
+- build uzfs now
 
 ```
 ./autogen.sh && ./configure && make -j4
