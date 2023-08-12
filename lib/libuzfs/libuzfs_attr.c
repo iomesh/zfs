@@ -10,6 +10,10 @@
 #include <sys/zfs_znode.h>
 #include <sys/sa_impl.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 	{"UZFS_PINO", sizeof (uint64_t), SA_UINT64_ARRAY, 0},
 	{"UZFS_PSID", sizeof (uint32_t), SA_UINT32_ARRAY, 1},
@@ -181,17 +185,28 @@ int
 libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *size)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("libuzfs_object_get_size");
+#endif
+
 	ASSERT3P(size, !=, NULL);
 	sa_handle_t *sa_hdl;
 	int err = sa_handle_get(dhp->os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
+	if (err != 0)
+		goto cleanup;
 
 	err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_SIZE],
 	    size, sizeof (uint64_t));
 
 	sa_handle_destroy(sa_hdl);
+
+cleanup:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 }
 

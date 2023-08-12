@@ -1362,6 +1362,11 @@ sa_spill_rele(sa_handle_t *hdl)
 void
 sa_handle_destroy(sa_handle_t *hdl)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("sa_handle_destroy");
+#endif
+
 	dmu_buf_t *db = hdl->sa_bonus;
 
 	mutex_enter(&hdl->sa_lock);
@@ -1380,6 +1385,11 @@ sa_handle_destroy(sa_handle_t *hdl)
 	mutex_exit(&hdl->sa_lock);
 
 	kmem_cache_free(sa_cache, hdl);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 int
@@ -1436,14 +1446,26 @@ int
 sa_handle_get(objset_t *objset, uint64_t objid, void *userp,
     sa_handle_type_t hdl_type, sa_handle_t **handlepp)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("sa_handle_get");
+#endif
+
 	dmu_buf_t *db;
 	int error;
 
 	if ((error = dmu_bonus_hold(objset, objid, NULL, &db)))
-		return (error);
+                goto end;
 
-	return (sa_handle_get_from_db(objset, db, userp, hdl_type,
-	    handlepp));
+        error = sa_handle_get_from_db(objset, db, userp, hdl_type, handlepp);
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
+	return (error);
 }
 
 int
@@ -1488,11 +1510,21 @@ sa_lookup_locked(sa_handle_t *hdl, sa_attr_type_t attr, void *buf,
 int
 sa_lookup(sa_handle_t *hdl, sa_attr_type_t attr, void *buf, uint32_t buflen)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("sa_lookup");
+#endif
+
 	int error;
 
 	mutex_enter(&hdl->sa_lock);
 	error = sa_lookup_locked(hdl, attr, buf, buflen);
 	mutex_exit(&hdl->sa_lock);
+
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (error);
 }

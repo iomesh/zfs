@@ -38,6 +38,10 @@
 #include <sys/abd.h>
 #include <sys/fs/zfs.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Vdev mirror kstats
  */
@@ -432,11 +436,21 @@ vdev_mirror_close(vdev_t *vd)
 static void
 vdev_mirror_child_done(zio_t *zio)
 {
-	mirror_child_t *mc = zio->io_private;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_mirror_child_done");
+#endif
+
+        mirror_child_t *mc = zio->io_private;
 
 	mc->mc_error = zio->io_error;
 	mc->mc_tried = 1;
-	mc->mc_skipped = 0;
+        mc->mc_skipped = 0;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
@@ -621,18 +635,28 @@ vdev_mirror_child_select(zio_t *zio)
 static void
 vdev_mirror_io_start(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_mirror_io_start");
+#endif
+
 	mirror_map_t *mm;
 	mirror_child_t *mc;
-	int c, children;
+        int c, children;
 
 	mm = vdev_mirror_map_init(zio);
 	zio->io_vsd = mm;
 	zio->io_vsd_ops = &vdev_mirror_vsd_ops;
 
-	if (mm == NULL) {
+        if (mm == NULL) {
 		ASSERT(!spa_trust_config(zio->io_spa));
 		ASSERT(zio->io_type == ZIO_TYPE_READ);
-		zio_execute(zio);
+                zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return;
 	}
 
@@ -666,6 +690,11 @@ vdev_mirror_io_start(zio_t *zio)
 				    vdev_mirror_scrub_done, mc));
 			}
 			zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return;
 		}
 		/*
@@ -706,7 +735,12 @@ vdev_mirror_io_start(zio_t *zio)
 		    vdev_mirror_child_done, mc));
 	}
 
-	zio_execute(zio);
+        zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static int
@@ -726,14 +760,25 @@ vdev_mirror_worst_error(mirror_map_t *mm)
 static void
 vdev_mirror_io_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_mirror_io_start");
+#endif
+
 	mirror_map_t *mm = zio->io_vsd;
 	mirror_child_t *mc;
 	int c;
 	int good_copies = 0;
 	int unexpected_errors = 0;
 
-	if (mm == NULL)
+        if (mm == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 
 	for (c = 0; c < mm->mm_children; c++) {
 		mc = &mm->mm_child[c];
@@ -773,7 +818,12 @@ vdev_mirror_io_done(zio_t *zio)
 			 */
 			if (good_copies == 0 || zio->io_vd == NULL)
 				zio->io_error = vdev_mirror_worst_error(mm);
-		}
+                }
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return;
 	}
 
@@ -791,7 +841,12 @@ vdev_mirror_io_done(zio_t *zio)
 		    mc->mc_vd, mc->mc_offset, zio->io_abd, zio->io_size,
 		    ZIO_TYPE_READ, zio->io_priority, 0,
 		    vdev_mirror_child_done, mc));
-		return;
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
+                return;
 	}
 
 	/* XXPOLICY */
@@ -852,7 +907,12 @@ vdev_mirror_io_done(zio_t *zio)
 			    ZIO_FLAG_IO_REPAIR | (unexpected_errors ?
 			    ZIO_FLAG_SELF_HEAL : 0), NULL, NULL));
 		}
-	}
+        }
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void

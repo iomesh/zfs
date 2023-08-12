@@ -102,6 +102,11 @@
 #include <sys/zfs_context.h>
 #include <sys/zfs_znode.h>
 
+
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /* see block comment above for description */
 int zfs_abd_scatter_enabled = B_TRUE;
 
@@ -681,10 +686,19 @@ abd_return_buf(abd_t *abd, void *buf, size_t n)
 void
 abd_return_buf_copy(abd_t *abd, void *buf, size_t n)
 {
-	if (!abd_is_linear(abd)) {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("abd_return_buf_copy");
+#endif
+
+        if (!abd_is_linear(abd)) {
 		abd_copy_from_buf(abd, buf, n);
 	}
-	abd_return_buf(abd, buf, n);
+        abd_return_buf(abd, buf, n);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 }
 
 void

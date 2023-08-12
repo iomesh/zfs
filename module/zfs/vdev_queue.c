@@ -37,6 +37,10 @@
 #include <sys/spa.h>
 #include <sys/abd.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * ZFS I/O Scheduler
  * ---------------
@@ -868,12 +872,23 @@ again:
 zio_t *
 vdev_queue_io(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_queue_io");
+#endif
+
 	vdev_queue_t *vq = &zio->io_vd->vdev_queue;
 	zio_t *dio, *nio;
 	zio_link_t *zl = NULL;
 
-	if (zio->io_flags & ZIO_FLAG_DONT_QUEUE)
+        if (zio->io_flags & ZIO_FLAG_DONT_QUEUE) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+	}
 
 	/*
 	 * Children i/os inherent their parent's priority, which might
@@ -913,8 +928,14 @@ vdev_queue_io(zio_t *zio)
 	nio = vdev_queue_io_to_issue(vq);
 	mutex_exit(&vq->vq_lock);
 
-	if (nio == NULL)
+	if (nio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+	}
 
 	if (nio->io_done == vdev_queue_agg_io_done) {
 		while ((dio = zio_walk_parents(nio, &zl)) != NULL) {
@@ -923,8 +944,17 @@ vdev_queue_io(zio_t *zio)
 			zio_execute(dio);
 		}
 		zio_nowait(nio);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (nio);
 }
@@ -932,6 +962,11 @@ vdev_queue_io(zio_t *zio)
 void
 vdev_queue_io_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_queue_io_done");
+#endif
+
 	vdev_queue_t *vq = &zio->io_vd->vdev_queue;
 	zio_t *dio, *nio;
 	zio_link_t *zl = NULL;
@@ -959,12 +994,22 @@ vdev_queue_io_done(zio_t *zio)
 		mutex_enter(&vq->vq_lock);
 	}
 
-	mutex_exit(&vq->vq_lock);
+        mutex_exit(&vq->vq_lock);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 vdev_queue_change_io_priority(zio_t *zio, zio_priority_t priority)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_queue_io_done");
+#endif
+
 	vdev_queue_t *vq = &zio->io_vd->vdev_queue;
 	avl_tree_t *tree;
 
@@ -974,8 +1019,14 @@ vdev_queue_change_io_priority(zio_t *zio, zio_priority_t priority)
 	 * case, the zio is already going to be issued as quickly as possible
 	 * and so it doesn't need any reprioritization to help.
 	 */
-	if (zio->io_priority == ZIO_PRIORITY_NOW)
+        if (zio->io_priority == ZIO_PRIORITY_NOW) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 
 	ASSERT3U(zio->io_priority, <, ZIO_PRIORITY_NUM_QUEUEABLE);
 	ASSERT3U(priority, <, ZIO_PRIORITY_NUM_QUEUEABLE);
@@ -1011,6 +1062,11 @@ vdev_queue_change_io_priority(zio_t *zio, zio_priority_t priority)
 	}
 
 	mutex_exit(&vq->vq_lock);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*

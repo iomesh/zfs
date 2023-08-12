@@ -52,6 +52,10 @@
 #include <sys/dsl_crypt.h>
 #include <cityhash.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * ==========================================================================
  * I/O type descriptions
@@ -626,7 +630,12 @@ zio_unique_parent(zio_t *cio)
 void
 zio_add_child(zio_t *pio, zio_t *cio)
 {
-	zio_link_t *zl = kmem_cache_alloc(zio_link_cache, KM_SLEEP);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_add_child");
+#endif
+
+        zio_link_t *zl = kmem_cache_alloc(zio_link_cache, KM_SLEEP);
 
 	/*
 	 * Logical I/Os can have logical, gang, or vdev children.
@@ -655,11 +664,21 @@ zio_add_child(zio_t *pio, zio_t *cio)
 
 	mutex_exit(&cio->io_lock);
 	mutex_exit(&pio->io_lock);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
 zio_remove_child(zio_t *pio, zio_t *cio, zio_link_t *zl)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_remove_child");
+#endif
+
 	ASSERT(zl->zl_parent == pio);
 	ASSERT(zl->zl_child == cio);
 
@@ -675,11 +694,21 @@ zio_remove_child(zio_t *pio, zio_t *cio, zio_link_t *zl)
 	mutex_exit(&cio->io_lock);
 	mutex_exit(&pio->io_lock);
 	kmem_cache_free(zio_link_cache, zl);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static boolean_t
 zio_wait_for_children(zio_t *zio, uint8_t childbits, enum zio_wait_type wait)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_wait_for_children");
+#endif
+
 	boolean_t waiting = B_FALSE;
 
 	mutex_enter(&zio->io_lock);
@@ -698,6 +727,11 @@ zio_wait_for_children(zio_t *zio, uint8_t childbits, enum zio_wait_type wait)
 		}
 	}
 	mutex_exit(&zio->io_lock);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (waiting);
 }
 
@@ -706,6 +740,11 @@ static inline void
 zio_notify_parent(zio_t *pio, zio_t *zio, enum zio_wait_type wait,
     zio_t **next_to_executep)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_notify_parent");
+#endif
+
 	uint64_t *countp = &pio->io_children[zio->io_child_type][wait];
 	int *errorp = &pio->io_child_error[zio->io_child_type];
 
@@ -753,13 +792,28 @@ zio_notify_parent(zio_t *pio, zio_t *zio, enum zio_wait_type wait,
 	} else {
 		mutex_exit(&pio->io_lock);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
 zio_inherit_child_errors(zio_t *zio, enum zio_child c)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_inherit_child_errors");
+#endif
+
 	if (zio->io_child_error[c] != 0 && zio->io_error == 0)
 		zio->io_error = zio->io_child_error[c];
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 int
@@ -809,6 +863,11 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
     const zbookmark_phys_t *zb, enum zio_stage stage,
     enum zio_stage pipeline)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_create");
+#endif
+
 	zio_t *zio;
 
 	IMPLY(type != ZIO_TYPE_TRIM, psize <= SPA_MAXBLOCKSIZE);
@@ -869,7 +928,12 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 	zio->io_orig_flags = zio->io_flags = flags;
 	zio->io_orig_stage = zio->io_stage = stage;
 	zio->io_orig_pipeline = zio->io_pipeline = pipeline;
-	zio->io_pipeline_trace = ZIO_STAGE_OPEN;
+        zio->io_pipeline_trace = ZIO_STAGE_OPEN;
+
+#ifdef ENABLE_MINITRACE_C
+        zio->span = NULL;
+        zio->span_executor = NULL;
+#endif
 
 	zio->io_state[ZIO_WAIT_READY] = (stage >= ZIO_STAGE_READY);
 	zio->io_state[ZIO_WAIT_DONE] = (stage >= ZIO_STAGE_DONE);
@@ -888,29 +952,52 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 
 	taskq_init_ent(&zio->io_tqent);
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static void
 zio_destroy(zio_t *zio)
 {
-	metaslab_trace_fini(&zio->io_alloc_list);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_destroy");
+#endif
+
+        metaslab_trace_fini(&zio->io_alloc_list);
 	list_destroy(&zio->io_parent_list);
 	list_destroy(&zio->io_child_list);
 	mutex_destroy(&zio->io_lock);
 	cv_destroy(&zio->io_cv);
-	kmem_cache_free(zio_cache, zio);
+        kmem_cache_free(zio_cache, zio);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 zio_t *
 zio_null(zio_t *pio, spa_t *spa, vdev_t *vd, zio_done_func_t *done,
     void *private, enum zio_flag flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_null");
+#endif
+
 	zio_t *zio;
 
 	zio = zio_create(pio, spa, 0, NULL, NULL, 0, 0, done, private,
 	    ZIO_TYPE_NULL, ZIO_PRIORITY_NOW, flags, vd, 0, NULL,
 	    ZIO_STAGE_OPEN, ZIO_INTERLOCK_PIPELINE);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1106,6 +1193,11 @@ zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp,
     abd_t *data, uint64_t size, zio_done_func_t *done, void *private,
     zio_priority_t priority, enum zio_flag flags, const zbookmark_phys_t *zb)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_read");
+#endif
+
 	zio_t *zio;
 
 	zio = zio_create(pio, spa, BP_PHYSICAL_BIRTH(bp), bp,
@@ -1113,6 +1205,10 @@ zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp,
 	    ZIO_TYPE_READ, priority, flags, NULL, 0, zb,
 	    ZIO_STAGE_OPEN, (flags & ZIO_FLAG_DDT_CHILD) ?
 	    ZIO_DDT_CHILD_READ_PIPELINE : ZIO_READ_PIPELINE);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1125,6 +1221,11 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     void *private, zio_priority_t priority, enum zio_flag flags,
     const zbookmark_phys_t *zb)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_write");
+#endif
+
 	zio_t *zio;
 
 	ASSERT(zp->zp_checksum >= ZIO_CHECKSUM_OFF &&
@@ -1157,7 +1258,11 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	if (data == NULL &&
 	    (zio->io_prop.zp_dedup_verify || zio->io_prop.zp_encrypt)) {
 		zio->io_prop.zp_dedup = zio->io_prop.zp_dedup_verify = B_FALSE;
-	}
+        }
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1167,11 +1272,20 @@ zio_rewrite(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp, abd_t *data,
     uint64_t size, zio_done_func_t *done, void *private,
     zio_priority_t priority, enum zio_flag flags, zbookmark_phys_t *zb)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_rewrite");
+#endif
+
 	zio_t *zio;
 
 	zio = zio_create(pio, spa, txg, bp, data, size, size, done, private,
 	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_IO_REWRITE, NULL, 0, zb,
 	    ZIO_STAGE_OPEN, ZIO_REWRITE_PIPELINE);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1179,6 +1293,11 @@ zio_rewrite(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp, abd_t *data,
 void
 zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_write_override");
+#endif
+
 	ASSERT(zio->io_type == ZIO_TYPE_WRITE);
 	ASSERT(zio->io_child_type == ZIO_CHILD_LOGICAL);
 	ASSERT(zio->io_stage == ZIO_STAGE_OPEN);
@@ -1192,12 +1311,21 @@ zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite)
 	zio->io_prop.zp_dedup = nopwrite ? B_FALSE : zio->io_prop.zp_dedup;
 	zio->io_prop.zp_nopwrite = nopwrite;
 	zio->io_prop.zp_copies = copies;
-	zio->io_bp_override = bp;
+        zio->io_bp_override = bp;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_free");
+#endif
 
 	(void) zfs_blkptr_verify(spa, bp, B_FALSE, BLK_VERIFY_HALT);
 
@@ -1206,8 +1334,14 @@ zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 	 * process the free here (by ignoring it) rather than
 	 * putting it on the list and then processing it in zio_free_sync().
 	 */
-	if (BP_IS_EMBEDDED(bp))
+        if (BP_IS_EMBEDDED(bp)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 	metaslab_check_free(spa, bp);
 
 	/*
@@ -1229,6 +1363,11 @@ zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 	} else {
 		VERIFY3P(zio_free_sync(NULL, spa, txg, bp, 0), ==, NULL);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -1240,11 +1379,22 @@ zio_t *
 zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
     enum zio_flag flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_free_sync");
+#endif
+
 	ASSERT(!BP_IS_HOLE(bp));
 	ASSERT(spa_syncing_txg(spa) == txg);
 
-	if (BP_IS_EMBEDDED(bp))
+        if (BP_IS_EMBEDDED(bp)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+        }
 
 	metaslab_check_free(spa, bp);
 	arc_freed(spa, bp);
@@ -1259,12 +1409,23 @@ zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 		enum zio_stage stage =
 		    ZIO_FREE_PIPELINE | ZIO_STAGE_ISSUE_ASYNC;
 
-		return (zio_create(pio, spa, txg, bp, NULL, BP_GET_PSIZE(bp),
-		    BP_GET_PSIZE(bp), NULL, NULL,
-		    ZIO_TYPE_FREE, ZIO_PRIORITY_NOW,
-		    flags, NULL, 0, NULL, ZIO_STAGE_OPEN, stage));
+                zio_t *z = zio_create(pio, spa, txg, bp, NULL, BP_GET_PSIZE(bp),
+                                      BP_GET_PSIZE(bp), NULL, NULL,
+                                      ZIO_TYPE_FREE, ZIO_PRIORITY_NOW, flags,
+                                      NULL, 0, NULL, ZIO_STAGE_OPEN, stage);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
+                return (z);
 	} else {
 		metaslab_free(spa, bp, txg, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 }
@@ -1273,13 +1434,26 @@ zio_t *
 zio_claim(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
     zio_done_func_t *done, void *private, enum zio_flag flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_claim");
+#endif
+
 	zio_t *zio;
 
 	(void) zfs_blkptr_verify(spa, bp, flags & ZIO_FLAG_CONFIG_WRITER,
 	    BLK_VERIFY_HALT);
 
-	if (BP_IS_EMBEDDED(bp))
-		return (zio_null(pio, spa, NULL, NULL, NULL, 0));
+        if (BP_IS_EMBEDDED(bp)) {
+
+		zio_t *z = zio_null(pio, spa, NULL, NULL, NULL, 0);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
+		return (z);
+        }
 
 	/*
 	 * A claim is an allocation of a specific block.  Claims are needed
@@ -1303,6 +1477,10 @@ zio_claim(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 	    flags, NULL, 0, NULL, ZIO_STAGE_OPEN, ZIO_CLAIM_PIPELINE);
 	ASSERT0(zio->io_queued_timestamp);
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -1310,6 +1488,11 @@ zio_t *
 zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
     zio_done_func_t *done, void *private, enum zio_flag flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_ioctl");
+#endif
+
 	zio_t *zio;
 	int c;
 
@@ -1327,6 +1510,10 @@ zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
 			    done, private, flags));
 	}
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -1335,6 +1522,11 @@ zio_trim(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
     zio_done_func_t *done, void *private, zio_priority_t priority,
     enum zio_flag flags, enum trim_flag trim_flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_trim");
+#endif
+
 	zio_t *zio;
 
 	ASSERT0(vd->vdev_children);
@@ -1347,6 +1539,10 @@ zio_trim(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 	    vd, offset, NULL, ZIO_STAGE_OPEN, ZIO_TRIM_PIPELINE);
 	zio->io_trim_flags = trim_flags;
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -1355,6 +1551,11 @@ zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
     abd_t *data, int checksum, zio_done_func_t *done, void *private,
     zio_priority_t priority, enum zio_flag flags, boolean_t labels)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_read_phys");
+#endif
+
 	zio_t *zio;
 
 	ASSERT(vd->vdev_children == 0);
@@ -1366,7 +1567,11 @@ zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 	    private, ZIO_TYPE_READ, priority, flags | ZIO_FLAG_PHYSICAL, vd,
 	    offset, NULL, ZIO_STAGE_OPEN, ZIO_READ_PHYS_PIPELINE);
 
-	zio->io_prop.zp_checksum = checksum;
+        zio->io_prop.zp_checksum = checksum;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1376,7 +1581,12 @@ zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
     abd_t *data, int checksum, zio_done_func_t *done, void *private,
     zio_priority_t priority, enum zio_flag flags, boolean_t labels)
 {
-	zio_t *zio;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_write_phys");
+#endif
+
+        zio_t *zio;
 
 	ASSERT(vd->vdev_children == 0);
 	ASSERT(!labels || offset + size <= VDEV_LABEL_START_SIZE ||
@@ -1402,6 +1612,10 @@ zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 		zio_push_transform(zio, wbuf, size, size, NULL);
 	}
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -1413,6 +1627,11 @@ zio_vdev_child_io(zio_t *pio, blkptr_t *bp, vdev_t *vd, uint64_t offset,
     abd_t *data, uint64_t size, int type, zio_priority_t priority,
     enum zio_flag flags, zio_done_func_t *done, void *private)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_child_io");
+#endif
+
 	enum zio_stage pipeline = ZIO_VDEV_CHILD_PIPELINE;
 	zio_t *zio;
 
@@ -1474,11 +1693,22 @@ zio_vdev_child_io(zio_t *pio, blkptr_t *bp, vdev_t *vd, uint64_t offset,
 	zio = zio_create(pio, pio->io_spa, pio->io_txg, bp, data, size, size,
 	    done, private, type, priority, flags, vd, offset, &pio->io_bookmark,
 	    ZIO_STAGE_VDEV_IO_START >> 1, pipeline);
-	ASSERT3U(zio->io_child_type, ==, ZIO_CHILD_VDEV);
+        ASSERT3U(zio->io_child_type, ==, ZIO_CHILD_VDEV);
+
+#ifdef ENABLE_MINITRACE_C
+        if (pio->span) {
+                zio->span = pio->span;
+                zio->span_executor = curthread;
+        }
+#endif
 
 	zio->io_physdone = pio->io_physdone;
 	if (vd->vdev_ops->vdev_op_leaf && zio->io_logical != NULL)
 		zio->io_logical->io_phys_children++;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1488,6 +1718,11 @@ zio_vdev_delegated_io(vdev_t *vd, uint64_t offset, abd_t *data, uint64_t size,
     zio_type_t type, zio_priority_t priority, enum zio_flag flags,
     zio_done_func_t *done, void *private)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_delegated_io");
+#endif
+
 	zio_t *zio;
 
 	ASSERT(vd->vdev_ops->vdev_op_leaf);
@@ -1498,20 +1733,39 @@ zio_vdev_delegated_io(vdev_t *vd, uint64_t offset, abd_t *data, uint64_t size,
 	    vd, offset, NULL,
 	    ZIO_STAGE_VDEV_IO_START >> 1, ZIO_VDEV_CHILD_PIPELINE);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 void
 zio_flush(zio_t *zio, vdev_t *vd)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_flush");
+#endif
+
 	zio_nowait(zio_ioctl(zio, zio->io_spa, vd, DKIOCFLUSHWRITECACHE,
 	    NULL, NULL,
 	    ZIO_FLAG_CANFAIL | ZIO_FLAG_DONT_PROPAGATE | ZIO_FLAG_DONT_RETRY));
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_shrink(zio_t *zio, uint64_t size)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_shrink");
+#endif
+
 	ASSERT3P(zio->io_executor, ==, NULL);
 	ASSERT3U(zio->io_orig_size, ==, zio->io_size);
 	ASSERT3U(size, <=, zio->io_size);
@@ -1527,6 +1781,11 @@ zio_shrink(zio_t *zio, uint64_t size)
 		ASSERT3U(zio->io_size, ==, zio->io_lsize);
 		zio->io_orig_size = zio->io_size = zio->io_lsize = size;
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -1538,6 +1797,11 @@ zio_shrink(zio_t *zio, uint64_t size)
 static zio_t *
 zio_read_bp_init(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_read_bp_init");
+#endif
+
 	blkptr_t *bp = zio->io_bp;
 	uint64_t psize =
 	    BP_IS_EMBEDDED(bp) ? BPE_GET_PSIZE(bp) : BP_GET_PSIZE(bp);
@@ -1579,14 +1843,29 @@ zio_read_bp_init(zio_t *zio)
 	if (BP_GET_DEDUP(bp) && zio->io_child_type == ZIO_CHILD_LOGICAL)
 		zio->io_pipeline = ZIO_DDT_READ_PIPELINE;
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static zio_t *
 zio_write_bp_init(zio_t *zio)
 {
-	if (!IO_IS_ALLOCATING(zio))
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_write_bp_init");
+#endif
+
+        if (!IO_IS_ALLOCATING(zio)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+        }
 
 	ASSERT(zio->io_child_type != ZIO_CHILD_DDT);
 
@@ -1600,8 +1879,14 @@ zio_write_bp_init(zio_t *zio)
 		*bp = *zio->io_bp_override;
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
 
-		if (BP_IS_EMBEDDED(bp))
+		if (BP_IS_EMBEDDED(bp)) {
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
+		}
 
 		/*
 		 * If we've been overridden and nopwrite is set then
@@ -1612,13 +1897,24 @@ zio_write_bp_init(zio_t *zio)
 			ASSERT(!zp->zp_dedup);
 			ASSERT3U(BP_GET_CHECKSUM(bp), ==, zp->zp_checksum);
 			zio->io_flags |= ZIO_FLAG_NOPWRITE;
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
 		}
 
 		ASSERT(!zp->zp_nopwrite);
 
-		if (BP_IS_HOLE(bp) || !zp->zp_dedup)
+		if (BP_IS_HOLE(bp) || !zp->zp_dedup) {
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
+		}
 
 		ASSERT((zio_checksum_table[zp->zp_checksum].ci_flags &
 		    ZCHECKSUM_FLAG_DEDUP) || zp->zp_dedup_verify);
@@ -1627,6 +1923,11 @@ zio_write_bp_init(zio_t *zio)
 		    !zp->zp_encrypt) {
 			BP_SET_DEDUP(bp, 1);
 			zio->io_pipeline |= ZIO_STAGE_DDT_WRITE;
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
 		}
 
@@ -1639,12 +1940,21 @@ zio_write_bp_init(zio_t *zio)
 		zio->io_pipeline = zio->io_orig_pipeline;
 	}
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static zio_t *
 zio_write_compress(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_write_compress");
+#endif
+
 	spa_t *spa = zio->io_spa;
 	zio_prop_t *zp = &zio->io_prop;
 	enum zio_compress compress = zp->zp_compress;
@@ -1659,11 +1969,22 @@ zio_write_compress(zio_t *zio)
 	 */
 	if (zio_wait_for_children(zio, ZIO_CHILD_LOGICAL_BIT |
 	    ZIO_CHILD_GANG_BIT, ZIO_WAIT_READY)) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
-	if (!IO_IS_ALLOCATING(zio))
+        if (!IO_IS_ALLOCATING(zio)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+        }
 
 	if (zio->io_children_ready != NULL) {
 		/*
@@ -1725,6 +2046,11 @@ zio_write_compress(zio_t *zio)
 			zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
 			ASSERT(spa_feature_is_active(spa,
 			    SPA_FEATURE_EMBEDDED_DATA));
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
 		} else {
 			/*
@@ -1848,12 +2174,22 @@ zio_write_compress(zio_t *zio)
 			zio->io_pipeline |= ZIO_STAGE_NOP_WRITE;
 		}
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static zio_t *
 zio_free_bp_init(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_free_bp_init");
+#endif
+
 	blkptr_t *bp = zio->io_bp;
 
 	if (zio->io_child_type == ZIO_CHILD_LOGICAL) {
@@ -1862,6 +2198,10 @@ zio_free_bp_init(zio_t *zio)
 	}
 
 	ASSERT3P(zio->io_bp, ==, &zio->io_bp_copy);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -1875,6 +2215,11 @@ zio_free_bp_init(zio_t *zio)
 static void
 zio_taskq_dispatch(zio_t *zio, zio_taskq_type_t q, boolean_t cutinline)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_taskq_dispatch");
+#endif
+
 	spa_t *spa = zio->io_spa;
 	zio_type_t t = zio->io_type;
 	int flags = (cutinline ? TQ_FRONT : 0);
@@ -1912,11 +2257,21 @@ zio_taskq_dispatch(zio_t *zio, zio_taskq_type_t q, boolean_t cutinline)
 	ASSERT(taskq_empty_ent(&zio->io_tqent));
 	spa_taskq_dispatch_ent(spa, t, q, zio_execute, zio, flags,
 	    &zio->io_tqent);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static boolean_t
 zio_taskq_member(zio_t *zio, zio_taskq_type_t q)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_taskq_member");
+#endif
+
 	spa_t *spa = zio->io_spa;
 
 	taskq_t *tq = taskq_of_curthread();
@@ -1925,10 +2280,20 @@ zio_taskq_member(zio_t *zio, zio_taskq_type_t q)
 		spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
 		uint_t i;
 		for (i = 0; i < tqs->stqs_count; i++) {
-			if (tqs->stqs_taskq[i] == tq)
+                        if (tqs->stqs_taskq[i] == tq) {
+
+#ifdef ENABLE_MINITRACE_C
+                                mtr_free_loc_span(ls);
+#endif
+
 				return (B_TRUE);
+                        }
 		}
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (B_FALSE);
 }
@@ -1936,7 +2301,16 @@ zio_taskq_member(zio_t *zio, zio_taskq_type_t q)
 static zio_t *
 zio_issue_async(zio_t *zio)
 {
-	zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_issue_async");
+#endif
+
+        zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (NULL);
 }
@@ -1944,13 +2318,28 @@ zio_issue_async(zio_t *zio)
 void
 zio_interrupt(void *zio)
 {
-	zio_taskq_dispatch(zio, ZIO_TASKQ_INTERRUPT, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_interrupt");
+#endif
+
+        zio_taskq_dispatch(zio, ZIO_TASKQ_INTERRUPT, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_delay_interrupt(zio_t *zio)
 {
-	/*
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_delay_interrupt");
+#endif
+
+        /*
 	 * The timeout_generic() function isn't defined in userspace, so
 	 * rather than trying to implement the function, the zio delay
 	 * functionality has been disabled for userspace builds.
@@ -2015,12 +2404,22 @@ zio_delay_interrupt(zio_t *zio)
 	}
 #endif
 	DTRACE_PROBE1(zio__delay__skip, zio_t *, zio);
-	zio_interrupt(zio);
+        zio_interrupt(zio);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
 zio_deadman_impl(zio_t *pio, int ziodepth)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_deadman_impl");
+#endif
+
 	zio_t *cio, *cio_next;
 	zio_link_t *zl = NULL;
 	vdev_t *vd = pio->io_vd;
@@ -2066,6 +2465,11 @@ zio_deadman_impl(zio_t *pio, int ziodepth)
 		zio_deadman_impl(cio, ziodepth + 1);
 	}
 	mutex_exit(&pio->io_lock);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -2162,6 +2566,16 @@ __attribute__((always_inline))
 static inline void
 __zio_execute(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = NULL;
+        mtr_guard *g = NULL;
+
+        if (zio->span && zio->span_executor != curthread)
+		g = mtr_set_loc_parent_to_span(zio->span);
+        ls = mtr_create_loc_span_enter("__zio_execute");
+#endif
+
 	ASSERT3U(zio->io_queued_timestamp, >, 0);
 
 	while (zio->io_stage < ZIO_STAGE_DONE) {
@@ -2193,7 +2607,14 @@ __zio_execute(zio_t *zio)
 		    zio_taskq_member(zio, ZIO_TASKQ_INTERRUPT)) {
 			boolean_t cut = (stage == ZIO_STAGE_VDEV_IO_START) ?
 			    zio_requeue_io_start_cut_in_line : B_FALSE;
-			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, cut);
+                        zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, cut);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+			if (g)
+                                mtr_free_guard(g);
+#endif
+
 			return;
 		}
 
@@ -2205,11 +2626,18 @@ __zio_execute(zio_t *zio)
 			boolean_t cut = (stage == ZIO_STAGE_VDEV_IO_START) ?
 			    zio_requeue_io_start_cut_in_line : B_FALSE;
 			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, cut);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+			if (g)
+                                mtr_free_guard(g);
+#endif
+
 			return;
 		}
 
 		zio->io_stage = stage;
-		zio->io_pipeline_trace |= zio->io_stage;
+                zio->io_pipeline_trace |= zio->io_stage;
 
 		/*
 		 * The zio pipeline stage returns the next zio to execute
@@ -2218,9 +2646,24 @@ __zio_execute(zio_t *zio)
 		 */
 		zio = zio_pipeline[highbit64(stage) - 1](zio);
 
-		if (zio == NULL)
+		if (zio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+			if (g)
+				mtr_free_guard(g);
+#endif
+
 			return;
+		}
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+	if (g)
+		mtr_free_guard(g);
+#endif
+
 }
 
 
@@ -2232,14 +2675,26 @@ __zio_execute(zio_t *zio)
 int
 zio_wait(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_wait");
+#endif
+
 	/*
 	 * Some routines, like zio_free_sync(), may return a NULL zio
 	 * to avoid the performance overhead of creating and then destroying
 	 * an unneeded zio.  For the callers' simplicity, we accept a NULL
 	 * zio and ignore it.
 	 */
-	if (zio == NULL)
+        if (zio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (0);
+        }
+
 
 	long timeout = MSEC_TO_TICK(zfs_deadman_ziotime_ms);
 	int error;
@@ -2272,17 +2727,32 @@ zio_wait(zio_t *zio)
 	error = zio->io_error;
 	zio_destroy(zio);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (error);
 }
 
 void
 zio_nowait(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_nowait");
+#endif
+
 	/*
 	 * See comment in zio_wait().
 	 */
-	if (zio == NULL)
+        if (zio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 
 	ASSERT3P(zio->io_executor, ==, NULL);
 
@@ -2303,7 +2773,12 @@ zio_nowait(zio_t *zio)
 
 	ASSERT0(zio->io_queued_timestamp);
 	zio->io_queued_timestamp = gethrtime();
-	__zio_execute(zio);
+        __zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -2315,6 +2790,11 @@ zio_nowait(zio_t *zio)
 static void
 zio_reexecute(void *arg)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_reexecute");
+#endif
+
 	zio_t *pio = arg;
 	zio_t *cio, *cio_next;
 
@@ -2366,11 +2846,20 @@ zio_reexecute(void *arg)
 		pio->io_queued_timestamp = gethrtime();
 		__zio_execute(pio);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 }
 
 void
 zio_suspend(spa_t *spa, zio_t *zio, zio_suspend_reason_t reason)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_suspend");
+#endif
+
 	if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC)
 		fm_panic("Pool '%s' has encountered an uncorrectable I/O "
 		    "failure and the failure mode property for this pool "
@@ -2400,13 +2889,24 @@ zio_suspend(spa_t *spa, zio_t *zio, zio_suspend_reason_t reason)
 		zio_add_child(spa->spa_suspend_zio_root, zio);
 	}
 
-	mutex_exit(&spa->spa_suspend_lock);
+        mutex_exit(&spa->spa_suspend_lock);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 int
 zio_resume(spa_t *spa)
 {
-	zio_t *pio;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_resume");
+#endif
+
+        zio_t *pio;
+	int ret;
 
 	/*
 	 * Reexecute all previously suspended i/o.
@@ -2418,20 +2918,42 @@ zio_resume(spa_t *spa)
 	spa->spa_suspend_zio_root = NULL;
 	mutex_exit(&spa->spa_suspend_lock);
 
-	if (pio == NULL)
-		return (0);
+        if (pio == NULL) {
 
-	zio_reexecute(pio);
-	return (zio_wait(pio));
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
+		return (0);
+        }
+
+        zio_reexecute(pio);
+	ret = zio_wait(pio);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
+	return (ret);
 }
 
 void
 zio_resume_wait(spa_t *spa)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_resume_wait");
+#endif
+
 	mutex_enter(&spa->spa_suspend_lock);
 	while (spa_suspended(spa))
 		cv_wait(&spa->spa_suspend_cv, &spa->spa_suspend_lock);
 	mutex_exit(&spa->spa_suspend_lock);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -2974,6 +3496,11 @@ zio_write_gang_block(zio_t *pio, metaslab_class_t *mc)
 static zio_t *
 zio_nop_write(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_nop_write");
+#endif
+
 	blkptr_t *bp = zio->io_bp;
 	blkptr_t *bp_orig = &zio->io_bp_orig;
 	zio_prop_t *zp = &zio->io_prop;
@@ -2991,15 +3518,21 @@ zio_nop_write(zio_t *zio)
 	 * If they don't then just continue with the pipeline which will
 	 * allocate a new bp.
 	 */
-	if (BP_IS_HOLE(bp_orig) ||
-	    !(zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_flags &
-	    ZCHECKSUM_FLAG_NOPWRITE) ||
-	    BP_IS_ENCRYPTED(bp) || BP_IS_ENCRYPTED(bp_orig) ||
-	    BP_GET_CHECKSUM(bp) != BP_GET_CHECKSUM(bp_orig) ||
-	    BP_GET_COMPRESS(bp) != BP_GET_COMPRESS(bp_orig) ||
-	    BP_GET_DEDUP(bp) != BP_GET_DEDUP(bp_orig) ||
-	    zp->zp_copies != BP_GET_NDVAS(bp_orig))
+        if (BP_IS_HOLE(bp_orig) ||
+            !(zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_flags &
+              ZCHECKSUM_FLAG_NOPWRITE) ||
+            BP_IS_ENCRYPTED(bp) || BP_IS_ENCRYPTED(bp_orig) ||
+            BP_GET_CHECKSUM(bp) != BP_GET_CHECKSUM(bp_orig) ||
+            BP_GET_COMPRESS(bp) != BP_GET_COMPRESS(bp_orig) ||
+            BP_GET_DEDUP(bp) != BP_GET_DEDUP(bp_orig) ||
+            zp->zp_copies != BP_GET_NDVAS(bp_orig)) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+        }
 
 	/*
 	 * If the checksums match then reset the pipeline so that we
@@ -3024,6 +3557,11 @@ zio_nop_write(zio_t *zio)
 		    DVA_GET_VDEV(&bp->blk_dva[0]));
 		if (tvd->vdev_ops == &vdev_indirect_ops) {
 			spa_config_exit(zio->io_spa, SCL_VDEV, FTAG);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
 		}
 		spa_config_exit(zio->io_spa, SCL_VDEV, FTAG);
@@ -3032,6 +3570,10 @@ zio_nop_write(zio_t *zio)
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
 		zio->io_flags |= ZIO_FLAG_NOPWRITE;
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -3140,7 +3682,7 @@ zio_ddt_read_done(zio_t *zio)
 
 	ASSERT(zio->io_vsd == NULL);
 
-	return (zio);
+        return (zio);
 }
 
 static boolean_t
@@ -3400,13 +3942,24 @@ zio_ddt_free(zio_t *zio)
 static zio_t *
 zio_io_to_allocate(spa_t *spa, int allocator)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_io_to_allocate");
+#endif
+
 	zio_t *zio;
 
 	ASSERT(MUTEX_HELD(&spa->spa_allocs[allocator].spaa_lock));
 
 	zio = avl_first(&spa->spa_allocs[allocator].spaa_tree);
-	if (zio == NULL)
+        if (zio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+        }
 
 	ASSERT(IO_IS_ALLOCATING(zio));
 
@@ -3417,11 +3970,20 @@ zio_io_to_allocate(spa_t *spa, int allocator)
 	ASSERT3U(zio->io_allocator, ==, allocator);
 	if (!metaslab_class_throttle_reserve(zio->io_metaslab_class,
 	    zio->io_prop.zp_copies, allocator, zio, 0)) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
 	avl_remove(&spa->spa_allocs[allocator].spaa_tree, zio);
 	ASSERT3U(zio->io_stage, <, ZIO_STAGE_DVA_ALLOCATE);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -3429,6 +3991,11 @@ zio_io_to_allocate(spa_t *spa, int allocator)
 static zio_t *
 zio_dva_throttle(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_throttle");
+#endif
+
 	spa_t *spa = zio->io_spa;
 	zio_t *nio;
 	metaslab_class_t *mc;
@@ -3441,6 +4008,11 @@ zio_dva_throttle(zio_t *zio)
 	    !mc->mc_alloc_throttle_enabled ||
 	    zio->io_child_type == ZIO_CHILD_GANG ||
 	    zio->io_flags & ZIO_FLAG_NODATA) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -3465,28 +4037,54 @@ zio_dva_throttle(zio_t *zio)
 	avl_add(&spa->spa_allocs[allocator].spaa_tree, zio);
 	nio = zio_io_to_allocate(spa, allocator);
 	mutex_exit(&spa->spa_allocs[allocator].spaa_lock);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (nio);
 }
 
 static void
 zio_allocate_dispatch(spa_t *spa, int allocator)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_allocate_dispatch");
+#endif
+
 	zio_t *zio;
 
 	mutex_enter(&spa->spa_allocs[allocator].spaa_lock);
 	zio = zio_io_to_allocate(spa, allocator);
 	mutex_exit(&spa->spa_allocs[allocator].spaa_lock);
-	if (zio == NULL)
+        if (zio == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 
 	ASSERT3U(zio->io_stage, ==, ZIO_STAGE_DVA_THROTTLE);
 	ASSERT0(zio->io_error);
 	zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, B_TRUE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static zio_t *
 zio_dva_allocate(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_allocate");
+#endif
+
 	spa_t *spa = zio->io_spa;
 	metaslab_class_t *mc;
 	blkptr_t *bp = zio->io_bp;
@@ -3577,8 +4175,14 @@ zio_dva_allocate(zio_t *zio)
 			    "trying ganging: zio %px, size %llu, error %d",
 			    spa_name(spa), zio, (u_longlong_t)zio->io_size,
 			    error);
-		}
-		return (zio_write_gang_block(zio, mc));
+                }
+		zio_t *z = zio_write_gang_block(zio, mc);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
+		return (z);
 	}
 	if (error != 0) {
 		if (error != ENOSPC ||
@@ -3591,13 +4195,26 @@ zio_dva_allocate(zio_t *zio)
 		zio->io_error = error;
 	}
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static zio_t *
 zio_dva_free(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_free");
+#endif
+
 	metaslab_free(zio->io_spa, zio->io_bp, zio->io_txg, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -3605,11 +4222,20 @@ zio_dva_free(zio_t *zio)
 static zio_t *
 zio_dva_claim(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_claim");
+#endif
+
 	int error;
 
 	error = metaslab_claim(zio->io_spa, zio->io_bp, zio->io_txg);
 	if (error)
 		zio->io_error = error;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -3622,6 +4248,11 @@ zio_dva_claim(zio_t *zio)
 static void
 zio_dva_unallocate(zio_t *zio, zio_gang_node_t *gn, blkptr_t *bp)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_unallocate");
+#endif
+
 	ASSERT(bp->blk_birth == zio->io_txg || BP_IS_HOLE(bp));
 	ASSERT(zio->io_bp_override == NULL);
 
@@ -3633,7 +4264,12 @@ zio_dva_unallocate(zio_t *zio, zio_gang_node_t *gn, blkptr_t *bp)
 			zio_dva_unallocate(zio, gn->gn_child[g],
 			    &gn->gn_gbh->zg_blkptr[g]);
 		}
-	}
+        }
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -3643,6 +4279,11 @@ int
 zio_alloc_zil(spa_t *spa, objset_t *os, uint64_t txg, blkptr_t *new_bp,
     uint64_t size, boolean_t *slog)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_alloc_zil");
+#endif
+
 	int error = 1;
 	zio_alloc_list_t io_alloc_list;
 
@@ -3716,6 +4357,10 @@ zio_alloc_zil(spa_t *spa, objset_t *os, uint64_t txg, blkptr_t *new_bp,
 		    error);
 	}
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (error);
 }
 
@@ -3738,6 +4383,11 @@ zio_alloc_zil(spa_t *spa, objset_t *os, uint64_t txg, blkptr_t *new_bp,
 static zio_t *
 zio_vdev_io_start(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_start");
+#endif
+
 	vdev_t *vd = zio->io_vd;
 	uint64_t align;
 	spa_t *spa = zio->io_spa;
@@ -3755,6 +4405,11 @@ zio_vdev_io_start(zio_t *zio)
 		 * The mirror_ops handle multiple DVAs in a single BP.
 		 */
 		vdev_mirror_ops.vdev_op_io_start(zio);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -3854,6 +4509,11 @@ zio_vdev_io_start(zio_t *zio)
 	    !vdev_dtl_contains(vd, DTL_PARTIAL, zio->io_txg, 1)) {
 		ASSERT(zio->io_type == ZIO_TYPE_WRITE);
 		zio_vdev_io_bypass(zio);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -3868,32 +4528,64 @@ zio_vdev_io_start(zio_t *zio)
 	    zio->io_type == ZIO_TYPE_WRITE ||
 	    zio->io_type == ZIO_TYPE_TRIM)) {
 
-		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio))
-			return (zio);
+		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio)) {
 
-		if ((zio = vdev_queue_io(zio)) == NULL)
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
+			return (zio);
+		}
+
+		if ((zio = vdev_queue_io(zio)) == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_loc_span(ls);
+#endif
+
 			return (NULL);
+		}
 
 		if (!vdev_accessible(vd, zio)) {
 			zio->io_error = SET_ERROR(ENXIO);
 			zio_interrupt(zio);
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return (NULL);
 		}
 		zio->io_delay = gethrtime();
 	}
 
 	vd->vdev_ops->vdev_op_io_start(zio);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (NULL);
 }
 
 static zio_t *
 zio_vdev_io_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_done");
+#endif
+
 	vdev_t *vd = zio->io_vd;
 	vdev_ops_t *ops = vd ? vd->vdev_ops : &vdev_mirror_ops;
 	boolean_t unexpected_error = B_FALSE;
 
 	if (zio_wait_for_children(zio, ZIO_CHILD_VDEV_BIT, ZIO_WAIT_DONE)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -3931,6 +4623,10 @@ zio_vdev_io_done(zio_t *zio)
 	if (unexpected_error)
 		VERIFY(vdev_probe(vd, zio) == NULL);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -3944,6 +4640,11 @@ zio_vdev_io_done(zio_t *zio)
 void
 zio_change_priority(zio_t *pio, zio_priority_t priority)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zio_change_priority");
+#endif
+
 	zio_t *cio, *cio_next;
 	zio_link_t *zl = NULL;
 
@@ -3961,6 +4662,11 @@ zio_change_priority(zio_t *pio, zio_priority_t priority)
 		zio_change_priority(cio, priority);
 	}
 	mutex_exit(&pio->io_lock);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -3971,13 +4677,28 @@ static void
 zio_vsd_default_cksum_finish(zio_cksum_report_t *zcr,
     const abd_t *good_buf)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vsd_default_cksum_finish");
+#endif
+
 	/* no processing needed */
 	zfs_ereport_finish_checksum(zcr, good_buf, zcr->zcr_cbdata, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_vsd_default_cksum_report(zio_t *zio, zio_cksum_report_t *zcr)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vsd_default_cksum_report");
+#endif
+
 	void *abd = abd_alloc_sametype(zio->io_abd, zio->io_size);
 
 	abd_copy(abd, zio->io_abd, zio->io_size);
@@ -3986,14 +4707,29 @@ zio_vsd_default_cksum_report(zio_t *zio, zio_cksum_report_t *zcr)
 	zcr->zcr_cbdata = abd;
 	zcr->zcr_finish = zio_vsd_default_cksum_finish;
 	zcr->zcr_free = zio_abd_free;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static zio_t *
 zio_vdev_io_assess(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_access");
+#endif
+
 	vdev_t *vd = zio->io_vd;
 
 	if (zio_wait_for_children(zio, ZIO_CHILD_VDEV_BIT, ZIO_WAIT_DONE)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -4024,6 +4760,11 @@ zio_vdev_io_assess(zio_t *zio)
 		zio->io_stage = ZIO_STAGE_VDEV_IO_START >> 1;
 		zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE,
 		    zio_requeue_io_start_cut_in_line);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -4067,34 +4808,68 @@ zio_vdev_io_assess(zio_t *zio)
 		zio->io_physdone(zio->io_logical);
 	}
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 void
 zio_vdev_io_reissue(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_reissue");
+#endif
+
 	ASSERT(zio->io_stage == ZIO_STAGE_VDEV_IO_START);
 	ASSERT(zio->io_error == 0);
 
 	zio->io_stage >>= 1;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_vdev_io_redone(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_redone");
+#endif
+
 	ASSERT(zio->io_stage == ZIO_STAGE_VDEV_IO_DONE);
 
 	zio->io_stage >>= 1;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
 zio_vdev_io_bypass(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_vdev_io_bypass");
+#endif
+
 	ASSERT(zio->io_stage == ZIO_STAGE_VDEV_IO_START);
 	ASSERT(zio->io_error == 0);
 
 	zio->io_flags |= ZIO_FLAG_IO_BYPASS;
 	zio->io_stage = ZIO_STAGE_VDEV_IO_ASSESS >> 1;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -4112,6 +4887,11 @@ zio_vdev_io_bypass(zio_t *zio)
 static zio_t *
 zio_encrypt(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_encrypt");
+#endif
+
 	zio_prop_t *zp = &zio->io_prop;
 	spa_t *spa = zio->io_spa;
 	blkptr_t *bp = zio->io_bp;
@@ -4126,15 +4906,32 @@ zio_encrypt(zio_t *zio)
 	boolean_t no_crypt = B_FALSE;
 
 	/* the root zio already encrypted the data */
-	if (zio->io_child_type == ZIO_CHILD_GANG)
+        if (zio->io_child_type == ZIO_CHILD_GANG) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+        }
 
 	/* only ZIL blocks are re-encrypted on rewrite */
-	if (!IO_IS_ALLOCATING(zio) && ot != DMU_OT_INTENT_LOG)
+        if (!IO_IS_ALLOCATING(zio) && ot != DMU_OT_INTENT_LOG) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
+        }
 
 	if (!(zp->zp_encrypt || BP_IS_ENCRYPTED(bp))) {
 		BP_SET_CRYPT(bp, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -4163,6 +4960,11 @@ zio_encrypt(zio_t *zio)
 
 		if (DMU_OT_IS_ENCRYPTED(ot))
 			zio_crypt_encode_params_bp(bp, zp->zp_salt, zp->zp_iv);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -4173,6 +4975,11 @@ zio_encrypt(zio_t *zio)
 		    zio->io_orig_abd, BP_GET_LSIZE(bp), BP_SHOULD_BYTESWAP(bp),
 		    mac));
 		zio_crypt_encode_mac_bp(bp, mac);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -4186,6 +4993,11 @@ zio_encrypt(zio_t *zio)
 		BP_SET_CRYPT(bp, B_TRUE);
 		VERIFY0(spa_do_crypt_objset_mac_abd(B_TRUE, spa, dsobj,
 		    zio->io_abd, psize, BP_SHOULD_BYTESWAP(bp)));
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -4195,6 +5007,11 @@ zio_encrypt(zio_t *zio)
 		VERIFY0(spa_do_crypt_mac_abd(B_TRUE, spa, dsobj,
 		    zio->io_abd, psize, mac));
 		zio_crypt_encode_mac_bp(bp, mac);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (zio);
 	}
 
@@ -4252,6 +5069,10 @@ zio_encrypt(zio_t *zio)
 		}
 	}
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -4263,6 +5084,11 @@ zio_encrypt(zio_t *zio)
 static zio_t *
 zio_checksum_generate(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_checksum_generate");
+#endif
+
 	blkptr_t *bp = zio->io_bp;
 	enum zio_checksum checksum;
 
@@ -4273,8 +5099,14 @@ zio_checksum_generate(zio_t *zio)
 		 */
 		checksum = zio->io_prop.zp_checksum;
 
-		if (checksum == ZIO_CHECKSUM_OFF)
+                if (checksum == ZIO_CHECKSUM_OFF) {
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
+                }
 
 		ASSERT(checksum == ZIO_CHECKSUM_LABEL);
 	} else {
@@ -4288,12 +5120,21 @@ zio_checksum_generate(zio_t *zio)
 
 	zio_checksum_compute(zio, checksum, zio->io_abd, zio->io_size);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
 static zio_t *
 zio_checksum_verify(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_checksum_verify");
+#endif
+
 	zio_bad_cksum_t info;
 	blkptr_t *bp = zio->io_bp;
 	int error;
@@ -4305,8 +5146,14 @@ zio_checksum_verify(zio_t *zio)
 		 * This is zio_read_phys().
 		 * We're either verifying a label checksum, or nothing at all.
 		 */
-		if (zio->io_prop.zp_checksum == ZIO_CHECKSUM_OFF)
+                if (zio->io_prop.zp_checksum == ZIO_CHECKSUM_OFF) {
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return (zio);
+                }
 
 		ASSERT3U(zio->io_prop.zp_checksum, ==, ZIO_CHECKSUM_LABEL);
 	}
@@ -4323,6 +5170,10 @@ zio_checksum_verify(zio_t *zio)
 			mutex_exit(&zio->io_vd->vdev_stat_lock);
 		}
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (zio);
 }
@@ -4370,12 +5221,22 @@ zio_worst_error(int e1, int e2)
 static zio_t *
 zio_ready(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_ready");
+#endif
+
 	blkptr_t *bp = zio->io_bp;
 	zio_t *pio, *pio_next;
 	zio_link_t *zl = NULL;
 
 	if (zio_wait_for_children(zio, ZIO_CHILD_GANG_BIT | ZIO_CHILD_DDT_BIT,
 	    ZIO_WAIT_READY)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -4440,6 +5301,10 @@ zio_ready(zio_t *zio)
 	    zio->io_spa->spa_syncing_txg == zio->io_txg)
 		zio_handle_ignored_writes(zio);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zio);
 }
 
@@ -4449,6 +5314,11 @@ zio_ready(zio_t *zio)
 static void
 zio_dva_throttle_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_dva_throttle_done");
+#endif
+
 	zio_t *lio __maybe_unused = zio->io_logical;
 	zio_t *pio = zio_unique_parent(zio);
 	vdev_t *vd = zio->io_vd;
@@ -4504,11 +5374,21 @@ zio_dva_throttle_done(zio_t *zio)
 	 * dispatched to another taskq thread.
 	 */
 	zio_allocate_dispatch(zio->io_spa, pio->io_allocator);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static zio_t *
 zio_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zio_done");
+#endif
+
 	/*
 	 * Always attempt to keep stack usage minimal here since
 	 * we can be called recursively up to 19 levels deep.
@@ -4521,7 +5401,12 @@ zio_done(zio_t *zio)
 	 * If our children haven't all completed,
 	 * wait for them and then repeat this pipeline stage.
 	 */
-	if (zio_wait_for_children(zio, ZIO_CHILD_ALL_BITS, ZIO_WAIT_DONE)) {
+        if (zio_wait_for_children(zio, ZIO_CHILD_ALL_BITS, ZIO_WAIT_DONE)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -4811,7 +5696,12 @@ zio_done(zio_t *zio)
 			spa_taskq_dispatch_ent(zio->io_spa,
 			    ZIO_TYPE_CLAIM, ZIO_TASKQ_ISSUE,
 			    zio_reexecute, zio, 0, &zio->io_tqent);
-		}
+                }
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -4869,6 +5759,10 @@ zio_done(zio_t *zio)
 	} else {
 		zio_destroy(zio);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (next_to_execute);
 }

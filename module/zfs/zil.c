@@ -44,6 +44,10 @@
 #include <sys/trace_zfs.h>
 #include <sys/abd.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * The ZFS Intent Log (ZIL) saves "transaction records" (itxs) of system
  * calls that change the file system. Each itx has enough information to
@@ -1971,6 +1975,11 @@ zil_remove_async(zilog_t *zilog, uint64_t oid)
 void
 zil_itx_assign(zilog_t *zilog, itx_t *itx, dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zil_itx_assign");
+#endif
+
 	uint64_t txg;
 	itxg_t *itxg;
 	itxs_t *itxs, *clean = NULL;
@@ -2045,6 +2054,11 @@ zil_itx_assign(zilog_t *zilog, itx_t *itx, dmu_tx_t *tx)
 	/* Release the old itxs now we've dropped the lock */
 	if (clean != NULL)
 		zil_itxg_clean(clean);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -2942,6 +2956,11 @@ zil_commit_itx_assign(zilog_t *zilog, zil_commit_waiter_t *zcw)
 void
 zil_commit(zilog_t *zilog, uint64_t foid)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("zil_commit");
+#endif
+
 	/*
 	 * We should never attempt to call zil_commit on a snapshot for
 	 * a couple of reasons:
@@ -2957,8 +2976,8 @@ zil_commit(zilog_t *zilog, uint64_t foid)
 	 */
 	ASSERT3B(dmu_objset_is_snapshot(zilog->zl_os), ==, B_FALSE);
 
-	if (zilog->zl_sync == ZFS_SYNC_DISABLED)
-		return;
+        if (zilog->zl_sync == ZFS_SYNC_DISABLED)
+		goto end;
 
 	if (!spa_writeable(zilog->zl_spa)) {
 		/*
@@ -2988,6 +3007,13 @@ zil_commit(zilog_t *zilog, uint64_t foid)
 	}
 
 	zil_commit_impl(zilog, foid);
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void

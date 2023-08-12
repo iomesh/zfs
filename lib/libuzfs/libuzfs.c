@@ -54,6 +54,10 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/sa_impl.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 #include "libuzfs_impl.h"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -352,14 +356,19 @@ static void
 libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
     uint64_t obj, offset_t off, ssize_t resid, boolean_t sync)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("libuzfs_log_write");
+#endif
+
 	zilog_t *zilog = dhp->zilog;
 	dmu_buf_t *db_fake;
 	dmu_buf_impl_t *db;
 	itx_wr_state_t write_state;
 
 	// TODO(hping): also return if obj is unlinked
-	if (zil_replaying(zilog, tx)) {
-		return;
+        if (zil_replaying(zilog, tx)) {
+		goto end;
 	}
 
 	VERIFY0(dmu_bonus_hold(zilog->zl_os, obj, FTAG, &db_fake));
@@ -425,6 +434,13 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
 	}
 
 	dmu_buf_rele(db_fake, FTAG);
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static int
@@ -626,6 +642,13 @@ int
 libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
     nvlist_t *fsprops)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_create",p);
+	mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	int err = 0;
 	nvlist_t *nvroot = NULL;
 
@@ -637,6 +660,14 @@ libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
 	}
 
 out:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+	mtr_flush();
+#endif
+
 	fnvlist_free(nvroot);
 	return (err);
 }
@@ -691,9 +722,17 @@ refresh_config(void *unused, nvlist_t *tryconfig)
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_zpool_import",p);
+        mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	importargs_t args = { 0 };
 	args.path = (char **)&dev_path;
 	args.paths = 1;
+	int err = 0;
 
 	pool_config_ops_t ops = {
 		.pco_refresh_config = refresh_config,
@@ -702,13 +741,15 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	nvlist_t *pools = zpool_search_import(NULL,
 	    &args, &ops);
 
-	if (pools == NULL) {
-		return (ENOMEM);
+        if (pools == NULL) {
+                err = ENOMEM;
+		goto flush;
 	}
 
 	if (nvlist_empty(pools)) {
 		nvlist_free(pools);
-		return (ENOENT);
+                err = ENOENT;
+		goto flush;
 	}
 
 	nvpair_t *elem = nvlist_next_nvpair(pools, NULL);
@@ -723,18 +764,28 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
 	int name_len = strlen(stored_pool_name);
 	if (name_len >= size) {
-		nvlist_free(pools);
-		return (ERANGE);
+                nvlist_free(pools);
+                err = ERANGE;
+		goto flush;
 	}
 	strncpy(pool_name, stored_pool_name, name_len);
 	pool_name[name_len] = '\0';
 
-	int err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
+	err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
 	if (err == ENOENT) {
 		err = EINVAL;
 	}
 
-	nvlist_free(pools);
+        nvlist_free(pools);
+
+flush:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+        mtr_flush();
+#endif
 
 	return (err);
 }
@@ -802,15 +853,32 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 int
 libuzfs_dataset_create(const char *dsname)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_read",p);
+        mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	int err = 0;
 
 	err = dmu_objset_create(dsname, DMU_OST_ZFS, 0, NULL,
 	    libuzfs_objset_create_cb, NULL);
-	if (err)
-		return (err);
+        if (err)
+		goto flush;
 
-	return (libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
-	    ZFS_SYNC_STANDARD, B_FALSE));
+        err = libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
+                                          ZFS_SYNC_STANDARD, B_FALSE);
+flush:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+	mtr_flush();
+#endif
+
+	return err;
 }
 
 static int
@@ -917,6 +985,13 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_read",p);
+        mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	int err = 0;
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
@@ -927,8 +1002,8 @@ libuzfs_dataset_open(const char *dsname)
 
 	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
-	if (err)
-		return (NULL);
+        if (err)
+		goto flush;
 
 	libuzfs_dhp_init(dhp, os);
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
@@ -938,8 +1013,18 @@ libuzfs_dataset_open(const char *dsname)
 	libuzfs_setup_dataset_sa(dhp);
 	zil_replay(os, dhp, libuzfs_replay_vector);
 
-	zilog = zil_open(os, libuzfs_get_data);
-	return (dhp);
+        zilog = zil_open(os, libuzfs_get_data);
+
+flush:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+	mtr_flush();
+#endif
+
+	return err ? (NULL) : (dhp);
 }
 
 void
@@ -1175,17 +1260,24 @@ int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_write",p);
+        mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	dnode_t *dn;
 	int err;
-	if ((err = dnode_hold(dhp->os, obj, FTAG, &dn)) != 0) {
-		return (err);
+        if ((err = dnode_hold(dhp->os, obj, FTAG, &dn)) != 0) {
+		goto flush;
 	}
 
 	sa_handle_t *sa_hdl;
 	objset_t *os = dhp->os;
 	err = sa_handle_get(os, obj, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
+        if (err != 0) {
+		goto flush;
 	}
 
 	uint64_t obj_size;
@@ -1246,6 +1338,15 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 out:
 	dnode_rele(dn, FTAG);
 	sa_handle_destroy(sa_hdl);
+flush:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+        mtr_flush();
+#endif
+
 	return (err);
 }
 
@@ -1253,6 +1354,13 @@ int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx *p = mtr_create_rand_span_ctx();
+	mtr_span *r = mtr_create_root_span("libuzfs_object_read",p);
+	mtr_guard *g = mtr_set_loc_parent_to_span(r);
+#endif
+
 	int err = 0;
 	uint64_t obj_size = 0;
 	uint64_t read_size = 0;
@@ -1260,19 +1368,28 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	err = libuzfs_object_get_size(dhp, obj, &obj_size);
 	if (err)
-		return (-err);
+		goto flush;
 
 	if (offset > obj_size)
-		return (0);
+		goto flush;
 
 	read_size = offset + size > obj_size ? obj_size - offset : size;
 
 	err = dmu_read(os, obj, offset, read_size, buf, DMU_READ_NO_PREFETCH);
 	if (err)
-		return (-err);
+		goto flush;
+
+flush:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_guard(g);
+	mtr_free_span(r);
+	mtr_free_span_ctx(p);
+	mtr_flush();
+#endif
 
 	// FIXME(hping): define a reasonable interface to return read_size
-	return (read_size);
+	return  err == 0 ? (read_size) : (-err);
 }
 
 libuzfs_zap_iterator_t *

@@ -36,6 +36,10 @@
 #include <sys/kstat.h>
 #include <sys/wmsum.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * This tunable disables predictive prefetch.  Note that it leaves "prescient"
  * prefetch (e.g. prefetch for zfs send) intact.  Unlike predictive prefetch,
@@ -283,6 +287,11 @@ zstream_t *
 dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
     boolean_t fetch_data, boolean_t have_lock)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_zfetch_prepare");
+#endif
+
 	zstream_t *zs;
 	int64_t pf_start, ipf_start;
 	int64_t pf_ahead_blks, max_blks;
@@ -291,8 +300,14 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 	end_of_access_blkid = blkid + nblks;
 	spa_t *spa = zf->zf_dnode->dn_objset->os_spa;
 
-	if (zfs_prefetch_disable)
+        if (zfs_prefetch_disable) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+        }
 	/*
 	 * If we haven't yet loaded the indirect vdevs' mappings, we
 	 * can only read from blocks that we carefully ensure are on
@@ -300,15 +315,27 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 	 * can't allow the predictive prefetcher to attempt reads of other
 	 * blocks (e.g. of the MOS's dnode object).
 	 */
-	if (!spa_indirect_vdevs_loaded(spa))
+        if (!spa_indirect_vdevs_loaded(spa)) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+        }
 
 	/*
 	 * As a fast path for small (single-block) files, ignore access
 	 * to the first block.
 	 */
-	if (!have_lock && blkid == 0)
+        if (!have_lock && blkid == 0) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
+        }
 
 	if (!have_lock)
 		rw_enter(&zf->zf_dnode->dn_struct_rwlock, RW_READER);
@@ -321,6 +348,11 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 	if (maxblkid < 2) {
 		if (!have_lock)
 			rw_exit(&zf->zf_dnode->dn_struct_rwlock);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 	mutex_enter(&zf->zf_lock);
@@ -351,6 +383,11 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 		mutex_exit(&zf->zf_lock);
 		if (!have_lock)
 			rw_exit(&zf->zf_dnode->dn_struct_rwlock);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -359,6 +396,11 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 		mutex_exit(&zf->zf_lock);
 		if (!have_lock)
 			rw_exit(&zf->zf_dnode->dn_struct_rwlock);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -372,6 +414,11 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 		if (!have_lock)
 			rw_exit(&zf->zf_dnode->dn_struct_rwlock);
 		ZFETCHSTAT_BUMP(zfetchstat_misses);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (NULL);
 	}
 
@@ -444,6 +491,11 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 		rw_exit(&zf->zf_dnode->dn_struct_rwlock);
 
 	ZFETCHSTAT_BUMP(zfetchstat_hits);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (zs);
 }
 

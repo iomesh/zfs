@@ -77,8 +77,18 @@ dmu_tx_create_dd(dsl_dir_t *dd)
 dmu_tx_t *
 dmu_tx_create(objset_t *os)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_create");
+#endif
+
 	dmu_tx_t *tx = dmu_tx_create_dd(os->os_dsl_dataset->ds_dir);
 	tx->tx_objset = os;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (tx);
 }
 
@@ -111,6 +121,11 @@ static dmu_tx_hold_t *
 dmu_tx_hold_dnode_impl(dmu_tx_t *tx, dnode_t *dn, enum dmu_tx_hold_type type,
     uint64_t arg1, uint64_t arg2)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_hold_dnode_impl");
+#endif
+
 	dmu_tx_hold_t *txh;
 
 	if (dn != NULL) {
@@ -138,6 +153,10 @@ dmu_tx_hold_dnode_impl(dmu_tx_t *tx, dnode_t *dn, enum dmu_tx_hold_type type,
 	txh->txh_arg1 = arg1;
 	txh->txh_arg2 = arg2;
 	list_insert_tail(&tx->tx_holds, txh);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (txh);
 }
@@ -222,16 +241,21 @@ dmu_tx_check_ioerr(zio_t *zio, dnode_t *dn, int level, uint64_t blkid)
 static void
 dmu_tx_count_write(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_count_write");
+#endif
+
 	dnode_t *dn = txh->txh_dnode;
 	int err = 0;
 
-	if (len == 0)
-		return;
+        if (len == 0)
+		goto end;
 
 	(void) zfs_refcount_add_many(&txh->txh_space_towrite, len, FTAG);
 
-	if (dn == NULL)
-		return;
+        if (dn == NULL)
+		goto end;
 
 	/*
 	 * For i/o error checking, read the blocks that will be needed
@@ -287,6 +311,13 @@ dmu_tx_count_write(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 			txh->txh_tx->tx_err = err;
 		}
 	}
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
@@ -316,6 +347,11 @@ dmu_tx_hold_write(dmu_tx_t *tx, uint64_t object, uint64_t off, int len)
 void
 dmu_tx_hold_write_by_dnode(dmu_tx_t *tx, dnode_t *dn, uint64_t off, int len)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_hold_write_by_dnode");
+#endif
+
 	dmu_tx_hold_t *txh;
 
 	ASSERT0(tx->tx_txg);
@@ -326,7 +362,11 @@ dmu_tx_hold_write_by_dnode(dmu_tx_t *tx, dnode_t *dn, uint64_t off, int len)
 	if (txh != NULL) {
 		dmu_tx_count_write(txh, off, len);
 		dmu_tx_count_dnode(txh);
-	}
+        }
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 }
 
 /*
@@ -1033,6 +1073,11 @@ dmu_tx_unassign(dmu_tx_t *tx)
 int
 dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_assign");
+#endif
+
 	int err;
 
 	ASSERT(tx->tx_txg == 0);
@@ -1048,13 +1093,23 @@ dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 	while ((err = dmu_tx_try_assign(tx, txg_how)) != 0) {
 		dmu_tx_unassign(tx);
 
-		if (err != ERESTART || !(txg_how & TXG_WAIT))
+                if (err != ERESTART || !(txg_how & TXG_WAIT)) {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 			return (err);
+                }
 
 		dmu_tx_wait(tx);
 	}
 
 	txg_rele_to_quiesce(&tx->tx_txgh);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (0);
 }
@@ -1153,6 +1208,11 @@ dmu_tx_destroy(dmu_tx_t *tx)
 void
 dmu_tx_commit(dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_commit");
+#endif
+
 	ASSERT(tx->tx_txg != 0);
 
 	/*
@@ -1186,6 +1246,11 @@ dmu_tx_commit(dmu_tx_t *tx)
 		txg_rele_to_sync(&tx->tx_txgh);
 
 	dmu_tx_destroy(tx);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
@@ -1328,6 +1393,11 @@ dmu_tx_hold_sa_create(dmu_tx_t *tx, int attrsize)
 void
 dmu_tx_hold_sa(dmu_tx_t *tx, sa_handle_t *hdl, boolean_t may_grow)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_tx_hold_sa");
+#endif
+
 	uint64_t object;
 	sa_os_t *sa = tx->tx_objset->os_sa;
 
@@ -1340,8 +1410,8 @@ dmu_tx_hold_sa(dmu_tx_t *tx, sa_handle_t *hdl, boolean_t may_grow)
 	dmu_tx_hold_bonus_by_dnode(tx, DB_DNODE(db));
 	DB_DNODE_EXIT(db);
 
-	if (tx->tx_objset->os_sa->sa_master_obj == 0)
-		return;
+        if (tx->tx_objset->os_sa->sa_master_obj == 0)
+		goto end;
 
 	if (tx->tx_objset->os_sa->sa_reg_attr_obj == 0 ||
 	    tx->tx_objset->os_sa->sa_layout_attr_obj == 0) {
@@ -1370,6 +1440,13 @@ dmu_tx_hold_sa(dmu_tx_t *tx, sa_handle_t *hdl, boolean_t may_grow)
 		}
 		DB_DNODE_EXIT(db);
 	}
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void

@@ -39,6 +39,11 @@
 #ifdef _KERNEL
 #include <linux/falloc.h>
 #endif
+
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Virtual device vector for files.
  */
@@ -88,6 +93,11 @@ static int
 vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
     uint64_t *logical_ashift, uint64_t *physical_ashift)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_file_open");
+#endif
+
 	vdev_file_t *vf;
 	zfs_file_t *fp;
 	zfs_file_attr_t zfa;
@@ -115,7 +125,12 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 * We must have a pathname, and it must be absolute.
 	 */
 	if (vd->vdev_path == NULL || vd->vdev_path[0] != '/') {
-		vd->vdev_stat.vs_aux = VDEV_AUX_BAD_LABEL;
+                vd->vdev_stat.vs_aux = VDEV_AUX_BAD_LABEL;
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (SET_ERROR(EINVAL));
 	}
 
@@ -142,7 +157,12 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	error = zfs_file_open(vd->vdev_path,
 	    vdev_file_open_mode(spa_mode(vd->vdev_spa)), 0, &fp);
 	if (error) {
-		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
+                vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (error);
 	}
 
@@ -165,7 +185,12 @@ skip_open:
 
 	error =  zfs_file_getattr(vf->vf_file, &zfa);
 	if (error) {
-		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
+                vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (error);
 	}
 
@@ -173,16 +198,31 @@ skip_open:
 	*logical_ashift = vdev_file_logical_ashift;
 	*physical_ashift = vdev_file_physical_ashift;
 
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (0);
 }
 
 static void
 vdev_file_close(vdev_t *vd)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_file_close");
+#endif
+
 	vdev_file_t *vf = vd->vdev_tsd;
 
-	if (vd->vdev_reopening || vf == NULL)
+        if (vd->vdev_reopening || vf == NULL) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return;
+        }
 
 	if (vf->vf_file != NULL) {
 		(void) zfs_file_close(vf->vf_file);
@@ -190,15 +230,30 @@ vdev_file_close(vdev_t *vd)
 
 	vd->vdev_delayed_close = B_FALSE;
 	kmem_free(vf, sizeof (vdev_file_t));
-	vd->vdev_tsd = NULL;
+        vd->vdev_tsd = NULL;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void
 vdev_file_io_strategy(void *arg)
 {
-	zio_t *zio = (zio_t *)arg;
+        zio_t *zio = (zio_t *)arg;
 	vdev_t *vd = zio->io_vd;
-	vdev_file_t *vf = vd->vdev_tsd;
+        vdev_file_t *vf = vd->vdev_tsd;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_guard *g = NULL;
+	mtr_loc_span *ls;
+
+        if (zio->span && zio->span_executor != curthread)
+		g = mtr_set_loc_parent_to_span(zio->span);
+        ls = mtr_create_loc_span_enter("vdev_file_io_strategy");
+#endif
+
 	ssize_t resid;
 	void *buf;
 	loff_t off;
@@ -222,31 +277,63 @@ vdev_file_io_strategy(void *arg)
 	if (resid != 0 && zio->io_error == 0)
 		zio->io_error = SET_ERROR(ENOSPC);
 
-	zio_delay_interrupt(zio);
+        zio_delay_interrupt(zio);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+	if (g)
+		mtr_free_guard(g);
+#endif
+
 }
 
 static void
 vdev_file_io_fsync(void *arg)
 {
 	zio_t *zio = (zio_t *)arg;
-	vdev_file_t *vf = zio->io_vd->vdev_tsd;
+        vdev_file_t *vf = zio->io_vd->vdev_tsd;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_guard *g = NULL;
+	mtr_loc_span *ls;
+
+        if (zio->span && zio->span_executor != curthread)
+		g = mtr_set_loc_parent_to_span(zio->span);
+        ls = mtr_create_loc_span_enter("vdev_file_io_fsync");
+#endif
 
 	zio->io_error = zfs_file_fsync(vf->vf_file, O_SYNC | O_DSYNC);
 
-	zio_interrupt(zio);
+        zio_interrupt(zio);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+	if (g)
+		mtr_free_guard(g);
+#endif
 }
 
 static void
 vdev_file_io_start(zio_t *zio)
 {
-	vdev_t *vd = zio->io_vd;
-	vdev_file_t *vf = vd->vdev_tsd;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("vdev_file_io_start");
+#endif
+
+        vdev_t *vd = zio->io_vd;
+        vdev_file_t *vf = vd->vdev_tsd;
 
 	if (zio->io_type == ZIO_TYPE_IOCTL) {
 		/* XXPOLICY */
 		if (!vdev_readable(vd)) {
 			zio->io_error = SET_ERROR(ENXIO);
-			zio_interrupt(zio);
+                        zio_interrupt(zio);
+
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
+
 			return;
 		}
 
@@ -267,6 +354,11 @@ vdev_file_io_start(zio_t *zio)
 				VERIFY3U(taskq_dispatch(vdev_file_taskq,
 				    vdev_file_io_fsync, zio, TQ_SLEEP), !=,
 				    TASKQID_INVALID);
+
+#ifdef ENABLE_MINITRACE_C
+                                mtr_free_loc_span(ls);
+#endif
+
 				return;
 			}
 
@@ -277,7 +369,12 @@ vdev_file_io_start(zio_t *zio)
 			zio->io_error = SET_ERROR(ENOTSUP);
 		}
 
-		zio_execute(zio);
+                zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return;
 	} else if (zio->io_type == ZIO_TYPE_TRIM) {
 		int mode = 0;
@@ -288,14 +385,24 @@ vdev_file_io_start(zio_t *zio)
 #endif
 		zio->io_error = zfs_file_fallocate(vf->vf_file,
 		    mode, zio->io_offset, zio->io_size);
-		zio_execute(zio);
+                zio_execute(zio);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return;
 	}
 
-	zio->io_target_timestamp = zio_handle_io_delay(zio);
+        zio->io_target_timestamp = zio_handle_io_delay(zio);
 
 	VERIFY3U(taskq_dispatch(vdev_file_taskq, vdev_file_io_strategy, zio,
 	    TQ_SLEEP), !=, TASKQID_INVALID);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 static void

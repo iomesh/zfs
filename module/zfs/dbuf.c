@@ -54,6 +54,10 @@
 #include <sys/spa_impl.h>
 #include <sys/wmsum.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 kstat_t *dbuf_ksp;
 
 typedef struct dbuf_stats {
@@ -1271,7 +1275,12 @@ static void
 dbuf_read_done(zio_t *zio, const zbookmark_phys_t *zb, const blkptr_t *bp,
     arc_buf_t *buf, void *vdb)
 {
-	(void) zb, (void) bp;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read_done");
+#endif
+
+        (void) zb, (void) bp;
 	dmu_buf_impl_t *db = vdb;
 
 	mutex_enter(&db->db_mtx);
@@ -1307,7 +1316,12 @@ dbuf_read_done(zio_t *zio, const zbookmark_phys_t *zb, const blkptr_t *bp,
 		DTRACE_SET_STATE(db, "successful read");
 	}
 	cv_broadcast(&db->db_changed);
-	dbuf_rele_and_unlock(db, NULL, B_FALSE);
+        dbuf_rele_and_unlock(db, NULL, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -1367,6 +1381,11 @@ dbuf_handle_indirect_hole(dmu_buf_impl_t *db, dnode_t *dn)
 static int
 dbuf_read_hole(dmu_buf_impl_t *db, dnode_t *dn)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read_hole");
+#endif
+
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 
 	int is_hole = db->db_blkptr == NULL || BP_IS_HOLE(db->db_blkptr);
@@ -1392,8 +1411,17 @@ dbuf_read_hole(dmu_buf_impl_t *db, dnode_t *dn)
 		}
 		db->db_state = DB_CACHED;
 		DTRACE_SET_STATE(db, "hole read satisfied");
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (0);
-	}
+        }
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 	return (ENOENT);
 }
 
@@ -1412,6 +1440,12 @@ dbuf_read_hole(dmu_buf_impl_t *db, dnode_t *dn)
 static int
 dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls =
+            mtr_create_loc_span_enter("dbuf_read_verify_dnode_crypt");
+#endif
+
 	int err = 0;
 	objset_t *os = db->db_objset;
 	arc_buf_t *dnode_abuf;
@@ -1420,9 +1454,15 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 
-	if (!os->os_encrypted || os->os_raw_receive ||
-	    (flags & DB_RF_NO_DECRYPT) != 0)
+        if (!os->os_encrypted || os->os_raw_receive ||
+            (flags & DB_RF_NO_DECRYPT) != 0) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (0);
+        }
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1430,6 +1470,11 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 
 	if (dnode_abuf == NULL || !arc_is_encrypted(dnode_abuf)) {
 		DB_DNODE_EXIT(db);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (0);
 	}
 
@@ -1450,6 +1495,10 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 
 	DB_DNODE_EXIT(db);
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 }
 
@@ -1461,6 +1510,11 @@ static int
 dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags,
     db_lock_type_t dblt, void *tag)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read_impl");
+#endif
+
 	dnode_t *dn;
 	zbookmark_phys_t zb;
 	uint32_t aflags = ARC_FLAG_NOWAIT;
@@ -1545,11 +1599,21 @@ dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags,
 	(void) arc_read(zio, db->db_objset->os_spa, &bp,
 	    dbuf_read_done, db, ZIO_PRIORITY_SYNC_READ, zio_flags,
 	    &aflags, &zb);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 early_unlock:
 	DB_DNODE_EXIT(db);
 	mutex_exit(&db->db_mtx);
 	dmu_buf_unlock_parent(db, dblt, tag);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 }
 
@@ -1634,6 +1698,11 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 int
 dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read");
+#endif
+
 	int err = 0;
 	boolean_t prefetch;
 	dnode_t *dn;
@@ -1644,8 +1713,14 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	 */
 	ASSERT(!zfs_refcount_is_zero(&db->db_holds));
 
-	if (db->db_state == DB_NOFILL)
+	if (db->db_state == DB_NOFILL) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 		return (SET_ERROR(EIO));
+	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1655,7 +1730,13 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	    DBUF_IS_CACHEABLE(db);
 
 	mutex_enter(&db->db_mtx);
-	if (db->db_state == DB_CACHED) {
+        if (db->db_state == DB_CACHED) {
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_loc_span *ls =
+                    mtr_create_loc_span_enter("dbuf_read hit cache");
+#endif
+
 		spa_t *spa = dn->dn_objset->os_spa;
 
 		/*
@@ -1690,8 +1771,18 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 			    B_FALSE, flags & DB_RF_HAVESTRUCT);
 		}
 		DB_DNODE_EXIT(db);
-		DBUF_STAT_BUMP(hash_hits);
+                DBUF_STAT_BUMP(hash_hits);
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 	} else if (db->db_state == DB_UNCACHED) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_read miss cache");
+#endif
+
 		spa_t *spa = dn->dn_objset->os_spa;
 		boolean_t need_wait = B_FALSE;
 
@@ -1727,6 +1818,11 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 			else
 				VERIFY0(zio_wait(zio));
 		}
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 	} else {
 		/*
 		 * Another reader came in while the dbuf was in flight
@@ -1736,6 +1832,12 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 		 * and send the dbuf to CACHED.  Otherwise, a failure
 		 * occurred and the dbuf went to UNCACHED.
 		 */
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_loc_span *ls =
+                    mtr_create_loc_span_enter("dbuf_read dbuf in flight");
+#endif
+
 		mutex_exit(&db->db_mtx);
 		if (prefetch) {
 			dmu_zfetch(&dn->dn_zfetch, db->db_blkid, 1, B_TRUE,
@@ -1758,8 +1860,17 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 			if (db->db_state == DB_UNCACHED)
 				err = SET_ERROR(EIO);
 			mutex_exit(&db->db_mtx);
-		}
+                }
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
+#endif
+
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
 
 	return (err);
 }
@@ -2518,8 +2629,18 @@ dmu_buf_will_dirty_impl(dmu_buf_t *db_fake, int flags, dmu_tx_t *tx)
 void
 dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
 {
-	dmu_buf_will_dirty_impl(db_fake,
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_buf_will_dirty");
+#endif
+
+        dmu_buf_will_dirty_impl(db_fake,
 	    DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH, tx);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 boolean_t
@@ -2547,6 +2668,11 @@ dmu_buf_will_not_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 void
 dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_buf_will_fill");
+#endif
+
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
 
 	ASSERT(db->db_blkid != DMU_BONUS_BLKID);
@@ -2559,6 +2685,11 @@ dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 
 	dbuf_noread(db);
 	(void) dbuf_dirty(db, tx);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -2614,6 +2745,11 @@ dbuf_override_impl(dmu_buf_impl_t *db, const blkptr_t *bp, dmu_tx_t *tx)
 void
 dmu_buf_fill_done(dmu_buf_t *dbuf, dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_buf_fill_done");
+#endif
+
 	(void) tx;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)dbuf;
 	dbuf_states_t old_state;
@@ -2637,6 +2773,11 @@ dmu_buf_fill_done(dmu_buf_t *dbuf, dmu_tx_t *tx)
 		cv_broadcast(&db->db_changed);
 	}
 	mutex_exit(&db->db_mtx);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
@@ -3577,8 +3718,18 @@ dbuf_hold(dnode_t *dn, uint64_t blkid, void *tag)
 dmu_buf_impl_t *
 dbuf_hold_level(dnode_t *dn, int level, uint64_t blkid, void *tag)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dbuf_hold_level");
+#endif
+
 	dmu_buf_impl_t *db;
-	int err = dbuf_hold_impl(dn, level, blkid, FALSE, FALSE, tag, &db);
+        int err = dbuf_hold_impl(dn, level, blkid, FALSE, FALSE, tag, &db);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (err ? NULL : db);
 }
 

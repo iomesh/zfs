@@ -30,6 +30,10 @@
 
 #include <sys/zfs_context.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 int taskq_now;
 taskq_t *system_taskq;
 taskq_t *system_delay_taskq;
@@ -160,6 +164,11 @@ void
 taskq_dispatch_ent(taskq_t *tq, task_func_t func, void *arg, uint_t flags,
     taskq_ent_t *t)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("taskq_dispatch_ent");
+#endif
+
 	ASSERT(func != NULL);
 
 	/*
@@ -185,6 +194,11 @@ taskq_dispatch_ent(taskq_t *tq, task_func_t func, void *arg, uint_t flags,
 	t->tqent_arg = arg;
 	cv_signal(&tq->tq_dispatch_cv);
 	mutex_exit(&tq->tq_lock);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 void

@@ -42,6 +42,10 @@
 #include <sys/fs/zfs.h>
 #include <sys/zio_impl.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -436,6 +440,10 @@ typedef struct zio_link {
 	list_node_t	zl_child_node;
 } zio_link_t;
 
+#ifdef ENABLE_MINITRACE_C
+struct mtr_span;
+#endif
+
 struct zio {
 	/* Core information about this I/O */
 	zbookmark_phys_t	io_bookmark;
@@ -522,6 +530,11 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span	*span;
+	void		*span_executor;
+#endif
 };
 
 enum blk_verify_flag {

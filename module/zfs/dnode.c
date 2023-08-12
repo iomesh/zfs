@@ -40,6 +40,10 @@
 #include <sys/trace_zfs.h>
 #include <sys/zfs_project.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 dnode_stats_t dnode_stats = {
 	{ "dnode_hold_dbuf_hold",		KSTAT_DATA_UINT64 },
 	{ "dnode_hold_dbuf_read",		KSTAT_DATA_UINT64 },
@@ -1566,8 +1570,19 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 int
 dnode_hold(objset_t *os, uint64_t object, void *tag, dnode_t **dnp)
 {
-	return (dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, 0, tag,
-	    dnp));
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("dnode_hold");
+#endif
+
+	int err = dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, 0, tag,
+				  dnp);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
+	return (err);
 }
 
 /*
@@ -1591,8 +1606,18 @@ dnode_add_ref(dnode_t *dn, void *tag)
 void
 dnode_rele(dnode_t *dn, void *tag)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dnode_rele");
+#endif
+
 	mutex_enter(&dn->dn_mtx);
 	dnode_rele_and_unlock(dn, tag, B_FALSE);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void

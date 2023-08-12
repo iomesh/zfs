@@ -59,6 +59,10 @@
 #include <sys/zfs_znode.h>
 #endif
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Enable/disable nopwrite feature.
  */
@@ -391,6 +395,11 @@ int dmu_bonus_hold_by_dnode(dnode_t *dn, void *tag, dmu_buf_t **dbp,
 int
 dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_bonus_hold");
+#endif
+
 	dnode_t *dn;
 	int error;
 
@@ -400,6 +409,11 @@ dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 
 	error = dmu_bonus_hold_by_dnode(dn, tag, dbp, DMU_READ_NO_PREFETCH);
 	dnode_rele(dn, FTAG);
+
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (error);
 }
@@ -500,6 +514,12 @@ int
 dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
     boolean_t read, void *tag, int *numbufsp, dmu_buf_t ***dbpp, uint32_t flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_span *s =
+            mtr_create_child_span_enter_loc("dmu_buf_hold_array_by_dnode");
+#endif
+
 	dmu_buf_t **dbp;
 	zstream_t *zs = NULL;
 	uint64_t blkid, nblks, i;
@@ -532,15 +552,27 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			    (longlong_t)dn->dn_object, dn->dn_datablksz,
 			    (longlong_t)offset, (longlong_t)length);
 			rw_exit(&dn->dn_struct_rwlock);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_span(s);
+#endif
+
 			return (SET_ERROR(EIO));
 		}
 		nblks = 1;
 	}
 	dbp = kmem_zalloc(sizeof (dmu_buf_t *) * nblks, KM_SLEEP);
 
-	if (read)
-		zio = zio_root(dn->dn_objset->os_spa, NULL, NULL,
-		    ZIO_FLAG_CANFAIL);
+        if (read) {
+                zio = zio_root(dn->dn_objset->os_spa, NULL, NULL,
+                               ZIO_FLAG_CANFAIL);
+
+#ifdef ENABLE_MINITRACE_C
+                zio->span = s;
+                zio->span_executor = curthread;
+#endif
+
+        }
 	blkid = dbuf_whichblock(dn, 0, offset);
 	if ((flags & DMU_READ_NO_PREFETCH) == 0 &&
 	    DNODE_META_IS_CACHEABLE(dn) && length <= zfetch_array_rd_sz) {
@@ -561,6 +593,11 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			dmu_buf_rele_array(dbp, nblks, tag);
 			if (read)
 				zio_nowait(zio);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_span(s);
+#endif
+
 			return (SET_ERROR(EIO));
 		}
 
@@ -592,6 +629,11 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 		err = zio_wait(zio);
 		if (err) {
 			dmu_buf_rele_array(dbp, nblks, tag);
+
+#ifdef ENABLE_MINITRACE_C
+                        mtr_free_span(s);
+#endif
+
 			return (err);
 		}
 
@@ -607,13 +649,23 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			mutex_exit(&db->db_mtx);
 			if (err) {
 				dmu_buf_rele_array(dbp, nblks, tag);
+
+#ifdef ENABLE_MINITRACE_C
+                                mtr_free_span(s);
+#endif
+
 				return (err);
 			}
 		}
 	}
 
 	*numbufsp = nblks;
-	*dbpp = dbp;
+        *dbpp = dbp;
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_span(s);
+#endif
+
 	return (0);
 }
 
@@ -657,6 +709,11 @@ dmu_buf_hold_array_by_bonus(dmu_buf_t *db_fake, uint64_t offset,
 void
 dmu_buf_rele_array(dmu_buf_t **dbp_fake, int numbufs, void *tag)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_buf_rele_array");
+#endif
+
 	int i;
 	dmu_buf_impl_t **dbp = (dmu_buf_impl_t **)dbp_fake;
 
@@ -669,6 +726,11 @@ dmu_buf_rele_array(dmu_buf_t **dbp_fake, int numbufs, void *tag)
 	}
 
 	kmem_free(dbp, sizeof (dmu_buf_t *) * numbufs);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -1003,6 +1065,11 @@ static int
 dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
     void *buf, uint32_t flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_read_impl");
+#endif
+
 	dmu_buf_t **dbp;
 	int numbufs, err = 0;
 
@@ -1049,6 +1116,11 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 		}
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 }
 
@@ -1056,15 +1128,27 @@ int
 dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     void *buf, uint32_t flags)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_read");
+#endif
+
 	dnode_t *dn;
 	int err;
 
 	err = dnode_hold(os, object, FTAG, &dn);
 	if (err != 0)
-		return (err);
+		goto cleanup;
 
 	err = dmu_read_impl(dn, offset, size, buf, flags);
 	dnode_rele(dn, FTAG);
+
+cleanup:
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 	return (err);
 }
 
@@ -1079,6 +1163,11 @@ static void
 dmu_write_impl(dmu_buf_t **dbp, int numbufs, uint64_t offset, uint64_t size,
     const void *buf, dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_write_impl");
+#endif
+
 	int i;
 
 	for (i = 0; i < numbufs; i++) {
@@ -1107,6 +1196,11 @@ dmu_write_impl(dmu_buf_t **dbp, int numbufs, uint64_t offset, uint64_t size,
 		size -= tocpy;
 		buf = (char *)buf + tocpy;
 	}
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void
@@ -1132,16 +1226,28 @@ void
 dmu_write_by_dnode(dnode_t *dn, uint64_t offset, uint64_t size,
     const void *buf, dmu_tx_t *tx)
 {
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_loc_span *ls = mtr_create_loc_span_enter("dmu_write_by_dnode");
+#endif
+
 	dmu_buf_t **dbp;
 	int numbufs;
 
-	if (size == 0)
-		return;
+        if (size == 0)
+		goto end;
 
 	VERIFY0(dmu_buf_hold_array_by_dnode(dn, offset, size,
 	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH));
 	dmu_write_impl(dbp, numbufs, offset, size, buf, tx);
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
+
+end:
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 }
 
 void

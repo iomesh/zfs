@@ -311,6 +311,10 @@
 #include <sys/zfs_racct.h>
 #include <sys/zstd/zstd.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 #ifndef _KERNEL
 /* set with ZFS_DEBUG=watch, to enable watchpoints on frozen buffers */
 boolean_t arc_watch = B_FALSE;
@@ -2733,6 +2737,11 @@ arc_buf_alloc_impl(arc_buf_hdr_t *hdr, spa_t *spa, const zbookmark_phys_t *zb,
     void *tag, boolean_t encrypted, boolean_t compressed, boolean_t noauth,
     boolean_t fill, arc_buf_t **ret)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("arc_buf_alloc_impl");
+#endif
+
 	arc_buf_t *buf;
 	arc_fill_flags_t flags = ARC_FILL_LOCKED;
 
@@ -2824,9 +2833,18 @@ arc_buf_alloc_impl(arc_buf_hdr_t *hdr, spa_t *spa, const zbookmark_phys_t *zb,
 	 * decompress the data.
 	 */
 	if (fill) {
-		ASSERT3P(zb, !=, NULL);
+                ASSERT3P(zb, !=, NULL);
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
+
 		return (arc_buf_fill(buf, spa, zb, flags));
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 
 	return (0);
 }
@@ -5672,6 +5690,11 @@ arc_hdr_verify(arc_buf_hdr_t *hdr, blkptr_t *bp)
 static void
 arc_read_done(zio_t *zio)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("arc_read_done");
+#endif
+
 	blkptr_t 	*bp = zio->io_bp;
 	arc_buf_hdr_t	*hdr = zio->io_private;
 	kmutex_t	*hash_lock = NULL;
@@ -5888,7 +5911,7 @@ arc_read_done(zio_t *zio)
 
 		if (acb->acb_zio_dummy != NULL) {
 			acb->acb_zio_dummy->io_error = zio->io_error;
-			zio_nowait(acb->acb_zio_dummy);
+                        zio_nowait(acb->acb_zio_dummy);
 		}
 
 		callback_list = acb->acb_next;
@@ -5896,7 +5919,12 @@ arc_read_done(zio_t *zio)
 	}
 
 	if (freeable)
-		arc_hdr_destroy(hdr);
+                arc_hdr_destroy(hdr);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
+
 }
 
 /*
@@ -5922,6 +5950,11 @@ arc_read(zio_t *pio, spa_t *spa, const blkptr_t *bp,
     arc_read_done_func_t *done, void *private, zio_priority_t priority,
     int zio_flags, arc_flags_t *arc_flags, const zbookmark_phys_t *zb)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("arc_read");
+#endif
+
 	arc_buf_hdr_t *hdr = NULL;
 	kmutex_t *hash_lock = NULL;
 	zio_t *rzio;
@@ -6137,7 +6170,7 @@ top:
 		if (*arc_flags & ARC_FLAG_CACHED_ONLY) {
 			rc = SET_ERROR(ENOENT);
 			if (hash_lock != NULL)
-				mutex_exit(hash_lock);
+                                mutex_exit(hash_lock);
 			goto out;
 		}
 
@@ -6442,9 +6475,15 @@ top:
 			}
 		}
 
-		rzio = zio_read(pio, spa, bp, hdr_abd, size,
-		    arc_read_done, hdr, priority, zio_flags, zb);
-		acb->acb_zio_head = rzio;
+                rzio = zio_read(pio, spa, bp, hdr_abd, size, arc_read_done, hdr,
+                                priority, zio_flags, zb);
+
+#ifdef ENABLE_MINITRACE_C
+                rzio->span = pio->span;
+                rzio->span_executor = pio->span_executor;
+#endif
+
+                acb->acb_zio_head = rzio;
 
 		if (hash_lock != NULL)
 			mutex_exit(hash_lock);
@@ -6462,7 +6501,12 @@ out:
 	/* embedded bps don't actually go to disk */
 	if (!embedded_bp)
 		spa_read_history_add(spa, zb, *arc_flags);
-	spl_fstrans_unmark(cookie);
+        spl_fstrans_unmark(cookie);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_free_loc_span(ls);
+#endif
+
 	return (rc);
 }
 

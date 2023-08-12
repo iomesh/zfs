@@ -53,6 +53,10 @@
 #include <zfs_fletcher.h>
 #include <zlib.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Emulation of kernel services in userland.
  */
@@ -793,6 +797,26 @@ umem_out_of_memory(void)
 	return (0);
 }
 
+#ifdef ENABLE_MINITRACE_C
+// TODO: move to a indepentdent
+static mtr_otel_rptr *rptr;
+static mtr_coll_cfg *cfg;
+
+// TODO: move to a indepentdent
+static void mtr_otel_init(void)
+{
+	cfg = mtr_create_glob_coll_def_cfg();
+	rptr = mtr_create_otel_rptr();
+	mtr_set_otel_rptr(rptr, cfg);
+}
+
+static void mtr_otel_fini(void)
+{
+	mtr_free_glob_coll_def_cfg(cfg);
+	mtr_free_otel_rptr(rptr);
+}
+#endif
+
 void
 kernel_init(int mode)
 {
@@ -828,6 +852,10 @@ kernel_init(int mode)
 	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
 	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_otel_init();
+#endif
 }
 
 void
@@ -848,6 +876,10 @@ kernel_fini(void)
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);
 	tsd_destroy(&zfs_allow_log_key);
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_otel_fini();
+#endif
 }
 
 uid_t
@@ -1190,6 +1222,10 @@ int
 zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
     ssize_t *resid)
 {
+
+#ifdef ENABLE_MINITRACE_C
+        mtr_loc_span *ls = mtr_create_loc_span_enter("zfs_file_pread");
+#endif
 	ssize_t rc;
 
 	rc = pread64(fp->f_fd, buf, count, off);
@@ -1200,8 +1236,16 @@ zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
 		 * (memory or disk) due to O_DIRECT, so we abort() in order to
 		 * catch the offender.
 		 */
-		if (errno == EINVAL)
+		if (errno == EINVAL) {
+#ifdef ENABLE_MINITRACE_C
+			mtr_free_loc_span(ls);
+#endif
 			abort();
+		}
+#endif
+
+#ifdef ENABLE_MINITRACE_C
+                mtr_free_loc_span(ls);
 #endif
 		return (errno);
 	}
@@ -1215,10 +1259,17 @@ zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
 
 	if (resid) {
 		*resid = count - rc;
-	} else if (rc != count) {
+        } else if (rc != count) {
+
+#ifdef ENABLE_MINITRACE_C
+		mtr_free_loc_span(ls);
+#endif
 		return (EIO);
 	}
 
+#ifdef ENABLE_MINITRACE_C
+	mtr_free_loc_span(ls);
+#endif
 	return (0);
 }
 
