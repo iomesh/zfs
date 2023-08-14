@@ -102,8 +102,8 @@
 #include <sys/zfs_context.h>
 #include <sys/zfs_znode.h>
 
-/* see block comment above for description */
-int zfs_abd_scatter_enabled = B_TRUE;
+// disabling scattered abd to reduce memcpy in read/write
+int zfs_abd_scatter_enabled = B_FALSE;
 
 void
 abd_verify(abd_t *abd)

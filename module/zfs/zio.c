@@ -3871,8 +3871,9 @@ zio_vdev_io_start(zio_t *zio)
 		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio))
 			return (zio);
 
-		if ((zio = vdev_queue_io(zio)) == NULL)
-			return (NULL);
+		// TODO(sundengyu): use vdev_queue to control concurrency
+		// if ((zio = vdev_queue_io(zio)) == NULL)
+		// 	return (NULL);
 
 		if (!vdev_accessible(vd, zio)) {
 			zio->io_error = SET_ERROR(ENXIO);
@@ -3905,7 +3906,7 @@ zio_vdev_io_done(zio_t *zio)
 
 	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
 	    vd->vdev_ops != &vdev_draid_spare_ops) {
-		vdev_queue_io_done(zio);
+		// vdev_queue_io_done(zio);
 
 		if (zio->io_type == ZIO_TYPE_WRITE)
 			vdev_cache_write(zio);

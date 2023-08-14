@@ -169,8 +169,7 @@ enum zio_stage {
 
 #define	ZIO_READ_COMMON_STAGES			\
 	(ZIO_INTERLOCK_STAGES |			\
-	ZIO_VDEV_IO_STAGES |			\
-	ZIO_STAGE_CHECKSUM_VERIFY)
+	ZIO_VDEV_IO_STAGES)
 
 #define	ZIO_READ_PHYS_PIPELINE			\
 	ZIO_READ_COMMON_STAGES
@@ -257,8 +256,7 @@ enum zio_stage {
 
 #define	ZIO_BLOCKING_STAGES			\
 	(ZIO_STAGE_DVA_ALLOCATE |		\
-	ZIO_STAGE_DVA_CLAIM |			\
-	ZIO_STAGE_VDEV_IO_START)
+	ZIO_STAGE_DVA_CLAIM)
 
 extern void zio_inject_init(void);
 extern void zio_inject_fini(void);
