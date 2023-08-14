@@ -47,14 +47,14 @@ static taskq_t *vdev_file_taskq;
 
 /*
  * By default, the logical/physical ashift for file vdevs is set to
- * SPA_MINBLOCKSHIFT (9). This allows all file vdevs to use 512B (1 << 9)
+ * 12. This allows all file vdevs to use 4KB (1 << 12)
  * blocksizes. Users may opt to change one or both of these for testing
  * or performance reasons. Care should be taken as these values will
  * impact the vdev_ashift setting which can only be set at vdev creation
  * time.
  */
-unsigned long vdev_file_logical_ashift = SPA_MINBLOCKSHIFT;
-unsigned long vdev_file_physical_ashift = SPA_MINBLOCKSHIFT;
+unsigned long vdev_file_logical_ashift = 12;
+unsigned long vdev_file_physical_ashift = 12;
 
 static void
 vdev_file_hold(vdev_t *vd)

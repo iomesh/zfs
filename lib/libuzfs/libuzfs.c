@@ -124,7 +124,7 @@ fatal(int do_perror, char *message, ...)
 static uint64_t
 libuzfs_get_ashift(void)
 {
-	return (SPA_MINBLOCKSHIFT);
+	return (UZFS_VDEV_ASHIFT);
 }
 
 static nvlist_t *
@@ -634,7 +634,10 @@ libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
 
 	nvroot = make_vdev_root(path, NULL, zpool, 0, 0, NULL, 1, 0, 1);
 
+	props = fnvlist_alloc();
+	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_AUTOTRIM), 1);
 	err = spa_create(zpool, nvroot, props, NULL, NULL);
+	fnvlist_free(props);
 	if (err) {
 		goto out;
 	}
@@ -786,6 +789,9 @@ out:
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
+	spa_feature_enable(os->os_spa, SPA_FEATURE_LARGE_BLOCKS, tx);
+	spa_feature_enable(os->os_spa, SPA_FEATURE_LARGE_DNODE, tx);
+
 	VERIFY0(zap_create_claim(os, MASTER_NODE_OBJ, DMU_OT_MASTER_NODE,
 	    DMU_OT_NONE, 0, tx));
 
@@ -960,7 +966,7 @@ libuzfs_dataset_open(const char *dsname)
 	objset_t *os = NULL;
 
 	dhp = umem_alloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
-	dhp->max_blksz = SPA_OLD_MAXBLOCKSIZE;
+	dhp->max_blksz = UZFS_MAX_BLOCKSIZE;
 
 	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
