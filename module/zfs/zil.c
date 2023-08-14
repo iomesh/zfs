@@ -3014,6 +3014,7 @@ end:
         mtr_free_loc_span(ls);
 #endif
 
+	return;
 }
 
 void
