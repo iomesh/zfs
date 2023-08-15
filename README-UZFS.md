@@ -8,6 +8,7 @@ This feature is **under development**. Follow below steps to play with it.
 
 - install fuse3 related packages
 ```
+# Centos/RHEL as example:
 yum install fuse3-libs fuse3-devel
 ```
 - build uzfs now
