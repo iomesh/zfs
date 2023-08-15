@@ -1268,7 +1268,7 @@ libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
 	avl_index_t where;
 	*upp = avl_find(&bucket->tree, &node, &where);
 	if ((*upp) != NULL) {
-		atomic_inc_64(&(*upp)->ref_count);
+		++(*upp)->ref_count;
 	} else if ((err = libuzfs_node_alloc(dhp, obj, upp)) == 0) {
 		avl_insert(&bucket->tree, *upp, where);
 	}
@@ -1279,15 +1279,10 @@ libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
 void
 libuzfs_release_node(libuzfs_dataset_handle_t *dhp, libuzfs_node_t *up)
 {
-	if (atomic_dec_64_nv(&up->ref_count) > 0) {
-		return;
-	}
-
 	uint64_t idx = up->u_obj % NUM_NODE_BUCKETS;
 	hash_bucket_t *bucket = &dhp->nodes_buckets[idx];
-
 	mutex_enter(&bucket->mutex);
-	if (likely(atomic_load_64(&up->ref_count) == 0)) {
+	if (--up->ref_count == 0) {
 		avl_remove(&bucket->tree, up);
 		// TODO(sundengyu): lazily free these resources
 		libuzfs_node_free(up);

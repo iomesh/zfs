@@ -82,8 +82,6 @@ typedef struct libuzfs_node {
 	uint64_t u_blksz;
 	uint64_t u_maxblksz;
 	uint64_t u_obj;
-
-	// access this using atomic function
 	uint64_t ref_count;
 } libuzfs_node_t;
 
