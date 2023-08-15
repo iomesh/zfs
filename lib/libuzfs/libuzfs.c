@@ -22,6 +22,9 @@
  * Copyright (c) 2022, SmartX Inc. All rights reserved.
  */
 
+#include <asm-generic/errno-base.h>
+#include <bits/stdint-uintn.h>
+#include <stdint.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
@@ -55,6 +58,8 @@
 #include <sys/sa_impl.h>
 
 #include "libuzfs_impl.h"
+#include "sys/dnode.h"
+#include "sys/stdtypes.h"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_refcount = 0;
@@ -2260,6 +2265,36 @@ out:
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
+}
+
+uint64_t
+libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp)
+{
+	uint64_t refdbytes, availbytes, usedobjs, availobjs;
+	dmu_objset_space(dhp->os, &refdbytes,
+	    &availbytes, &usedobjs, &availobjs);
+	return (refdbytes);
+}
+
+int
+libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t *off)
+{
+	dnode_t *dn;
+	int err = dnode_hold(dhp->os, obj, FTAG, &dn);
+	if (err) {
+		return (err);
+	}
+
+	err = dnode_next_offset(dn, DNODE_FIND_HOLE, off, 1, 1, 0);
+	if (err == ESRCH) {
+		*off = UINT64_MAX;
+		err = 0;
+	}
+
+	dnode_rele(dn, FTAG);
+
+	return (err);
 }
 
 int

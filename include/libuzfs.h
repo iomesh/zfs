@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_H
 #define	_LIBUZFS_H
 
+#include "sys/stdtypes.h"
 #include <libnvpair.h>
 #include <sys/dmu.h>
 
@@ -262,6 +263,10 @@ extern libuzfs_kvattr_iterator_t *libuzfs_new_kvattr_iterator(
 extern ssize_t libuzfs_next_kvattr_name(libuzfs_kvattr_iterator_t *iter,
     char *buf, int size);
 extern void libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter);
+
+extern uint64_t libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp);
+extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t *off);
 
 #ifdef	__cplusplus
 }
