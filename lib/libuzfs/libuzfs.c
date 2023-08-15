@@ -1122,10 +1122,6 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	}
 	dmu_tx_commit(tx);
 
-	if (type == INODE_DATA_OBJ && !claiming) {
-		zil_commit(dhp->zilog, *obj);
-	}
-
 	return (0);
 }
 
@@ -1133,22 +1129,66 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
  * object creation is always SYNC, recorded in zil
  */
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    uint64_t *gen)
+libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
+    int num_objs, uint64_t *gen)
 {
-	return (libuzfs_create_inode_with_type(dhp, obj,
-	    FALSE, INODE_DATA_OBJ, gen));
+	objset_t *os = dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_attr_t));
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+		return (err);
+	}
+
+	for (int i = 0; i < num_objs; ++i) {
+		libuzfs_create_inode_with_type_impl(dhp, &objs[i],
+		    B_FALSE, INODE_DATA_OBJ, tx);
+	}
+
+	*gen = tx->tx_txg;
+
+	dmu_tx_commit(tx);
+
+	for (int i = 0; i < num_objs; ++i) {
+		zil_submit(dhp->zilog, objs[i]);
+	}
+
+	zil_wait_commit(dhp->zilog);
+
+	return (0);
 }
 
 /*
- * object deletion is always SYNC, recorded in zil
+ * dataobj has no xattr, so there is no need to delete xattr_zap_obj
+ * TODO(sundengyu): delete objs need to check gen first
  */
 int
-libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+libuzfs_objects_delete(libuzfs_dataset_handle_t *dhp, const uint64_t *objs,
+    int num_objs)
 {
-	int err = libuzfs_inode_delete(dhp, obj, INODE_DATA_OBJ, NULL);
-	if (err == 0) {
-		zil_commit(dhp->zilog, obj);
+	objset_t *os = dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	for (int i = 0; i < num_objs; ++i) {
+		dmu_tx_hold_free(tx, objs[i], 0, DMU_OBJECT_END);
+	}
+
+	int err;
+	if ((err = dmu_tx_assign(tx, TXG_WAIT)) == 0) {
+		for (int i = 0; i < num_objs; ++i) {
+			VERIFY0(dmu_object_free(os, objs[i], tx));
+			libuzfs_log_remove(dhp->zilog, tx, objs[i]);
+		}
+
+		dmu_tx_commit(tx);
+
+		for (int i = 0; i < num_objs; ++i) {
+			zil_submit(dhp->zilog, objs[i]);
+		}
+		zil_wait_commit(dhp->zilog);
+	} else {
+		dmu_tx_abort(tx);
 	}
 
 	return (err);

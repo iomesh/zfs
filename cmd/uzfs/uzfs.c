@@ -24,6 +24,7 @@
  */
 
 #include <libintl.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
@@ -53,7 +54,7 @@ static int uzfs_dataset_destroy(int argc, char **argv);
 
 static int uzfs_dataset_get_sbino(int argc, char **argv);
 
-static int uzfs_object_create(int argc, char **argv);
+static int uzfs_objects_create(int argc, char **argv);
 static int uzfs_object_delete(int argc, char **argv);
 static int uzfs_object_claim(int argc, char **argv);
 static int uzfs_object_get_gen(int argc, char **argv);
@@ -189,7 +190,7 @@ static uzfs_command_t command_table[] = {
 	{ "create-dataset",	uzfs_dataset_create, 	HELP_DATASET_CREATE },
 	{ "destroy-dataset",	uzfs_dataset_destroy, 	HELP_DATASET_DESTROY},
 	{ "getsbino-dataset",	uzfs_dataset_get_sbino,	HELP_DATASET_GET_SBINO},
-	{ "create-object",	uzfs_object_create, 	HELP_OBJECT_CREATE  },
+	{ "create-objects",	uzfs_objects_create, 	HELP_OBJECT_CREATE  },
 	{ "delete-object",	uzfs_object_delete, 	HELP_OBJECT_DELETE  },
 	{ "claim-object",	uzfs_object_claim, 	HELP_OBJECT_CLAIM   },
 	{ "get-gen-object",	uzfs_object_get_gen, 	HELP_OBJECT_GET_GEN },
@@ -259,7 +260,7 @@ get_usage(uzfs_help_t idx)
 	case HELP_DATASET_GET_SBINO:
 		return (gettext("\tgetsbino-dataset ...\n"));
 	case HELP_OBJECT_CREATE:
-		return (gettext("\tcreate-object ...\n"));
+		return (gettext("\tcreate-objects ...\n"));
 	case HELP_OBJECT_DELETE:
 		return (gettext("\tdelete-object ...\n"));
 	case HELP_OBJECT_GET_GEN:
@@ -704,10 +705,11 @@ uzfs_dataset_get_sbino(int argc, char **argv)
 }
 
 int
-uzfs_object_create(int argc, char **argv)
+uzfs_objects_create(int argc, char **argv)
 {
 	int err = 0;
 	char *dsname = argv[1];
+	int nobjs = atoi(argv[2]);
 
 	printf("creating object %s\n", dsname);
 
@@ -717,16 +719,22 @@ uzfs_object_create(int argc, char **argv)
 		return (-1);
 	}
 
-	uint64_t obj = 0;
+	uint64_t *objs = umem_alloc(sizeof (uint64_t) *nobjs, UMEM_NOFAIL);
 	uint64_t gen = 0;
 
-	err = libuzfs_object_create(dhp, &obj, &gen);
+	err = libuzfs_objects_create(dhp, objs, nobjs, &gen);
 	if (err)
 		printf("failed to create object on dataset: %s\n", dsname);
-	else
-		printf("created object %s:%ld, gen: %ld\n", dsname, obj, gen);
+	else {
+		printf("created %d objects: ", nobjs);
+		for (int i = 0; i < nobjs; ++i) {
+			printf("%lu ", objs[i]);
+		}
+		printf("\n");
+	}
 
 	libuzfs_dataset_close(dhp);
+	umem_free(objs, sizeof (uint64_t) *nobjs);
 
 	return (err);
 }
@@ -746,7 +754,7 @@ uzfs_object_delete(int argc, char **argv)
 		return (-1);
 	}
 
-	err = libuzfs_object_delete(dhp, obj);
+	err = libuzfs_objects_delete(dhp, &obj, 1);
 	if (err)
 		printf("failed to delete object: %s:%ld\n", dsname, obj);
 
@@ -1528,8 +1536,7 @@ uzfs_attr_cmp(uzfs_attr_t *lhs, uzfs_attr_t *rhs)
 	return lhs->psid == rhs->psid && lhs->ftype == rhs->ftype&&
 	    lhs->gen == rhs->gen && lhs->nlink == rhs->nlink &&
 	    lhs->perm == rhs->perm && lhs->gid == rhs->gid &&
-	    lhs->size == rhs->size && lhs->blksize == rhs->blksize &&
-	    lhs->blocks == rhs->blocks && lhs->nsid == rhs->nsid &&
+	    lhs->size == rhs->size && lhs->nsid == rhs->nsid &&
 	    lhs->atime.tv_nsec == rhs->atime.tv_nsec &&
 	    lhs->atime.tv_sec == rhs->atime.tv_sec &&
 	    lhs->mtime.tv_nsec == rhs->mtime.tv_nsec &&
@@ -1817,7 +1824,7 @@ uzfs_object_test(int argc, char **argv)
 	for (int i = 0; i < 10; ++i) {
 		uint64_t obj;
 		uint64_t gen;
-		VERIFY0(libuzfs_object_create(dhp, &obj, &gen));
+		VERIFY0(libuzfs_objects_create(dhp, &obj, 1, &gen));
 		printf("new object: %lu, gen: %lu\n", obj, gen);
 
 		char *file_content = umem_zalloc(FILE_SIZE, UMEM_NOFAIL);
@@ -1829,7 +1836,7 @@ uzfs_object_test(int argc, char **argv)
 		}
 
 		umem_free(file_content, FILE_SIZE);
-		VERIFY0(libuzfs_object_delete(dhp, obj));
+		VERIFY0(libuzfs_objects_delete(dhp, &obj, 1));
 	}
 
 	libuzfs_dataset_close(dhp);
@@ -2986,7 +2993,7 @@ static void* do_object_perf(void *object_perf_args)
 	for (i = 0; i < num; i++) {
 		obj = tid << 32 | i;
 		if (op == 0) {
-			err = libuzfs_object_delete(dhp, obj);
+			err = libuzfs_objects_delete(dhp, &obj, 1);
 			if (err) {
 				printf("Failed to rm obj %ld\n", obj);
 				goto out;
