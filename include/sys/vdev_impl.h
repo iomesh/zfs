@@ -603,6 +603,7 @@ extern vdev_ops_t vdev_draid_ops;
 extern vdev_ops_t vdev_draid_spare_ops;
 extern vdev_ops_t vdev_disk_ops;
 extern vdev_ops_t vdev_file_ops;
+extern vdev_ops_t vdev_aio_file_ops;
 extern vdev_ops_t vdev_missing_ops;
 extern vdev_ops_t vdev_hole_ops;
 extern vdev_ops_t vdev_spare_ops;

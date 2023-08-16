@@ -1872,7 +1872,7 @@ static void *worker_func(void *arg) {
 		} else {
 			VERIFY3U(libuzfs_object_read(ctx->dhp, ctx->obj,
 			    nwritten, ctx->blksize, buf), ==, ctx->blksize);
-			VERIFY((uint8_t)buf[101] == 0xf1);
+			VERIFY((uint8_t)buf[rand() % ctx->blksize] == 0xf1);
 		}
 		nwritten += ctx->blksize;
 	}
@@ -1888,15 +1888,25 @@ micros_elapsed(struct timeval *before, struct timeval *after)
 	    after->tv_usec - before->tv_usec;
 }
 
+/*
+ * Usage:
+ * 	uzfs io-bench <NUM_THREADS> <MEGAS_PER_THREAD> <DEV_NAME1> <DEV_NAME2> ...
+ * Example:
+ *	$ uzfs io-bench 16 1024 vda vdb
+ * 	this command will first create zpool vda in /dev/vda, vdb in /dev/vdb,
+ * then create 16 objects using zpool vda and vdb, 8 objects in each, then create 16
+ * threads to read/write those objects. each thread will first sequetialy write 1024 MB to
+ * its object, then sequentialy read 1024 MB from the object.
+ */
 static int
 uzfs_io_bench(int argc, char **argv)
 {
 	int nthread = atoi(argv[1]);
+	uint64_t megas_per_thread = atoi(argv[2]);
 
-	argc -= 2;
-	argv += 2;
+	argc -= 3;
+	argv += 3;
 
-	uint64_t total_megas = 4096;
 	uint64_t blksize_kilo = 256;
 
 	libuzfs_dataset_handle_t **dhps = umem_alloc(
@@ -1940,7 +1950,7 @@ uzfs_io_bench(int argc, char **argv)
 		VERIFY0(libuzfs_objects_create(dhps[i % argc],
 		    &ctxs[i].obj, 1, &gen));
 		ctxs[i].blksize = blksize_kilo << 10;
-		ctxs[i].total_size = total_megas << 20;
+		ctxs[i].total_size = megas_per_thread << 20;
 		ctxs[i].write = B_TRUE;
 	}
 
@@ -1959,7 +1969,7 @@ uzfs_io_bench(int argc, char **argv)
 
 	uint64_t elapsed_micros = micros_elapsed(&before, &after);
 	printf("concurrency: %d, write throughput: %luMB/s\n", nthread,
-	    total_megas * nthread * 1000000 / elapsed_micros);
+	    megas_per_thread * nthread * 1000000 / elapsed_micros);
 
 	gettimeofday(&before, NULL);
 	for (int i = 0; i < nthread; ++i) {
@@ -1974,7 +1984,7 @@ uzfs_io_bench(int argc, char **argv)
 	gettimeofday(&after, NULL);
 	elapsed_micros = micros_elapsed(&before, &after);
 	printf("concurrency: %d, read throughput: %luMB/s\n", nthread,
-	    total_megas * nthread * 1000000 / elapsed_micros);
+	    megas_per_thread * nthread * 1000000 / elapsed_micros);
 
 	for (int i = 0; i < argc; ++i) {
 		libuzfs_dataset_close(dhps[i]);

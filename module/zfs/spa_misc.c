@@ -2430,6 +2430,7 @@ spa_init(spa_mode_t mode)
 	vdev_mirror_stat_init();
 	vdev_raidz_math_init();
 	vdev_file_init();
+	vdev_aio_file_init();
 	zfs_prop_init();
 	zpool_prop_init();
 	zpool_feature_init();
@@ -2448,6 +2449,7 @@ spa_fini(void)
 	spa_evict_all();
 
 	vdev_file_fini();
+	vdev_aio_file_fini();
 	vdev_cache_stat_fini();
 	vdev_mirror_stat_fini();
 	vdev_raidz_math_fini();
