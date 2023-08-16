@@ -149,7 +149,7 @@ make_vdev_file(const char *path, char *aux, const char *pool, size_t size,
 	}
 
 	file = fnvlist_alloc();
-	fnvlist_add_string(file, ZPOOL_CONFIG_TYPE, VDEV_TYPE_FILE);
+	fnvlist_add_string(file, ZPOOL_CONFIG_TYPE, VDEV_TYPE_AIO_FILE);
 	fnvlist_add_string(file, ZPOOL_CONFIG_PATH, path);
 	fnvlist_add_uint64(file, ZPOOL_CONFIG_ASHIFT, ashift);
 

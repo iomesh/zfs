@@ -635,7 +635,7 @@ abd_borrow_buf(abd_t *abd, size_t n)
 	void *buf;
 	abd_verify(abd);
 	ASSERT3U(abd->abd_size, >=, n);
-	if (abd_is_linear(abd)) {
+	if (likely(abd_is_linear(abd))) {
 		buf = abd_to_buf(abd);
 	} else {
 		buf = zio_buf_alloc(n);
@@ -650,7 +650,7 @@ void *
 abd_borrow_buf_copy(abd_t *abd, size_t n)
 {
 	void *buf = abd_borrow_buf(abd, n);
-	if (!abd_is_linear(abd)) {
+	if (unlikely(!abd_is_linear(abd))) {
 		abd_copy_to_buf(buf, abd, n);
 	}
 	return (buf);
@@ -667,7 +667,7 @@ abd_return_buf(abd_t *abd, void *buf, size_t n)
 {
 	abd_verify(abd);
 	ASSERT3U(abd->abd_size, >=, n);
-	if (abd_is_linear(abd)) {
+	if (likely(abd_is_linear(abd))) {
 		ASSERT3P(buf, ==, abd_to_buf(abd));
 	} else {
 		ASSERT0(abd_cmp_buf(abd, buf, n));
@@ -681,7 +681,7 @@ abd_return_buf(abd_t *abd, void *buf, size_t n)
 void
 abd_return_buf_copy(abd_t *abd, void *buf, size_t n)
 {
-	if (!abd_is_linear(abd)) {
+	if (unlikely(!abd_is_linear(abd))) {
 		abd_copy_from_buf(abd, buf, n);
 	}
 	abd_return_buf(abd, buf, n);

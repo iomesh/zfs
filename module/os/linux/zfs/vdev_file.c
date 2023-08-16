@@ -53,8 +53,8 @@ static taskq_t *vdev_file_taskq;
  * impact the vdev_ashift setting which can only be set at vdev creation
  * time.
  */
-unsigned long vdev_file_logical_ashift = 12;
-unsigned long vdev_file_physical_ashift = 12;
+unsigned long vdev_file_logical_ashift = UZFS_VDEV_ASHIFT;
+unsigned long vdev_file_physical_ashift = UZFS_VDEV_ASHIFT;
 
 static void
 vdev_file_hold(vdev_t *vd)

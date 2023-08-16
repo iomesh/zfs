@@ -112,7 +112,6 @@ struct libuzfs_zap_iterator {
 #define	UZFS_GID_OFFSET 20
 #define	UZFS_PARENT_OFFSET 24
 #define	UZFS_MAX_BLOCKSIZE (1<<18)
-#define	UZFS_VDEV_ASHIFT 12
 
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
     sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);

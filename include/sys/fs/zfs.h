@@ -773,6 +773,7 @@ typedef struct zpool_load_policy {
 #define	VDEV_TYPE_DRAID_SPARE		"dspare"
 #define	VDEV_TYPE_DISK			"disk"
 #define	VDEV_TYPE_FILE			"file"
+#define	VDEV_TYPE_AIO_FILE		"aio_file"
 #define	VDEV_TYPE_MISSING		"missing"
 #define	VDEV_TYPE_HOLE			"hole"
 #define	VDEV_TYPE_SPARE			"spare"

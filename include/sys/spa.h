@@ -92,6 +92,7 @@ struct dsl_crypto_params;
 #define	SPA_MINBLOCKSIZE	(1ULL << SPA_MINBLOCKSHIFT)
 #define	SPA_OLD_MAXBLOCKSIZE	(1ULL << SPA_OLD_MAXBLOCKSHIFT)
 #define	SPA_MAXBLOCKSIZE	(1ULL << SPA_MAXBLOCKSHIFT)
+#define	UZFS_VDEV_ASHIFT	12
 
 /*
  * Alignment Shift (ashift) is an immutable, internal top-level vdev property
