@@ -124,8 +124,8 @@ extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
 
-extern int libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    uint64_t *gen);
+extern int libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
+    int num_objs, uint64_t *gen);
 
 extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
@@ -267,6 +267,7 @@ extern void libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter);
 extern uint64_t libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, uint64_t *off);
+extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
 
 #ifdef	__cplusplus
 }

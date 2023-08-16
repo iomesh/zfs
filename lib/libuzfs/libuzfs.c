@@ -588,7 +588,7 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 }
 
 void
-libuzfs_init()
+libuzfs_init(void)
 {
 	(void) pthread_mutex_lock(&g_lock);
 	if (g_refcount == 0) {
@@ -600,7 +600,7 @@ libuzfs_init()
 }
 
 void
-libuzfs_fini()
+libuzfs_fini(void)
 {
 	(void) pthread_mutex_lock(&g_lock);
 	ASSERT3S(g_refcount, >, 0);
@@ -1127,10 +1127,6 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	}
 	dmu_tx_commit(tx);
 
-	if (type == INODE_DATA_OBJ && !claiming) {
-		zil_commit(dhp->zilog, *obj);
-	}
-
 	return (0);
 }
 
@@ -1138,22 +1134,50 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
  * object creation is always SYNC, recorded in zil
  */
 int
-libuzfs_object_create(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    uint64_t *gen)
+libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
+    int num_objs, uint64_t *gen)
 {
-	return (libuzfs_create_inode_with_type(dhp, obj,
-	    FALSE, INODE_DATA_OBJ, gen));
+	objset_t *os = dhp->os;
+	// objects creation needs to be in 1 tx to ensure atomicity
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_attr_t));
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+		return (err);
+	}
+
+	for (int i = 0; i < num_objs; ++i) {
+		libuzfs_create_inode_with_type_impl(dhp, &objs[i],
+		    B_FALSE, INODE_DATA_OBJ, tx);
+	}
+
+	*gen = tx->tx_txg;
+
+	dmu_tx_commit(tx);
+
+	for (int i = 0; i < num_objs; ++i) {
+		zil_submit(dhp->zilog, objs[i]);
+	}
+
+	return (0);
+}
+
+void
+libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp)
+{
+	zil_wait_commit(dhp->zilog);
 }
 
 /*
- * object deletion is always SYNC, recorded in zil
+ * object deletion need not be SYNC, so the caller need to call libuzfs_wait_log_commit to wait log commit
  */
 int
 libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
 	int err = libuzfs_inode_delete(dhp, obj, INODE_DATA_OBJ, NULL);
 	if (err == 0) {
-		zil_commit(dhp->zilog, obj);
+		zil_submit(dhp->zilog, obj);
 	}
 
 	return (err);
