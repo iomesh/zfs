@@ -2942,6 +2942,13 @@ zil_commit_itx_assign(zilog_t *zilog, zil_commit_waiter_t *zcw)
 void
 zil_commit(zilog_t *zilog, uint64_t foid)
 {
+	zil_submit(zilog, foid);
+	zil_wait_commit(zilog);
+}
+
+void
+zil_submit(zilog_t *zilog, uint64_t oid)
+{
 	/*
 	 * We should never attempt to call zil_commit on a snapshot for
 	 * a couple of reasons:
@@ -2987,7 +2994,8 @@ zil_commit(zilog_t *zilog, uint64_t foid)
 		return;
 	}
 
-	zil_commit_impl(zilog, foid);
+	ZIL_STAT_BUMP(zil_commit_count);
+	zil_async_to_sync(zilog, oid);
 }
 
 void
@@ -3006,6 +3014,12 @@ zil_commit_impl(zilog_t *zilog, uint64_t foid)
 	 */
 	zil_async_to_sync(zilog, foid);
 
+	zil_wait_commit(zilog);
+}
+
+void
+zil_wait_commit(zilog_t *zilog)
+{
 	/*
 	 * We allocate a new "waiter" structure which will initially be
 	 * linked to the commit itx using the itx's "itx_private" field.
