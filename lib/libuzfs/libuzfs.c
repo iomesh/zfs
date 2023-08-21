@@ -1170,7 +1170,8 @@ libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp)
 }
 
 /*
- * object deletion need not be SYNC, so the caller need to call libuzfs_wait_log_commit to wait log commit
+ * object deletion need not be SYNC, so the caller need to call
+ * libuzfs_wait_log_commit to wait log commit
  */
 int
 libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)

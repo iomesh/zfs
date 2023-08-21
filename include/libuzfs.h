@@ -179,6 +179,10 @@ extern int libuzfs_zap_add(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     const char *key, int integer_size, uint64_t num_integers, const void *val,
     uint64_t *txg);
 
+extern int libuzfs_zap_update(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    const char *key, int integer_size, uint64_t num_integers, const void *val,
+    uint64_t *txg);
+
 extern int libuzfs_zap_remove(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     const char *key, uint64_t *txg);
 
