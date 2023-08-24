@@ -299,7 +299,7 @@ vdev_ops_t vdev_aio_file_ops = {
 static void
 prep_task(zio_task_t *task, struct iocb *io_cb)
 {
-	memset(io_cb, 0, sizeof(*io_cb));
+	memset(io_cb, 0, sizeof (*io_cb));
 	io_cb->aio_data = (uint64_t)task;
 	zio_t *zio = task->zio;
 	io_cb->aio_fildes = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
@@ -349,7 +349,8 @@ zio_task_submitter(void *args)
 		while (head != NULL) {
 			prep_task(head, ptr);
 			head = head->next;
-			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit, ctx->io_ctx, 1, &ptr)), ==, 1);
+			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
+			    ctx->io_ctx, 1, &ptr)), ==, 1);
 		}
 	}
 }
@@ -363,8 +364,8 @@ zio_task_reaper(void *args)
 	struct timespec interval = {1, 0};
 
 	while (likely(!ctx->stop)) {
-		int nevents = syscall(__NR_io_getevents, ctx->io_ctx, 1, MAX_PROCESSED_EVENTS,
-		    events, &interval);
+		int nevents = syscall(__NR_io_getevents, ctx->io_ctx,
+		    1, MAX_PROCESSED_EVENTS, events, &interval);
 		for (int i = 0; i < nevents; ++i) {
 			zio_task_t *task = (zio_task_t *)events[i].data;
 
