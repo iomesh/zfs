@@ -936,15 +936,15 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 	libuzfs_setup_dataset_sa(dhp);
 
-	dhp->zilog = zil_open(os, libuzfs_get_data);
-	zil_replay(os, dhp, libuzfs_replay_vector);
-
 	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
 		hash_bucket_t *bucket = &dhp->nodes_buckets[i];
 		avl_create(&bucket->tree, libuzfs_node_compare,
 		    sizeof (libuzfs_node_t), offsetof(libuzfs_node_t, node));
 		mutex_init(&bucket->mutex, NULL, 0, NULL);
 	}
+
+	dhp->zilog = zil_open(os, libuzfs_get_data);
+	zil_replay(os, dhp, libuzfs_replay_vector);
 }
 
 static void

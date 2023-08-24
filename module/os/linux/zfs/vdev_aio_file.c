@@ -30,6 +30,7 @@
 #include "umem.h"
 #include <asm/unistd_64.h>
 #include <bits/stdint-uintn.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -250,12 +251,14 @@ vdev_aio_file_io_start(zio_t *zio)
 
 		ASSERT3U(zio->io_size, !=, 0);
 #ifdef __linux__
-		mode = FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE;
+		mode = FALLOC_FL_PUNCH_HOLE;
 #endif
 		// TODO(sundengyu): make fallocate async
 		// and remove FALLOC_FL_KEEP_SIZE
-		zio->io_error = fallocate(vf->vf_fd, mode,
-		    zio->io_offset, zio->io_size);
+		if (fallocate(vf->vf_fd, mode, zio->io_offset,
+		    zio->io_size) < 0) {
+			zio->io_error = errno;
+		}
 		zio_execute(zio);
 		return;
 	}
