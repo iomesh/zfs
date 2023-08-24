@@ -1890,13 +1890,13 @@ micros_elapsed(struct timeval *before, struct timeval *after)
 
 /*
  * Usage:
- * 	uzfs io-bench <NUM_THREADS> <MEGAS_PER_THREAD> <DEV_NAME1> <DEV_NAME2> ...
+ *   uzfs io-bench <NUM_THREADS> <MEGAS_PER_THREAD> <DEV_NAME1> <DEV_NAME2> ...
  * Example:
- *	$ uzfs io-bench 16 1024 vda vdb
- * 	this command will first create zpool vda in /dev/vda, vdb in /dev/vdb,
- * then create 16 objects using zpool vda and vdb, 8 objects in each, then create 16
- * threads to read/write those objects. each thread will first sequetialy write 1024 MB to
- * its object, then sequentialy read 1024 MB from the object.
+ *   $ uzfs io-bench 16 1024 vda vdb
+ *   this command will first create zpool vda in /dev/vda, vdb in /dev/vdb, then
+ * create 16 objects using zpool vda and vdb, 8 objects in each, then create 16
+ * threads to read/write those objects. each thread will first sequetialy write
+ * 1024 MB to its object, then sequentialy read 1024 MB from the object.
  */
 static int
 uzfs_io_bench(int argc, char **argv)

@@ -1,7 +1,7 @@
 include $(top_srcdir)/config/Rules.am
 
 # Unconditionally enable ASSERTs
-AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
+# AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
 
 bin_PROGRAMS = uzfs
 
