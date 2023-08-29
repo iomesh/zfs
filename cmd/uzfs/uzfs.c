@@ -109,6 +109,8 @@ static int uzfs_dentry_list(int argc, char **argv);
 
 static int uzfs_io_bench(int argc, char **argv);
 
+static int uzfs_dataset_expand(int argc, char **argv);
+
 typedef enum {
 	HELP_ZPOOL_CREATE,
 	HELP_ZPOOL_DESTROY,
@@ -165,6 +167,7 @@ typedef enum {
 	HELP_ATTR_TEST,
 	HELP_OBJECT_TEST,
 	HELP_IO_BENCH,
+	HELP_DATASET_EXPAND,
 } uzfs_help_t;
 
 typedef struct uzfs_command {
@@ -238,6 +241,7 @@ static uzfs_command_t command_table[] = {
 	{ "attr-test",		uzfs_attr_random_test,	HELP_ATTR_TEST	},
 	{ "object-test",	uzfs_object_test, 	HELP_OBJECT_TEST},
 	{ "io-bench",		uzfs_io_bench,		HELP_IO_BENCH},
+	{ "expand-dataset",	uzfs_dataset_expand,	HELP_DATASET_EXPAND},
 };
 
 #define	NCOMMAND	(sizeof (command_table) / sizeof (command_table[0]))
@@ -357,6 +361,24 @@ get_usage(uzfs_help_t idx)
 	default:
 		__builtin_unreachable();
 	}
+}
+
+
+static int
+uzfs_dataset_expand(int argc, char **argv)
+{
+	char *dsname = argv[1];
+	libuzfs_dataset_handle_t *dhp = libuzfs_dataset_open(dsname);
+	if (dhp == NULL) {
+		printf("open dataset %s failed\n", dsname);
+		return (-1);
+	}
+
+	int err = libuzfs_dataset_expand(dhp);
+	printf("expand dataset %s, res: %d\n", dsname, err);
+
+	libuzfs_dataset_close(dhp);
+	return (0);
 }
 
 /*

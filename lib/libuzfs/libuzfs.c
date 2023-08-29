@@ -759,6 +759,25 @@ libuzfs_zpool_export(const char *pool_name)
 	return (err);
 }
 
+int
+libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp)
+{
+	spa_t *spa = dhp->os->os_spa;
+	vdev_t *root_vdev = spa->spa_root_vdev;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+		vdev_state_t newstate;
+
+		int err = vdev_online(spa, leaf_vdev->vdev_guid,
+		    ZFS_ONLINE_EXPAND, &newstate);
+		if (err != 0) {
+			return (err);
+		}
+	}
+
+	return (0);
+}
+
 void
 libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp, zpool_prop_t prop,
     uint64_t value)

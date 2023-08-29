@@ -269,6 +269,8 @@ extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
 
+extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
+
 #ifdef	__cplusplus
 }
 #endif
