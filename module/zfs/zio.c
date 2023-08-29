@@ -2371,10 +2371,11 @@ zio_reexecute(void *arg)
 void
 zio_suspend(spa_t *spa, zio_t *zio, zio_suspend_reason_t reason)
 {
+	int err = zio ? zio->io_error : 0;
 	if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC)
 		fm_panic("Pool '%s' has encountered an uncorrectable I/O "
 		    "failure and the failure mode property for this pool "
-		    "is set to panic.", spa_name(spa));
+		    "is set to panic, err: %d.", spa_name(spa), err);
 
 	cmn_err(CE_WARN, "Pool '%s' has encountered an uncorrectable I/O "
 	    "failure and has been suspended.\n", spa_name(spa));

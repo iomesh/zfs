@@ -636,6 +636,8 @@ libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
 
 	props = fnvlist_alloc();
 	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_AUTOTRIM), 1);
+	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
+	    ZIO_FAILURE_MODE_PANIC);
 	err = spa_create(zpool, nvroot, props, NULL, NULL);
 	fnvlist_free(props);
 	if (err) {
