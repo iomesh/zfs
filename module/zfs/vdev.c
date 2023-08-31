@@ -31,6 +31,7 @@
  * Copyright [2021] Hewlett Packard Enterprise Development LP
  */
 
+#include "atomic.h"
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
 #include <sys/spa.h>

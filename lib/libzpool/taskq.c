@@ -291,9 +291,11 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 		mutex_exit(&tq->tq_lock);
 	}
 
-	for (t = 0; t < nthreads; t++)
+	for (t = 0; t < nthreads; t++) {
 		VERIFY((tq->tq_threadlist[t] = thread_create(NULL, 0,
 		    taskq_thread, tq, 0, &p0, TS_RUN, pri)) != NULL);
+		pthread_setname_np((pthread_t)tq->tq_threadlist[t], name);
+	}
 
 	return (tq);
 }
@@ -363,8 +365,8 @@ void
 system_taskq_init(void)
 {
 	VERIFY0(pthread_key_create(&taskq_tsd, NULL));
-	system_taskq = taskq_create("system_taskq", 64, maxclsyspri, 4, 512,
-	    TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
+	// system_taskq = taskq_create("system_taskq", 64, maxclsyspri, 4, 512,
+	// TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
 	system_delay_taskq = taskq_create("delay_taskq", 4, maxclsyspri, 4,
 	    512, TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
 }
@@ -372,7 +374,7 @@ system_taskq_init(void)
 void
 system_taskq_fini(void)
 {
-	taskq_destroy(system_taskq);
+	// taskq_destroy(system_taskq);
 	system_taskq = NULL; /* defensive */
 	taskq_destroy(system_delay_taskq);
 	system_delay_taskq = NULL;

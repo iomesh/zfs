@@ -1101,6 +1101,8 @@ spa_taskqs_fini(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 	tqs->stqs_taskq = NULL;
 }
 
+extern taskq_t *system_spa_taskq;
+
 /*
  * Dispatch a task to the appropriate taskq for the ZFS I/O type and priority.
  * Note that a type may have multiple discrete taskqs to avoid lock contention
@@ -1111,19 +1113,19 @@ void
 spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent)
 {
-	spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
-	taskq_t *tq;
+	// spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
+	// taskq_t *tq;
 
-	ASSERT3P(tqs->stqs_taskq, !=, NULL);
-	ASSERT3U(tqs->stqs_count, !=, 0);
+	// ASSERT3P(tqs->stqs_taskq, !=, NULL);
+	// ASSERT3U(tqs->stqs_count, !=, 0);
 
-	if (tqs->stqs_count == 1) {
-		tq = tqs->stqs_taskq[0];
-	} else {
-		tq = tqs->stqs_taskq[((uint64_t)gethrtime()) % tqs->stqs_count];
-	}
+	// if (tqs->stqs_count == 1) {
+	// 	tq = tqs->stqs_taskq[0];
+	// } else {
+	// 	tq = tqs->stqs_taskq[((uint64_t)gethrtime()) % tqs->stqs_count];
+	// }
 
-	taskq_dispatch_ent(tq, func, arg, flags, ent);
+	taskq_dispatch_ent(system_spa_taskq, func, arg, flags, ent);
 }
 
 /*
@@ -1288,7 +1290,7 @@ spa_activate(spa_t *spa, spa_mode_t mode)
 
 	/* If we didn't create a process, we need to create our taskqs. */
 	if (spa->spa_proc == &p0) {
-		spa_create_zio_taskqs(spa);
+		// spa_create_zio_taskqs(spa);
 	}
 
 	for (size_t i = 0; i < TXG_SIZE; i++) {
@@ -1330,23 +1332,23 @@ spa_activate(spa_t *spa, spa_mode_t mode)
 	 * task. In this context, there is easy access to the spa_t and minimal
 	 * error handling is required because the sync task must succeed.
 	 */
-	spa->spa_zvol_taskq = taskq_create("z_zvol", 1, defclsyspri,
-	    1, INT_MAX, 0);
+	// spa->spa_zvol_taskq = taskq_create("z_zvol", 1, defclsyspri,
+	// 1, INT_MAX, 0);
 
 	/*
 	 * Taskq dedicated to prefetcher threads: this is used to prevent the
 	 * pool traverse code from monopolizing the global (and limited)
 	 * system_taskq by inappropriately scheduling long running tasks on it.
 	 */
-	spa->spa_prefetch_taskq = taskq_create("z_prefetch", 100,
-	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
+	// spa->spa_prefetch_taskq = taskq_create("z_prefetch", 100,
+	// defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
 
 	/*
 	 * The taskq to upgrade datasets in this pool. Currently used by
 	 * feature SPA_FEATURE_USEROBJ_ACCOUNTING/SPA_FEATURE_PROJECT_QUOTA.
 	 */
-	spa->spa_upgrade_taskq = taskq_create("z_upgrade", 100,
-	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
+	// spa->spa_upgrade_taskq = taskq_create("z_upgrade", 100,
+	// defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
 }
 
 /*

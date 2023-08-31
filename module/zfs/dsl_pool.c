@@ -213,21 +213,21 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 	    zfs_sync_taskq_batch_pct, minclsyspri, 1, INT_MAX,
 	    TASKQ_THREADS_CPU_PCT);
 
-	dp->dp_zil_clean_taskq = taskq_create("dp_zil_clean_taskq",
-	    zfs_zil_clean_taskq_nthr_pct, minclsyspri,
-	    zfs_zil_clean_taskq_minalloc,
-	    zfs_zil_clean_taskq_maxalloc,
-	    TASKQ_PREPOPULATE | TASKQ_THREADS_CPU_PCT);
+	// dp->dp_zil_clean_taskq = taskq_create("dp_zil_clean_taskq",
+	// zfs_zil_clean_taskq_nthr_pct, minclsyspri,
+	// zfs_zil_clean_taskq_minalloc,
+	// zfs_zil_clean_taskq_maxalloc,
+	// TASKQ_PREPOPULATE | TASKQ_THREADS_CPU_PCT);
 
 	mutex_init(&dp->dp_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&dp->dp_spaceavail_cv, NULL, CV_DEFAULT, NULL);
 
-	dp->dp_zrele_taskq = taskq_create("z_zrele", 100, defclsyspri,
-	    boot_ncpus * 8, INT_MAX, TASKQ_PREPOPULATE | TASKQ_DYNAMIC |
-	    TASKQ_THREADS_CPU_PCT);
-	dp->dp_unlinked_drain_taskq = taskq_create("z_unlinked_drain",
-	    100, defclsyspri, boot_ncpus, INT_MAX,
-	    TASKQ_PREPOPULATE | TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
+	// dp->dp_zrele_taskq = taskq_create("z_zrele", 100, defclsyspri,
+	// boot_ncpus * 8, INT_MAX, TASKQ_PREPOPULATE | TASKQ_DYNAMIC |
+	// TASKQ_THREADS_CPU_PCT);
+	// dp->dp_unlinked_drain_taskq = taskq_create("z_unlinked_drain",
+	// 100, defclsyspri, boot_ncpus, INT_MAX,
+	// TASKQ_PREPOPULATE | TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
 
 	return (dp);
 }
@@ -400,7 +400,7 @@ dsl_pool_close(dsl_pool_t *dp)
 	txg_list_destroy(&dp->dp_early_sync_tasks);
 	txg_list_destroy(&dp->dp_dirty_dirs);
 
-	taskq_destroy(dp->dp_zil_clean_taskq);
+	// taskq_destroy(dp->dp_zil_clean_taskq);
 	taskq_destroy(dp->dp_sync_taskq);
 
 	/*
@@ -419,8 +419,8 @@ dsl_pool_close(dsl_pool_t *dp)
 	rrw_destroy(&dp->dp_config_rwlock);
 	mutex_destroy(&dp->dp_lock);
 	cv_destroy(&dp->dp_spaceavail_cv);
-	taskq_destroy(dp->dp_unlinked_drain_taskq);
-	taskq_destroy(dp->dp_zrele_taskq);
+	// taskq_destroy(dp->dp_unlinked_drain_taskq);
+	// taskq_destroy(dp->dp_zrele_taskq);
 	if (dp->dp_blkstats != NULL) {
 		mutex_destroy(&dp->dp_blkstats->zab_lock);
 		vmem_free(dp->dp_blkstats, sizeof (zfs_all_blkstats_t));

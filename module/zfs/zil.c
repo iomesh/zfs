@@ -112,6 +112,8 @@ zil_stats_t zil_stats = {
 
 static kstat_t *zil_ksp;
 
+static taskq_t *zil_clean_taskq;
+
 /*
  * Disable intent logging replay.  This global ZIL switch affects all pools.
  */
@@ -2080,8 +2082,8 @@ zil_clean(zilog_t *zilog, uint64_t synced_txg)
 	 * created a bad performance problem.
 	 */
 	ASSERT3P(zilog->zl_dmu_pool, !=, NULL);
-	ASSERT3P(zilog->zl_dmu_pool->dp_zil_clean_taskq, !=, NULL);
-	taskqid_t id = taskq_dispatch(zilog->zl_dmu_pool->dp_zil_clean_taskq,
+	// ASSERT3P(zilog->zl_dmu_pool->dp_zil_clean_taskq, !=, NULL);
+	taskqid_t id = taskq_dispatch(zil_clean_taskq,
 	    zil_itxg_clean, clean_me, TQ_NOSLEEP);
 	if (id == TASKQID_INVALID)
 		zil_itxg_clean(clean_me);
@@ -3167,6 +3169,11 @@ zil_lwb_dest(void *vbuf, void *unused)
 	list_destroy(&lwb->lwb_itxs);
 }
 
+// see comments in dsl_pool.c
+extern int zfs_zil_clean_taskq_nthr_pct;
+extern int zfs_zil_clean_taskq_minalloc;
+extern int zfs_zil_clean_taskq_maxalloc;
+
 void
 zil_init(void)
 {
@@ -3184,6 +3191,12 @@ zil_init(void)
 		zil_ksp->ks_data = &zil_stats;
 		kstat_install(zil_ksp);
 	}
+
+	zil_clean_taskq = taskq_create("zil_clean_taskq",
+	    zfs_zil_clean_taskq_nthr_pct, minclsyspri,
+	    zfs_zil_clean_taskq_minalloc,
+	    zfs_zil_clean_taskq_maxalloc,
+	    TASKQ_PREPOPULATE | TASKQ_THREADS_CPU_PCT);
 }
 
 void
@@ -3196,6 +3209,8 @@ zil_fini(void)
 		kstat_delete(zil_ksp);
 		zil_ksp = NULL;
 	}
+
+	taskq_destroy(zil_clean_taskq);
 }
 
 void

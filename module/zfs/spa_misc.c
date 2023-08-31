@@ -241,6 +241,8 @@ static kmutex_t spa_spare_lock;
 static avl_tree_t spa_spare_avl;
 static kmutex_t spa_l2cache_lock;
 static avl_tree_t spa_l2cache_avl;
+taskq_t *system_spa_taskq;
+taskq_t *system_dp_sync_taskq;
 
 kmem_cache_t *spa_buffer_pool;
 spa_mode_t spa_mode_global = SPA_MODE_UNINIT;
@@ -2400,6 +2402,9 @@ spa_init(spa_mode_t mode)
 
 	spa_mode_global = mode;
 
+	system_spa_taskq = taskq_create("system_spa_taskq", boot_ncpus * 2,
+	    minclsyspri, boot_ncpus * 2, INT_MAX, TASKQ_DYNAMIC);
+
 #ifndef _KERNEL
 	if (spa_mode_global != SPA_MODE_READ && dprintf_find_string("watch")) {
 		struct sigaction sa;
@@ -2429,7 +2434,7 @@ spa_init(spa_mode_t mode)
 	vdev_cache_stat_init();
 	vdev_mirror_stat_init();
 	vdev_raidz_math_init();
-	vdev_file_init();
+	// vdev_file_init();
 	vdev_aio_file_init();
 	zfs_prop_init();
 	zpool_prop_init();
@@ -2448,7 +2453,7 @@ spa_fini(void)
 
 	spa_evict_all();
 
-	vdev_file_fini();
+	// vdev_file_fini();
 	vdev_aio_file_fini();
 	vdev_cache_stat_fini();
 	vdev_mirror_stat_fini();
@@ -2474,6 +2479,7 @@ spa_fini(void)
 	mutex_destroy(&spa_namespace_lock);
 	mutex_destroy(&spa_spare_lock);
 	mutex_destroy(&spa_l2cache_lock);
+	taskq_destroy(system_spa_taskq);
 }
 
 /*

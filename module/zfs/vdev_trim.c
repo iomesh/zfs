@@ -25,6 +25,7 @@
  * Copyright (c) 2021 Hewlett Packard Enterprise Development LP
  */
 
+#include <pthread.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
 #include <sys/txg.h>
@@ -980,6 +981,7 @@ vdev_trim(vdev_t *vd, uint64_t rate, boolean_t partial, boolean_t secure)
 	vdev_trim_change_state(vd, VDEV_TRIM_ACTIVE, rate, partial, secure);
 	vd->vdev_trim_thread = thread_create(NULL, 0,
 	    vdev_trim_thread, vd, 0, &p0, TS_RUN, maxclsyspri);
+	pthread_setname_np((pthread_t)vd->vdev_trim_thread, "vdev_trim");
 }
 
 /*

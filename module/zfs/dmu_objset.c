@@ -91,17 +91,21 @@ static void dmu_objset_find_dp_cb(void *arg);
 
 static void dmu_objset_upgrade(objset_t *os, dmu_objset_upgrade_cb_t cb);
 static void dmu_objset_upgrade_stop(objset_t *os);
+static taskq_t *spa_upgrade_taskq;
 
 void
 dmu_objset_init(void)
 {
 	rw_init(&os_lock, NULL, RW_DEFAULT, NULL);
+	spa_upgrade_taskq = taskq_create("spa_upgrade_taskq", 100,
+	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
 }
 
 void
 dmu_objset_fini(void)
 {
 	rw_destroy(&os_lock);
+	taskq_destroy(spa_upgrade_taskq);
 }
 
 spa_t *
@@ -1469,8 +1473,7 @@ dmu_objset_upgrade(objset_t *os, dmu_objset_upgrade_cb_t cb)
 	if (os->os_upgrade_id == 0 && os->os_upgrade_status == 0) {
 		os->os_upgrade_exit = B_FALSE;
 		os->os_upgrade_cb = cb;
-		os->os_upgrade_id = taskq_dispatch(
-		    os->os_spa->spa_upgrade_taskq,
+		os->os_upgrade_id = taskq_dispatch(spa_upgrade_taskq,
 		    dmu_objset_upgrade_task_cb, os, TQ_SLEEP);
 		if (os->os_upgrade_id == TASKQID_INVALID) {
 			dsl_dataset_long_rele(dmu_objset_ds(os), upgrade_tag);
