@@ -121,6 +121,7 @@ extern "C" {
 #include <sys/debug.h>
 #include <sys/utsname.h>
 #include <sys/trace_zfs.h>
+#include <semaphore.h>
 
 #include <sys/zfs_context_os.h>
 
@@ -406,6 +407,11 @@ void procfs_list_add(procfs_list_t *procfs_list, void *p);
 typedef uintptr_t taskqid_t;
 typedef void (task_func_t)(void *);
 
+typedef struct countdown_event {
+	sem_t sem;
+	uint32_t count;
+} countdown_event_t;
+
 typedef struct taskq_ent {
 	struct taskq_ent	*tqent_next;
 	struct taskq_ent	*tqent_prev;
@@ -663,6 +669,13 @@ extern int kmem_cache_reap_active(void);
 
 #define	UZFS_SB_OBJ		"UZFS_SB_OBJ"
 #define	UZFS_UNLINK_OBJ		"UZFS_UNLINK_OBJ"
+
+extern void countdown_event_init(countdown_event_t *ce, uint32_t initval);
+extern void countdown_event_add_count(countdown_event_t *ce, uint32_t value);
+extern void countdown_event_sub_count(countdown_event_t *ce, uint32_t value);
+// wait until count is zero
+extern int countdown_event_wait(countdown_event_t *ce);
+extern void countdown_event_fini(countdown_event_t *ce);
 
 #include <sys/kernel.h>
 

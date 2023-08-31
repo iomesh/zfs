@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <libgen.h>
 #include <poll.h>
+#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1858,4 +1859,48 @@ uzfs_ioctl(unsigned cmd, unsigned long arg)
 out:
 	kmem_free(zc, sizeof (zfs_cmd_t));
 	return (error);
+}
+
+void
+countdown_event_init(countdown_event_t *ce, uint32_t initval)
+{
+	VERIFY0(sem_init(&ce->sem, 0, 0));
+	ce->count = initval;
+}
+
+void
+countdown_event_add_count(countdown_event_t *ce, uint32_t value)
+{
+	atomic_add_32(&ce->count, value);
+}
+
+void
+countdown_event_sub_count(countdown_event_t *ce, uint32_t value)
+{
+	if (atomic_sub_32_nv(&ce->count, value) == 0) {
+		VERIFY0(sem_post(&ce->sem));
+	}
+}
+
+int
+countdown_event_wait(countdown_event_t *ce)
+{
+	for (;;) {
+		if (atomic_load_32(&ce->count) == 0) {
+			break;
+		}
+
+		if (sem_wait(&ce->sem) < 0 &&
+		    errno != EWOULDBLOCK && errno != EINTR) {
+			return (errno);
+		}
+	}
+
+	return (0);
+}
+
+void
+countdown_event_fini(countdown_event_t *ce)
+{
+	VERIFY0(sem_destroy(&ce->sem));
 }
