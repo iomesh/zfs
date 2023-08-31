@@ -96,8 +96,6 @@ libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
 	libuzfs_add_bulk_attr(dhp, sa_attrs, &cnt, &attr);
 	if (type == INODE_DATA_OBJ) {
 		attr.gen = tx->tx_txg;
-		VERIFY0(sa_replace_all_by_template(sa_hdl, sa_attrs, cnt, tx));
-		return;
 	}
 
 	nvlist_t *nvl;

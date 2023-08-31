@@ -23,6 +23,8 @@
  * Copyright (c) 2022, SmartX Inc. All rights reserved.
  */
 
+#include "sys/stdtypes.h"
+#include <stdio.h>
 #include <libintl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -1559,7 +1561,7 @@ static int
 uzfs_attr_cmp(uzfs_attr_t *lhs, uzfs_attr_t *rhs)
 {
 	return lhs->psid == rhs->psid && lhs->ftype == rhs->ftype&&
-	    lhs->gen == rhs->gen && lhs->nlink == rhs->nlink &&
+	    lhs->nlink == rhs->nlink &&
 	    lhs->perm == rhs->perm && lhs->gid == rhs->gid &&
 	    lhs->size == rhs->size && lhs->nsid == rhs->nsid &&
 	    lhs->atime.tv_nsec == rhs->atime.tv_nsec &&
@@ -1589,7 +1591,7 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 	    listkvattr_proportion + getattr_proportion + setattr_proportion;
 
 	int op = rand() % total_proportion;
-	*reset = B_TRUE;
+	*reset = B_FALSE;
 	if (op < delete_proportion) {
 		// delete inode
 		if (*ino != 0) {
@@ -1603,7 +1605,7 @@ uzfs_attr_ops(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 	op -= delete_proportion;
 
 	if (*ino == 0) {
-		*type = rand() % 2;
+		*type = rand() % 3;
 		VERIFY0(libuzfs_inode_create(dhp, ino, *type, NULL));
 	}
 	if (op < getkvattr_proportion) {
