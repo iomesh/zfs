@@ -28,11 +28,14 @@
  * Copyright (c) 2014 by Delphix. All rights reserved.
  */
 
+#include "umem.h"
 #include <sys/zfs_context.h>
 
 int taskq_now;
 taskq_t *system_taskq;
 taskq_t *system_delay_taskq;
+taskq_t *system_spa_taskq;
+taskq_t *system_dp_sync_taskq;
 
 static pthread_key_t taskq_tsd;
 
@@ -103,6 +106,13 @@ task_free(taskq_t *tq, taskq_ent_t *t)
 taskqid_t
 taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t tqflags)
 {
+	return (taskq_dispatch_with_ce(tq, func, arg, tqflags, NULL));
+}
+
+taskqid_t
+taskq_dispatch_with_ce(taskq_t *tq, task_func_t func, void *arg,
+    uint_t tqflags, countdown_event_t *ce)
+{
 	taskq_ent_t *t;
 
 	if (taskq_now) {
@@ -115,6 +125,10 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t tqflags)
 	if ((t = task_alloc(tq, tqflags)) == NULL) {
 		mutex_exit(&tq->tq_lock);
 		return (0);
+	}
+	t->ce = ce;
+	if (ce) {
+		countdown_event_add_count(ce, 1);
 	}
 	if (tqflags & TQ_FRONT) {
 		t->tqent_next = tq->tq_task.tqent_next;
@@ -238,8 +252,13 @@ taskq_thread(void *arg)
 		rw_exit(&tq->tq_threadlock);
 
 		mutex_enter(&tq->tq_lock);
-		if (!prealloc)
+		if (!prealloc) {
+			// prealloced task entry doesn't use fake_taskq for now
+			if (t->ce) {
+				countdown_event_sub_count(t->ce, 1);
+			}
 			task_free(tq, t);
+		}
 	}
 	tq->tq_nthreads--;
 	cv_broadcast(&tq->tq_wait_cv);
@@ -355,6 +374,29 @@ taskq_of_curthread(void)
 	return (pthread_getspecific(taskq_tsd));
 }
 
+fake_taskq_t *
+fake_taskq_create(taskq_t *tq)
+{
+	fake_taskq_t *ftq = umem_alloc(sizeof (fake_taskq_t), UMEM_NOFAIL);
+	ftq->tq = tq;
+	countdown_event_init(&ftq->ce, 0);
+	return (ftq);
+}
+
+void
+fake_taskq_wait(fake_taskq_t *ftq)
+{
+	VERIFY0(countdown_event_wait(&ftq->ce));
+}
+
+void
+fake_taskq_destroy(fake_taskq_t *ftq)
+{
+	fake_taskq_wait(ftq);
+	countdown_event_fini(&ftq->ce);
+	umem_free(ftq, sizeof (fake_taskq_t));
+}
+
 int
 taskq_cancel_id(taskq_t *tq, taskqid_t id)
 {
@@ -369,6 +411,11 @@ system_taskq_init(void)
 	// TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
 	system_delay_taskq = taskq_create("delay_taskq", 4, maxclsyspri, 4,
 	    512, TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
+	system_spa_taskq = taskq_create("system_spa_taskq", boot_ncpus * 2,
+	    minclsyspri, boot_ncpus * 2, INT_MAX, TASKQ_DYNAMIC);
+	system_dp_sync_taskq = taskq_create("system_dp_sync_taskq",
+	    boot_ncpus * 2, minclsyspri, 1,
+	    INT_MAX, TASKQ_DYNAMIC);
 }
 
 void
@@ -379,4 +426,6 @@ system_taskq_fini(void)
 	taskq_destroy(system_delay_taskq);
 	system_delay_taskq = NULL;
 	VERIFY0(pthread_key_delete(taskq_tsd));
+	taskq_destroy(system_spa_taskq);
+	taskq_destroy(system_dp_sync_taskq);
 }

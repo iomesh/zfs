@@ -418,6 +418,7 @@ typedef struct taskq_ent {
 	task_func_t		*tqent_func;
 	void			*tqent_arg;
 	uintptr_t		tqent_flags;
+	countdown_event_t	*ce;
 } taskq_ent_t;
 
 typedef struct taskq {
@@ -438,6 +439,11 @@ typedef struct taskq {
 	taskq_ent_t	*tq_freelist;
 	taskq_ent_t	tq_task;
 } taskq_t;
+
+typedef struct fake_taskq {
+	taskq_t			*tq;
+	countdown_event_t	ce;
+} fake_taskq_t;
 
 #define	TQENT_FLAG_PREALLOC	0x1	/* taskq_dispatch_ent used */
 
@@ -463,6 +469,8 @@ extern taskq_t	*taskq_create(const char *, int, pri_t, int, int, uint_t);
 #define	taskq_create_sysdc(a, b, d, e, p, dc, f) \
 	    (taskq_create(a, b, maxclsyspri, d, e, f))
 extern taskqid_t taskq_dispatch(taskq_t *, task_func_t, void *, uint_t);
+extern taskqid_t taskq_dispatch_with_ce(taskq_t *tq, task_func_t func,
+    void *arg, uint_t tqflags, countdown_event_t *ce);
 extern taskqid_t taskq_dispatch_delay(taskq_t *, task_func_t, void *, uint_t,
     clock_t);
 extern void	taskq_dispatch_ent(taskq_t *, task_func_t, void *, uint_t,
@@ -478,6 +486,9 @@ extern taskq_t	*taskq_of_curthread(void);
 extern int	taskq_cancel_id(taskq_t *, taskqid_t);
 extern void	system_taskq_init(void);
 extern void	system_taskq_fini(void);
+extern fake_taskq_t *fake_taskq_create(taskq_t *tq);
+extern void fake_taskq_wait(fake_taskq_t *ftq);
+extern void fake_taskq_destroy(fake_taskq_t *ftq);
 
 #define	XVA_MAPSIZE	3
 #define	XVA_MAGIC	0x78766174
