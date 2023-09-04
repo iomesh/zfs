@@ -58,6 +58,7 @@
 #include <sys/sa_impl.h>
 
 #include "libuzfs_impl.h"
+#include "string.h"
 #include "sys/dnode.h"
 #include "sys/stdtypes.h"
 
@@ -286,7 +287,7 @@ libuzfs_dmu_objset_own(const char *name, dmu_objset_type_t type,
 	char *cp = NULL;
 	char ddname[ZFS_MAX_DATASET_NAME_LEN];
 
-	strcpy(ddname, name);
+	strlcpy(ddname, name, ZFS_MAX_DATASET_NAME_LEN);
 	cp = strchr(ddname, '@');
 	if (cp != NULL)
 		*cp = '\0';
@@ -1774,7 +1775,7 @@ libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	dmu_buf_t *db;
 
 	VERIFY0(dmu_bonus_hold(dhp->os, ino, FTAG, &db));
-	bcopy(db->db_data, kvobj, sizeof (*kvobj));
+	memcpy(db->db_data, kvobj, sizeof (*kvobj));
 	dmu_buf_rele(db, FTAG);
 
 	return (0);
