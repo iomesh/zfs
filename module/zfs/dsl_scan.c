@@ -3703,8 +3703,9 @@ dsl_scan_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 		    NULL, ZIO_FLAG_CANFAIL);
 
 		scn->scn_prefetch_stop = B_FALSE;
-		prefetch_tqid = taskq_dispatch(dp->dp_sync_taskq,
-		    dsl_scan_prefetch_thread, scn, TQ_SLEEP);
+		prefetch_tqid = taskq_dispatch_with_ce(dp->dp_sync_taskq->tq,
+		    dsl_scan_prefetch_thread, scn, TQ_SLEEP,
+		    &dp->dp_sync_taskq->ce);
 		ASSERT(prefetch_tqid != TASKQID_INVALID);
 
 		dsl_pool_config_enter(dp, FTAG);
@@ -3716,7 +3717,7 @@ dsl_scan_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 		cv_broadcast(&spa->spa_scrub_io_cv);
 		mutex_exit(&dp->dp_spa->spa_scrub_lock);
 
-		taskq_wait_id(dp->dp_sync_taskq, prefetch_tqid);
+		fake_taskq_wait_id(dp->dp_sync_taskq, prefetch_tqid);
 		(void) zio_wait(scn->scn_zio_root);
 		scn->scn_zio_root = NULL;
 

@@ -36,6 +36,7 @@ taskq_t *system_taskq;
 taskq_t *system_delay_taskq;
 taskq_t *system_spa_taskq;
 taskq_t *system_dp_sync_taskq;
+taskq_t *system_mg_taskq;
 
 static pthread_key_t taskq_tsd;
 
@@ -390,6 +391,13 @@ fake_taskq_wait(fake_taskq_t *ftq)
 }
 
 void
+fake_taskq_wait_id(fake_taskq_t *ftq, taskqid_t id)
+{
+	(void) id;
+	fake_taskq_wait(ftq);
+}
+
+void
 fake_taskq_destroy(fake_taskq_t *ftq)
 {
 	fake_taskq_wait(ftq);
@@ -416,6 +424,9 @@ system_taskq_init(void)
 	system_dp_sync_taskq = taskq_create("system_dp_sync_taskq",
 	    boot_ncpus * 2, minclsyspri, 1,
 	    INT_MAX, TASKQ_DYNAMIC);
+	system_mg_taskq = taskq_create("system_mg_taskq",
+	    boot_ncpus * 2, minclsyspri, 1,
+	    INT_MAX, TASKQ_DYNAMIC);
 }
 
 void
@@ -428,4 +439,5 @@ system_taskq_fini(void)
 	VERIFY0(pthread_key_delete(taskq_tsd));
 	taskq_destroy(system_spa_taskq);
 	taskq_destroy(system_dp_sync_taskq);
+	taskq_destroy(system_mg_taskq);
 }

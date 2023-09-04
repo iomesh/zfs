@@ -30,6 +30,7 @@
 #ifndef _SYS_METASLAB_IMPL_H
 #define	_SYS_METASLAB_IMPL_H
 
+#include "sys/zfs_context.h"
 #include <sys/metaslab.h>
 #include <sys/space_map.h>
 #include <sys/range_tree.h>
@@ -250,7 +251,7 @@ struct metaslab_group {
 	int64_t			mg_activation_count;
 	metaslab_class_t	*mg_class;
 	vdev_t			*mg_vd;
-	taskq_t			*mg_taskq;
+	fake_taskq_t		*mg_taskq;
 	metaslab_group_t	*mg_prev;
 	metaslab_group_t	*mg_next;
 

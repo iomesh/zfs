@@ -488,6 +488,7 @@ extern void	system_taskq_init(void);
 extern void	system_taskq_fini(void);
 extern fake_taskq_t *fake_taskq_create(taskq_t *tq);
 extern void fake_taskq_wait(fake_taskq_t *ftq);
+extern void fake_taskq_wait_id(fake_taskq_t *ftq, taskqid_t);
 extern void fake_taskq_destroy(fake_taskq_t *ftq);
 
 #define	XVA_MAPSIZE	3

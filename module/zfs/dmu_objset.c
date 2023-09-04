@@ -1253,7 +1253,7 @@ dmu_objset_create_sync(void *arg, dmu_tx_t *tx)
 		VERIFY0(zio_wait(rzio));
 
 		dmu_objset_sync_done(os, tx);
-		taskq_wait(dp->dp_sync_taskq);
+		fake_taskq_wait(dp->dp_sync_taskq);
 		if (txg_list_member(&dp->dp_dirty_datasets, ds, tx->tx_txg)) {
 			ASSERT3P(ds->ds_key_mapping, !=, NULL);
 			key_mapping_rele(spa, ds->ds_key_mapping, ds);
@@ -1708,6 +1708,7 @@ dmu_objset_sync(objset_t *os, zio_t *pio, dmu_tx_t *tx)
 
 	ml = &os->os_dirty_dnodes[txgoff];
 	num_sublists = multilist_get_num_sublists(ml);
+	fake_taskq_t *dp_sync_taskq = dmu_objset_pool(os)->dp_sync_taskq;
 	for (int i = 0; i < num_sublists; i++) {
 		if (multilist_sublist_is_empty_idx(ml, i))
 			continue;
@@ -1715,11 +1716,11 @@ dmu_objset_sync(objset_t *os, zio_t *pio, dmu_tx_t *tx)
 		sda->sda_list = ml;
 		sda->sda_sublist_idx = i;
 		sda->sda_tx = tx;
-		(void) taskq_dispatch(dmu_objset_pool(os)->dp_sync_taskq,
-		    sync_dnodes_task, sda, 0);
+		(void) taskq_dispatch_with_ce(dp_sync_taskq->tq,
+		    sync_dnodes_task, sda, 0, &dp_sync_taskq->ce);
 		/* callback frees sda */
 	}
-	taskq_wait(dmu_objset_pool(os)->dp_sync_taskq);
+	fake_taskq_wait(dp_sync_taskq);
 
 	list = &DMU_META_DNODE(os)->dn_dirty_records[txgoff];
 	while ((dr = list_head(list)) != NULL) {
@@ -2112,9 +2113,11 @@ dmu_objset_sync_done(objset_t *os, dmu_tx_t *tx)
 		 * If we don't need to update userquotas, use
 		 * dnode_rele_task() to call dnode_rele()
 		 */
-		(void) taskq_dispatch(dmu_objset_pool(os)->dp_sync_taskq,
+		fake_taskq_t *dp_sync_taskq =
+		    dmu_objset_pool(os)->dp_sync_taskq;
+		(void) taskq_dispatch_with_ce(dp_sync_taskq->tq,
 		    need_userquota ? userquota_updates_task : dnode_rele_task,
-		    uua, 0);
+		    uua, 0, &dp_sync_taskq->ce);
 		/* callback frees uua */
 	}
 }

@@ -1642,7 +1642,7 @@ spa_unload(spa_t *spa)
 		for (int c = 0; c < spa->spa_root_vdev->vdev_children; c++) {
 			vdev_t *vc = spa->spa_root_vdev->vdev_child[c];
 			if (vc->vdev_mg != NULL)
-				taskq_wait(vc->vdev_mg->mg_taskq);
+				fake_taskq_wait(vc->vdev_mg->mg_taskq);
 		}
 	}
 

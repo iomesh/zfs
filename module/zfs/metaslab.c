@@ -827,6 +827,8 @@ metaslab_sort_by_flushed(const void *va, const void *vb)
 	return (TREE_CMP(a->ms_id, b->ms_id));
 }
 
+extern taskq_t *system_mg_taskq;
+
 metaslab_group_t *
 metaslab_group_create(metaslab_class_t *mc, vdev_t *vd, int allocators)
 {
@@ -851,8 +853,7 @@ metaslab_group_create(metaslab_class_t *mc, vdev_t *vd, int allocators)
 		zfs_refcount_create_tracked(&mga->mga_alloc_queue_depth);
 	}
 
-	mg->mg_taskq = taskq_create("metaslab_group_taskq", metaslab_load_pct,
-	    maxclsyspri, 10, INT_MAX, TASKQ_THREADS_CPU_PCT | TASKQ_DYNAMIC);
+	mg->mg_taskq = fake_taskq_create(system_mg_taskq);
 
 	return (mg);
 }
@@ -869,7 +870,7 @@ metaslab_group_destroy(metaslab_group_t *mg)
 	 */
 	ASSERT(mg->mg_activation_count <= 0);
 
-	taskq_destroy(mg->mg_taskq);
+	fake_taskq_destroy(mg->mg_taskq);
 	avl_destroy(&mg->mg_metaslab_tree);
 	mutex_destroy(&mg->mg_lock);
 	mutex_destroy(&mg->mg_ms_disabled_lock);
@@ -959,7 +960,7 @@ metaslab_group_passivate(metaslab_group_t *mg)
 	 * allocations from taking place and any changes to the vdev tree.
 	 */
 	spa_config_exit(spa, locks & ~(SCL_ZIO - 1), spa);
-	taskq_wait_outstanding(mg->mg_taskq, 0);
+	fake_taskq_wait(mg->mg_taskq);
 	spa_config_enter(spa, locks & ~(SCL_ZIO - 1), spa, RW_WRITER);
 	metaslab_group_alloc_update(mg);
 	for (int i = 0; i < mg->mg_allocators; i++) {
@@ -3502,7 +3503,7 @@ metaslab_group_preload(metaslab_group_t *mg)
 	int m = 0;
 
 	if (spa_shutting_down(spa) || !metaslab_preload_enabled) {
-		taskq_wait_outstanding(mg->mg_taskq, 0);
+		fake_taskq_wait(mg->mg_taskq);
 		return;
 	}
 
@@ -3524,8 +3525,9 @@ metaslab_group_preload(metaslab_group_t *mg)
 			continue;
 		}
 
-		VERIFY(taskq_dispatch(mg->mg_taskq, metaslab_preload,
-		    msp, TQ_SLEEP) != TASKQID_INVALID);
+		VERIFY(taskq_dispatch_with_ce(mg->mg_taskq->tq,
+		    metaslab_preload, msp, TQ_SLEEP,
+		    &mg->mg_taskq->ce) != TASKQID_INVALID);
 	}
 	mutex_exit(&mg->mg_lock);
 }

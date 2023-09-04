@@ -183,6 +183,8 @@ dsl_pool_open_special_dir(dsl_pool_t *dp, const char *name, dsl_dir_t **ddp)
 	return (dsl_dir_hold_obj(dp, obj, name, dp, ddp));
 }
 
+extern taskq_t *system_dp_sync_taskq;
+
 static dsl_pool_t *
 dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 {
@@ -209,9 +211,7 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 	txg_list_create(&dp->dp_early_sync_tasks, spa,
 	    offsetof(dsl_sync_task_t, dst_node));
 
-	dp->dp_sync_taskq = taskq_create("dp_sync_taskq",
-	    zfs_sync_taskq_batch_pct, minclsyspri, 1, INT_MAX,
-	    TASKQ_THREADS_CPU_PCT);
+	dp->dp_sync_taskq = fake_taskq_create(system_dp_sync_taskq);
 
 	// dp->dp_zil_clean_taskq = taskq_create("dp_zil_clean_taskq",
 	// zfs_zil_clean_taskq_nthr_pct, minclsyspri,
@@ -401,7 +401,7 @@ dsl_pool_close(dsl_pool_t *dp)
 	txg_list_destroy(&dp->dp_dirty_dirs);
 
 	// taskq_destroy(dp->dp_zil_clean_taskq);
-	taskq_destroy(dp->dp_sync_taskq);
+	fake_taskq_destroy(dp->dp_sync_taskq);
 
 	/*
 	 * We can't set retry to TRUE since we're explicitly specifying
@@ -568,7 +568,7 @@ dsl_pool_sync_mos(dsl_pool_t *dp, dmu_tx_t *tx)
 	dmu_objset_sync(dp->dp_meta_objset, zio, tx);
 	VERIFY0(zio_wait(zio));
 	dmu_objset_sync_done(dp->dp_meta_objset, tx);
-	taskq_wait(dp->dp_sync_taskq);
+	fake_taskq_wait(dp->dp_sync_taskq);
 	multilist_destroy(&dp->dp_meta_objset->os_synced_dnodes);
 
 	dprintf_bp(&dp->dp_meta_rootbp, "meta objset rootbp is %s", "");
@@ -693,7 +693,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 	    ds = list_next(&synced_datasets, ds)) {
 		dmu_objset_sync_done(ds->ds_objset, tx);
 	}
-	taskq_wait(dp->dp_sync_taskq);
+	fake_taskq_wait(dp->dp_sync_taskq);
 
 	/*
 	 * Sync the datasets again to push out the changes due to
@@ -847,7 +847,7 @@ dsl_pool_sync_context(dsl_pool_t *dp)
 {
 	return (curthread == dp->dp_tx.tx_sync_thread ||
 	    spa_is_initializing(dp->dp_spa) ||
-	    taskq_member(dp->dp_sync_taskq, curthread));
+	    taskq_member(dp->dp_sync_taskq->tq, curthread));
 }
 
 /*
