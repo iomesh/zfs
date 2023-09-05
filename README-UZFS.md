@@ -14,7 +14,7 @@ yum install fuse3-libs fuse3-devel
 - build uzfs now
 
 ```
-./autogen.sh && ./configure && make -j4
+./autogen.sh && CFLAGS=-fPIC ./configure --with-config=user --enable-shared=no --enable-debuginfo=yes --enable-debug=yes && make -j4
 ```
 
 2. play with it
