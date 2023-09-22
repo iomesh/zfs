@@ -99,6 +99,9 @@ umem_alloc(size_t size, int flags)
 static inline void *
 umem_alloc_aligned(size_t size, size_t align, int flags)
 {
+	if (size % align != 0) {
+		return umem_alloc(size, flags);
+	}
 	void *ptr = NULL;
 	int rc = EINVAL;
 

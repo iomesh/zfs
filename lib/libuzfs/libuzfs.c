@@ -987,7 +987,7 @@ libuzfs_dataset_open(const char *dsname)
 	objset_t *os = NULL;
 
 	dhp = umem_alloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
-	dhp->max_blksz = UZFS_MAX_BLOCKSIZE;
+	dhp->max_blksz = 512;
 
 	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
@@ -2319,13 +2319,12 @@ out:
 	return (error);
 }
 
-uint64_t
-libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp)
+void
+libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp, uint64_t *refdbytes,
+    uint64_t *availbytes, uint64_t *usedobjs, uint64_t *availobjs)
 {
-	uint64_t refdbytes, availbytes, usedobjs, availobjs;
-	dmu_objset_space(dhp->os, &refdbytes,
-	    &availbytes, &usedobjs, &availobjs);
-	return (refdbytes);
+	dmu_objset_space(dhp->os, refdbytes, availbytes,
+	    usedobjs, availobjs);
 }
 
 int

@@ -264,7 +264,9 @@ extern ssize_t libuzfs_next_kvattr_name(libuzfs_kvattr_iterator_t *iter,
     char *buf, int size);
 extern void libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter);
 
-extern uint64_t libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp);
+extern void libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp,
+    uint64_t *refdbytes, uint64_t *availbytes, uint64_t *usedobjs,
+    uint64_t *availobjs);
 extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
