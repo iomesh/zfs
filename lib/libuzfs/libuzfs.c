@@ -2319,13 +2319,12 @@ out:
 	return (error);
 }
 
-uint64_t
-libuzfs_dataset_used_bytes(libuzfs_dataset_handle_t *dhp)
+void
+libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp, uint64_t *refdbytes,
+    uint64_t *availbytes, uint64_t *usedobjs, uint64_t *availobjs)
 {
-	uint64_t refdbytes, availbytes, usedobjs, availobjs;
-	dmu_objset_space(dhp->os, &refdbytes,
-	    &availbytes, &usedobjs, &availobjs);
-	return (refdbytes);
+	dmu_objset_space(dhp->os, refdbytes, availbytes,
+	    usedobjs, availobjs);
 }
 
 int
