@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_H
 #define	_LIBUZFS_H
 
+#include "coroutine.h"
 #include "sys/stdtypes.h"
 #include <libnvpair.h>
 #include <sys/dmu.h>
@@ -92,7 +93,17 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
 #define	UZFS_XATTR_MAXVALUELEN (8192)
 
-extern void libuzfs_init(void);
+extern uzfs_coroutine_t *libuzfs_new_coroutine(int stack_size,
+    void (*func)(void *), void *arg, uint64_t task_id);
+extern void libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine);
+extern boolean_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
+    void (*wake)(void *), void *arg);
+extern void libuzfs_coroutine_yield(void);
+extern void *libuzfs_current_coroutine_arg(void);
+extern void libuzfs_coroutine_exit(void);
+
+extern void libuzfs_init(thread_create_func create, thread_exit_func exit,
+    thread_join_func join);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 

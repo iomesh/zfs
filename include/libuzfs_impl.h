@@ -118,11 +118,10 @@ extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *xattr_zap_obj);
-extern int
-libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
+extern int libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, libuzfs_node_t **upp);
-extern void
-libuzfs_release_node(libuzfs_dataset_handle_t *dhp, libuzfs_node_t *up);
+extern void libuzfs_release_node(libuzfs_dataset_handle_t *dhp,
+    libuzfs_node_t *up);
 
 #ifdef	__cplusplus
 }

@@ -648,6 +648,8 @@ libuzfs_new_kvattr_iterator(libuzfs_dataset_handle_t *dhp,
 	if (*err == 0) {
 		zap_cursor_init(&iter->zc, dhp->os, iter->zap_obj);
 	}
+	*err = 0;
+
 	sa_handle_destroy(sa_hdl);
 	return (iter);
 

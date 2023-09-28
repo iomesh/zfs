@@ -13,6 +13,7 @@ AC_DEFUN([ZFS_AC_DEBUG_ENABLE], [
 	DEBUG_ZFS="_with_debug"
 	WITH_DEBUG="true"
 	AC_DEFINE(ZFS_DEBUG, 1, [zfs debugging enabled])
+	AC_DEFINE(UZFS_COROUTINE, 1, [uzfs coroutine enabled])
 
 	KERNEL_DEBUG_CFLAGS=""
 	KERNEL_DEBUG_CPPFLAGS="-DDEBUG -UNDEBUG"
@@ -25,6 +26,7 @@ AC_DEFUN([ZFS_AC_DEBUG_DISABLE], [
 	DEBUG_ZFS="_without_debug"
 	WITH_DEBUG=""
 
+	AC_DEFINE(UZFS_COROUTINE, 1, [uzfs coroutine enabled])
 	KERNEL_DEBUG_CFLAGS=""
 	KERNEL_DEBUG_CPPFLAGS="-UDEBUG -DNDEBUG"
 ])

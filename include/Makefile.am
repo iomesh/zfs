@@ -7,7 +7,10 @@ COMMON_H = \
 	zfs_deleg.h \
 	zfs_fletcher.h \
 	zfs_namecheck.h \
-	zfs_prop.h
+	zfs_prop.h \
+	coroutine.h \
+	timer_thread.h \
+	coroutine_impl.h
 
 USER_H = \
 	libnvpair.h \
