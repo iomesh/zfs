@@ -248,7 +248,6 @@ libuzfs_new_coroutine(int stack_size, void (*func)(void *),
 	coroutine->my_ctx.uc_link = &coroutine->main_ctx;
 	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
 
-	VERIFY0(pthread_mutex_init(&coroutine->lock, NULL));
 	coroutine->pending = B_FALSE;
 	coroutine->task_id = task_id;
 
@@ -269,7 +268,6 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	ASSERT(!coroutine->pending);
-	VERIFY0(pthread_mutex_destroy(&coroutine->lock));
 	umem_free(coroutine->my_ctx.uc_stack.ss_sp,
 	    coroutine->my_ctx.uc_stack.ss_size);
 	umem_free(coroutine, sizeof (uzfs_coroutine_t));
@@ -281,12 +279,6 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 {
 	ASSERT(thread_local_coroutine == NULL);
 
-	// waker in other thread may
-	// wake this task after release lock and before coroutine yield,
-	// which will cause the coroutine be run by another thread t2
-	// while t1 has not yield the coroutine
-	VERIFY0(pthread_mutex_lock(&coroutine->lock));
-
 	coroutine->pending = 0;
 	thread_local_coroutine = coroutine;
 	coroutine->wake = wake;
@@ -294,10 +286,7 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 
 	VERIFY0(swapcontext(&coroutine->main_ctx, &coroutine->my_ctx));
 	thread_local_coroutine = NULL;
-	boolean_t pending = coroutine->pending;
-
-	VERIFY0(pthread_mutex_unlock(&coroutine->lock));
-	return (pending);
+	return (coroutine->pending);
 }
 
 void

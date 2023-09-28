@@ -57,12 +57,11 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/sa_impl.h>
 
+#include "coroutine.h"
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
 #include "sys/stdtypes.h"
 
-static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static int g_refcount = 0;
 static boolean_t change_zpool_cache_path = B_FALSE;
 
 static void libuzfs_create_inode_with_type_impl(
@@ -588,33 +587,22 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 }
 
 void
-libuzfs_init(void)
+libuzfs_init(thread_create_func create, thread_exit_func exit,
+    thread_join_func join)
 {
-	(void) pthread_mutex_lock(&g_lock);
-	if (g_refcount == 0) {
-		kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
-	}
-	g_refcount++;
-
-	(void) pthread_mutex_unlock(&g_lock);
+	set_thread_funcs(create, exit, join);
+	coroutine_init();
+	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
 }
 
 void
 libuzfs_fini(void)
 {
-	(void) pthread_mutex_lock(&g_lock);
-	ASSERT3S(g_refcount, >, 0);
-
-	if (g_refcount > 0)
-		g_refcount--;
-
-	if (g_refcount == 0) {
-		kernel_fini();
-		if (change_zpool_cache_path) {
-			free(spa_config_path);
-		}
+	kernel_fini();
+	coroutine_fini();
+	if (change_zpool_cache_path) {
+		free(spa_config_path);
 	}
-	(void) pthread_mutex_unlock(&g_lock);
 }
 
 void

@@ -8,7 +8,7 @@ SUBDIRS += rpm
 endif
 
 if CONFIG_USER
-SUBDIRS += man scripts lib tests cmd etc contrib
+SUBDIRS += lib
 if BUILD_LINUX
 SUBDIRS += udev
 endif

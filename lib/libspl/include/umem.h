@@ -87,11 +87,11 @@ const char *_umem_logging_init(void);
 static inline void *
 umem_alloc(size_t size, int flags)
 {
-	void *ptr = NULL;
+	void *ptr = malloc(size);
 
-	do {
-		ptr = malloc(size);
-	} while (ptr == NULL && (flags & UMEM_NOFAIL));
+	if (flags & UMEM_NOFAIL) {
+		VERIFY(ptr != NULL);
+	}
 
 	return (ptr);
 }

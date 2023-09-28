@@ -32,7 +32,9 @@ lib_LTLIBRARIES = libzpool.la
 USER_C = \
 	kernel.c \
 	taskq.c \
-	util.c
+	util.c \
+	timer_thread.c \
+	coroutine.c
 
 KERNEL_C = \
 	zfeature_common.c \
@@ -233,7 +235,7 @@ libzpool_la_LIBADD = \
 
 libzpool_la_LIBADD += $(LIBCLOCK_GETTIME) $(ZLIB_LIBS) -ldl -lm
 
-libzpool_la_LDFLAGS = -pthread
+libzpool_la_LDFLAGS = -pthread -lc
 
 if !ASAN_ENABLED
 libzpool_la_LDFLAGS += -Wl,-z,defs

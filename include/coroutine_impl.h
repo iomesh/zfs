@@ -33,10 +33,6 @@ typedef struct co_specific {
 
 #define	MAX_LOCAL	UINT32_MAX
 struct uzfs_coroutine {
-	// ensure that the coroutine can only be accessed
-	// by one thread at the same time
-	pthread_mutex_t lock;
-
 	list_node_t node;
 	ucontext_t main_ctx;
 	ucontext_t my_ctx;
