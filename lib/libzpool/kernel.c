@@ -24,10 +24,13 @@
  * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  */
 
+#include "coroutine.h"
+#include "sys/stdtypes.h"
 #include <assert.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,10 +83,32 @@ struct proc p0;
 #define	TS_STACK_MIN	MAX(PTHREAD_STACK_MIN, 32768)
 #define	TS_STACK_MAX	(256 * 1024)
 
+static thread_create_func thread_create_fun = NULL;
+static thread_exit_func thread_exit_fun = NULL;
+static thread_join_func thread_join_fun = NULL;
+
+void
+set_thread_funcs(thread_create_func create, thread_exit_func exit,
+    thread_join_func join)
+{
+#ifdef UZFS_COROUTINE
+	thread_create_fun = create;
+	thread_exit_fun = exit;
+	thread_join_fun = join;
+#endif
+}
+
 /*ARGSUSED*/
 kthread_t *
 zk_thread_create(void (*func)(void *), void *arg, size_t stksize, int state)
 {
+	if (thread_create_fun) {
+		boolean_t joinable = (state & TS_JOINABLE) != 0;
+		boolean_t new_runtime = (state & TS_NEW_RUNTIME) != 0;
+		return ((kthread_t *)thread_create_fun(func,
+		    arg, stksize, joinable, new_runtime));
+	}
+
 	pthread_attr_t attr;
 	pthread_t tid;
 	char *stkstr;
@@ -129,6 +154,27 @@ zk_thread_create(void (*func)(void *), void *arg, size_t stksize, int state)
 	return ((void *)(uintptr_t)tid);
 }
 
+void
+zk_thread_exit(void)
+{
+	if (thread_exit_fun) {
+		thread_exit_fun();
+	} else {
+		pthread_exit(NULL);
+	}
+}
+
+int
+zk_thread_join(void *handle)
+{
+	if (thread_join_fun) {
+		thread_join_fun((uint64_t)handle);
+		return (0);
+	} else {
+		return (pthread_join((pthread_t)handle, NULL));
+	}
+}
+
 /*
  * =========================================================================
  * kstats
@@ -168,26 +214,40 @@ kstat_set_raw_ops(kstat_t *ksp,
 void
 mutex_init(kmutex_t *mp, char *name, int type, void *cookie)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_mutex_init(&mp->m_lock, NULL));
 	memset(&mp->m_owner, 0, sizeof (pthread_t));
+#else
+	co_mutex_init(mp);
+#endif
+
 }
 
 void
 mutex_destroy(kmutex_t *mp)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_mutex_destroy(&mp->m_lock));
+#else
+	co_mutex_fini(mp);
+#endif
 }
 
 void
 mutex_enter(kmutex_t *mp)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_mutex_lock(&mp->m_lock));
 	mp->m_owner = pthread_self();
+#else
+	co_mutex_lock(mp);
+#endif
 }
 
 int
 mutex_tryenter(kmutex_t *mp)
 {
+#ifndef UZFS_COROUTINE
 	int error;
 
 	error = pthread_mutex_trylock(&mp->m_lock);
@@ -198,13 +258,20 @@ mutex_tryenter(kmutex_t *mp)
 		VERIFY3S(error, ==, EBUSY);
 		return (0);
 	}
+#else
+	return (co_mutex_trylock(mp));
+#endif
 }
 
 void
 mutex_exit(kmutex_t *mp)
 {
+#ifndef UZFS_COROUTINE
 	memset(&mp->m_owner, 0, sizeof (pthread_t));
 	VERIFY0(pthread_mutex_unlock(&mp->m_lock));
+#else
+	co_mutex_unlock(mp);
+#endif
 }
 
 /*
@@ -216,20 +283,29 @@ mutex_exit(kmutex_t *mp)
 void
 rw_init(krwlock_t *rwlp, char *name, int type, void *arg)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_rwlock_init(&rwlp->rw_lock, NULL));
 	rwlp->rw_readers = 0;
 	rwlp->rw_owner = 0;
+#else
+	co_rw_lock_init(rwlp);
+#endif
 }
 
 void
 rw_destroy(krwlock_t *rwlp)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_rwlock_destroy(&rwlp->rw_lock));
+#else
+	co_rw_lock_destroy(rwlp);
+#endif
 }
 
 void
 rw_enter(krwlock_t *rwlp, krw_t rw)
 {
+#ifndef UZFS_COROUTINE
 	if (rw == RW_READER) {
 		VERIFY0(pthread_rwlock_rdlock(&rwlp->rw_lock));
 		atomic_inc_uint(&rwlp->rw_readers);
@@ -237,22 +313,34 @@ rw_enter(krwlock_t *rwlp, krw_t rw)
 		VERIFY0(pthread_rwlock_wrlock(&rwlp->rw_lock));
 		rwlp->rw_owner = pthread_self();
 	}
+#else
+	if (rw == RW_READER) {
+		co_rw_lock_read(rwlp);
+	} else {
+		co_rw_lock_write(rwlp);
+	}
+#endif
 }
 
 void
 rw_exit(krwlock_t *rwlp)
 {
+#ifndef UZFS_COROUTINE
 	if (RW_READ_HELD(rwlp))
 		atomic_dec_uint(&rwlp->rw_readers);
 	else
 		rwlp->rw_owner = 0;
 
 	VERIFY0(pthread_rwlock_unlock(&rwlp->rw_lock));
+#else
+	co_rw_lock_exit(rwlp);
+#endif
 }
 
 int
 rw_tryenter(krwlock_t *rwlp, krw_t rw)
 {
+#ifndef UZFS_COROUTINE
 	int error;
 
 	if (rw == RW_READER)
@@ -272,6 +360,13 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 	VERIFY3S(error, ==, EBUSY);
 
 	return (0);
+#else
+	if (rw == RW_READER) {
+		return (co_rw_lock_try_read(rwlp));
+	}
+
+	return (co_rw_lock_try_write(rwlp));
+#endif
 }
 
 /* ARGSUSED */
@@ -299,21 +394,33 @@ rw_tryupgrade(krwlock_t *rwlp)
 void
 cv_init(kcondvar_t *cv, char *name, int type, void *arg)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_cond_init(cv, NULL));
+#else
+	co_cond_init(cv);
+#endif
 }
 
 void
 cv_destroy(kcondvar_t *cv)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_cond_destroy(cv));
+#else
+	co_cond_fini(cv);
+#endif
 }
 
 void
 cv_wait(kcondvar_t *cv, kmutex_t *mp)
 {
+#ifndef UZFS_COROUTINE
 	memset(&mp->m_owner, 0, sizeof (pthread_t));
 	VERIFY0(pthread_cond_wait(cv, &mp->m_lock));
 	mp->m_owner = pthread_self();
+#else
+	co_cond_wait(cv, mp);
+#endif
 }
 
 int
@@ -327,7 +434,6 @@ int
 cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 {
 	int error;
-	struct timeval tv;
 	struct timespec ts;
 	clock_t delta;
 
@@ -335,6 +441,7 @@ cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 	if (delta <= 0)
 		return (-1);
 
+	struct timeval tv;
 	VERIFY(gettimeofday(&tv, NULL) == 0);
 
 	ts.tv_sec = tv.tv_sec + delta / hz;
@@ -344,9 +451,13 @@ cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 		ts.tv_nsec -= NANOSEC;
 	}
 
+#ifndef UZFS_COROUTINE
 	memset(&mp->m_owner, 0, sizeof (pthread_t));
 	error = pthread_cond_timedwait(cv, &mp->m_lock, &ts);
 	mp->m_owner = pthread_self();
+#else
+	error = co_cond_timedwait(cv, mp, &ts);
+#endif
 
 	if (error == ETIMEDOUT)
 		return (-1);
@@ -362,7 +473,6 @@ cv_timedwait_hires(kcondvar_t *cv, kmutex_t *mp, hrtime_t tim, hrtime_t res,
     int flag)
 {
 	int error;
-	struct timeval tv;
 	struct timespec ts;
 	hrtime_t delta;
 
@@ -375,6 +485,7 @@ cv_timedwait_hires(kcondvar_t *cv, kmutex_t *mp, hrtime_t tim, hrtime_t res,
 	if (delta <= 0)
 		return (-1);
 
+	struct timeval tv;
 	VERIFY0(gettimeofday(&tv, NULL));
 
 	ts.tv_sec = tv.tv_sec + delta / NANOSEC;
@@ -384,9 +495,13 @@ cv_timedwait_hires(kcondvar_t *cv, kmutex_t *mp, hrtime_t tim, hrtime_t res,
 		ts.tv_nsec -= NANOSEC;
 	}
 
+#ifndef UZFS_COROUTINE
 	memset(&mp->m_owner, 0, sizeof (pthread_t));
 	error = pthread_cond_timedwait(cv, &mp->m_lock, &ts);
 	mp->m_owner = pthread_self();
+#else
+	error = co_cond_timedwait(cv, mp, &ts);
+#endif
 
 	if (error == ETIMEDOUT)
 		return (-1);
@@ -399,13 +514,21 @@ cv_timedwait_hires(kcondvar_t *cv, kmutex_t *mp, hrtime_t tim, hrtime_t res,
 void
 cv_signal(kcondvar_t *cv)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_cond_signal(cv));
+#else
+	co_cond_signal(cv);
+#endif
 }
 
 void
 cv_broadcast(kcondvar_t *cv)
 {
+#ifndef UZFS_COROUTINE
 	VERIFY0(pthread_cond_broadcast(cv));
+#else
+	co_cond_broadcast(cv);
+#endif
 }
 
 /*
