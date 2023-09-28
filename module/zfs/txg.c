@@ -24,6 +24,8 @@
  * Copyright (c) 2012, 2019 by Delphix. All rights reserved.
  */
 
+#include "sys/time.h"
+#include <stdio.h>
 #include <sys/zfs_context.h>
 #include <sys/txg_impl.h>
 #include <sys/dmu_impl.h>
@@ -772,6 +774,8 @@ txg_wait_open(dsl_pool_t *dp, uint64_t txg, boolean_t should_quiesce)
 	dprintf("txg=%llu quiesce_txg=%llu sync_txg=%llu\n",
 	    (u_longlong_t)txg, (u_longlong_t)tx->tx_quiesce_txg_waiting,
 	    (u_longlong_t)tx->tx_sync_txg_waiting);
+	printf("open txg: %lu, waiting txg: %lu, txg: %lu, now: %llums, quiece: %d\n",
+	    tx->tx_open_txg, tx->tx_quiesce_txg_waiting, txg, gethrtime() / 1000000, should_quiesce);
 	while (tx->tx_open_txg < txg) {
 		cv_broadcast(&tx->tx_quiesce_more_cv);
 		/*

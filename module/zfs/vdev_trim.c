@@ -25,6 +25,8 @@
  * Copyright (c) 2021 Hewlett Packard Enterprise Development LP
  */
 
+#include "sys/time.h"
+#include <stdio.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
 #include <sys/txg.h>
@@ -1477,6 +1479,7 @@ vdev_autotrim_stop_wait(vdev_t *tvd)
 	mutex_enter(&tvd->vdev_autotrim_lock);
 	if (tvd->vdev_autotrim_thread != NULL) {
 		tvd->vdev_autotrim_exit_wanted = B_TRUE;
+		printf("want trim stop, now: %lldms\n", gethrtime() / 1000000);
 
 		while (tvd->vdev_autotrim_thread != NULL) {
 			cv_wait(&tvd->vdev_autotrim_cv,
@@ -1485,6 +1488,7 @@ vdev_autotrim_stop_wait(vdev_t *tvd)
 
 		ASSERT3P(tvd->vdev_autotrim_thread, ==, NULL);
 		tvd->vdev_autotrim_exit_wanted = B_FALSE;
+		printf("trim stopped, now: %lldms\n", gethrtime() / 1000000);
 	}
 	mutex_exit(&tvd->vdev_autotrim_lock);
 }
