@@ -121,6 +121,7 @@ extern "C" {
 #include <sys/debug.h>
 #include <sys/utsname.h>
 #include <sys/trace_zfs.h>
+#include <coroutine.h>
 
 #include <sys/zfs_context_os.h>
 
@@ -226,18 +227,26 @@ typedef pthread_t	kthread_t;
 
 #define	TS_RUN		0x00000002
 #define	TS_JOINABLE	0x00000004
+#define TS_NEW_RUNTIME	0x00000008
 
-#define	curthread	((void *)(uintptr_t)pthread_self())
 #define	kpreempt(x)	yield()
 #define	getcomm()	"unknown"
+
+typedef uint64_t (*thread_create_func)(void (*thread_func)(void *), void *arg,
+    int stksize, boolean_t joinable, boolean_t new_runtime);
+typedef void (*thread_exit_func)(void);
+typedef void (*thread_join_func)(uint64_t);
+
+extern void set_thread_funcs(thread_create_func create, thread_exit_func exit,
+    thread_join_func join);
 
 #define	thread_create_named(name, stk, stksize, func, arg, len, \
     pp, state, pri)	\
 	zk_thread_create(func, arg, stksize, state)
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
 	zk_thread_create(func, arg, stksize, state)
-#define	thread_exit()	pthread_exit(NULL)
-#define	thread_join(t)	pthread_join((pthread_t)(t), NULL)
+#define	thread_exit()	zk_thread_exit()
+#define	thread_join(t)	zk_thread_join((void *)t)
 
 #define	newproc(f, a, cid, pri, ctp, pid)	(ENOSYS)
 
@@ -253,14 +262,16 @@ extern struct proc p0;
 
 extern kthread_t *zk_thread_create(void (*func)(void *), void *arg,
     size_t stksize, int state);
+extern void zk_thread_exit(void);
+extern int zk_thread_join(void *handle);
 
 #define	issig(why)	(FALSE)
 #define	ISSIG(thr, why)	(FALSE)
 
 #define	kpreempt_disable()	((void)0)
 #define	kpreempt_enable()	((void)0)
-#define	cond_resched()		sched_yield()
 
+#ifndef	UZFS_COROUTINE
 /*
  * Mutexes
  */
@@ -269,19 +280,6 @@ typedef struct kmutex {
 	pthread_t		m_owner;
 } kmutex_t;
 
-#define	MUTEX_DEFAULT		0
-#define	MUTEX_NOLOCKDEP		MUTEX_DEFAULT
-#define	MUTEX_HELD(mp)		pthread_equal((mp)->m_owner, pthread_self())
-#define	MUTEX_NOT_HELD(mp)	!MUTEX_HELD(mp)
-
-extern void mutex_init(kmutex_t *mp, char *name, int type, void *cookie);
-extern void mutex_destroy(kmutex_t *mp);
-extern void mutex_enter(kmutex_t *mp);
-extern void mutex_exit(kmutex_t *mp);
-extern int mutex_tryenter(kmutex_t *mp);
-
-#define	NESTED_SINGLE 1
-#define	mutex_enter_nested(mp, class) mutex_enter(mp)
 /*
  * RW locks
  */
@@ -291,16 +289,80 @@ typedef struct krwlock {
 	uint_t			rw_readers;
 } krwlock_t;
 
+/*
+ * Condition variables
+ */
+typedef pthread_cond_t		kcondvar_t;
+
+#define	MUTEX_HELD(mp)		pthread_equal((mp)->m_owner, pthread_self())
+#define	MUTEX_NOT_HELD(mp)	!MUTEX_HELD(mp)
+
+#define	RW_READ_HELD(rw)	((rw)->rw_readers > 0)
+#define	RW_WRITE_HELD(rw)	pthread_equal((rw)->rw_owner, pthread_self())
+#define	RW_LOCK_HELD(rw)	(RW_READ_HELD(rw) || RW_WRITE_HELD(rw))
+
+#define	curthread	((void *)(uintptr_t)pthread_self())
+/*
+ * Thread-specific data
+ */
+#define	tsd_get(k) pthread_getspecific(k)
+#define	tsd_set(k, v) pthread_setspecific(k, v)
+#define	tsd_create(kp, d) pthread_key_create((pthread_key_t *)kp, d)
+#define	tsd_destroy(kp) /* nothing */
+#define	cond_resched()		sched_yield()
+#define nano_sleep(ts)	nanosleep(&ts, NULL)
+#else
+
+/*
+ * Mutexes
+ */
+typedef co_mutex_t kmutex_t;
+#define	cond_resched()		coroutine_wake_and_yield()
+
+#define	MUTEX_HELD(mp)		co_mutex_held(mp)
+#define	MUTEX_NOT_HELD(mp)	!MUTEX_HELD(mp)
+
+/*
+ * RW locks
+ */
+typedef co_rw_lock_t krwlock_t;
+
+#define	RW_READ_HELD(rw)	co_rw_lock_read_held(rw)
+#define	RW_WRITE_HELD(rw)	co_rw_lock_write_held(rw)
+#define	RW_LOCK_HELD(rw)	(RW_READ_HELD(rw) || RW_WRITE_HELD(rw))
+
+/*
+ * Condition variables
+ */
+typedef co_cond_t kcondvar_t;
+#define	curthread	((void *)(uintptr_t)uzfs_coroutine_self())
+
+#define	tsd_get(k) coroutine_getkey(k)
+#define	tsd_set(k, v) coroutine_setkey(k, v)
+#define	tsd_create(kp, d) coroutine_key_create((uint32_t *)kp)
+#define	tsd_destroy(kp) /* nothing */
+#define nano_sleep(ts)	coroutine_sleep(&ts)
+
+#endif
+
+#define	MUTEX_DEFAULT		0
+#define	MUTEX_NOLOCKDEP		MUTEX_DEFAULT
+
+extern void mutex_init(kmutex_t *mp, char *name, int type, void *cookie);
+extern void mutex_destroy(kmutex_t *mp);
+extern void mutex_enter(kmutex_t *mp);
+extern void mutex_exit(kmutex_t *mp);
+extern int mutex_tryenter(kmutex_t *mp);
+
+#define	NESTED_SINGLE 1
+#define	mutex_enter_nested(mp, class) mutex_enter(mp)
+
 typedef int krw_t;
 
 #define	RW_READER		0
 #define	RW_WRITER		1
 #define	RW_DEFAULT		RW_READER
 #define	RW_NOLOCKDEP		RW_READER
-
-#define	RW_READ_HELD(rw)	((rw)->rw_readers > 0)
-#define	RW_WRITE_HELD(rw)	pthread_equal((rw)->rw_owner, pthread_self())
-#define	RW_LOCK_HELD(rw)	(RW_READ_HELD(rw) || RW_WRITE_HELD(rw))
 
 extern void rw_init(krwlock_t *rwlp, char *name, int type, void *arg);
 extern void rw_destroy(krwlock_t *rwlp);
@@ -309,11 +371,6 @@ extern int rw_tryenter(krwlock_t *rwlp, krw_t rw);
 extern int rw_tryupgrade(krwlock_t *rwlp);
 extern void rw_exit(krwlock_t *rwlp);
 #define	rw_downgrade(rwlp) do { } while (0)
-
-/*
- * Condition variables
- */
-typedef pthread_cond_t		kcondvar_t;
 
 #define	CV_DEFAULT		0
 #define	CALLOUT_FLAG_ABSOLUTE	0x2
@@ -339,13 +396,6 @@ extern void cv_broadcast(kcondvar_t *cv);
 #define	cv_timedwait_idle_hires(cv, mp, t, r, f) \
 	cv_timedwait_hires(cv, mp, t, r, f)
 
-/*
- * Thread-specific data
- */
-#define	tsd_get(k) pthread_getspecific(k)
-#define	tsd_set(k, v) pthread_setspecific(k, v)
-#define	tsd_create(kp, d) pthread_key_create((pthread_key_t *)kp, d)
-#define	tsd_destroy(kp) /* nothing */
 #ifdef __FreeBSD__
 typedef off_t loff_t;
 #endif
@@ -651,7 +701,7 @@ void ksiddomain_rele(ksiddomain_t *);
 		struct timespec ts;					\
 		ts.tv_sec = delta / NANOSEC;				\
 		ts.tv_nsec = delta % NANOSEC;				\
-		(void) nanosleep(&ts, NULL);				\
+		(void) nano_sleep(ts);				\
 	} while (0)
 
 typedef int fstrans_cookie_t;

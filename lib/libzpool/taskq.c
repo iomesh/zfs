@@ -34,7 +34,7 @@ int taskq_now;
 taskq_t *system_taskq;
 taskq_t *system_delay_taskq;
 
-static pthread_key_t taskq_tsd;
+static uint32_t taskq_tsd;
 
 #define	TASKQ_ACTIVE	0x00010000
 
@@ -215,7 +215,7 @@ taskq_thread(void *arg)
 	taskq_ent_t *t;
 	boolean_t prealloc;
 
-	VERIFY0(pthread_setspecific(taskq_tsd, tq));
+	VERIFY0(tsd_set(taskq_tsd, tq));
 
 	mutex_enter(&tq->tq_lock);
 	while (tq->tq_flags & TASKQ_ACTIVE) {
@@ -350,7 +350,7 @@ taskq_member(taskq_t *tq, kthread_t *t)
 taskq_t *
 taskq_of_curthread(void)
 {
-	return (pthread_getspecific(taskq_tsd));
+	return (tsd_get(taskq_tsd));
 }
 
 int
@@ -362,7 +362,7 @@ taskq_cancel_id(taskq_t *tq, taskqid_t id)
 void
 system_taskq_init(void)
 {
-	VERIFY0(pthread_key_create(&taskq_tsd, NULL));
+	tsd_create(&taskq_tsd, NULL);
 	system_taskq = taskq_create("system_taskq", 64, maxclsyspri, 4, 512,
 	    TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
 	system_delay_taskq = taskq_create("delay_taskq", 4, maxclsyspri, 4,
@@ -376,5 +376,5 @@ system_taskq_fini(void)
 	system_taskq = NULL; /* defensive */
 	taskq_destroy(system_delay_taskq);
 	system_delay_taskq = NULL;
-	VERIFY0(pthread_key_delete(taskq_tsd));
+	tsd_destroy(&taskq_tsd);
 }
