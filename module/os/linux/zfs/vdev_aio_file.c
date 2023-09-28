@@ -60,7 +60,7 @@ typedef struct io_workers_ctx {
 	zio_task_t	*head;		// current head of submit list
 	sem_t		submit_sem;	// semaphore to wake up the submitter
 	boolean_t	stop;		// whether reaper should stop
-	kthread_t	*submitter;	// identifies the submitter
+	pthread_t	submitter;	// identifies the submitter
 	kthread_t	*reaper;	// identifies the reaper
 } io_workers_ctx_t;
 
@@ -204,17 +204,21 @@ submit_zio_task(zio_t *zio)
 	zio_task_t *task = umem_alloc(sizeof (zio_task_t), UMEM_NOFAIL);
 	task->zio = zio;
 	task->next = atomic_load_ptr(&workers_ctx.head);
-
+	boolean_t earlier = B_TRUE;
 	while (1) {
+		earlier = task->next == NULL;
+		zio_task_t *next = task->next;
 		zio_task_t *head = atomic_cas_ptr(&workers_ctx.head,
 		    task->next, task);
-		if (head == task->next) {
+		if (head == next) {
 			break;
 		}
 		task->next = head;
 	}
 
-	VERIFY0(sem_post(&workers_ctx.submit_sem));
+	if (earlier) {
+		VERIFY0(sem_post(&workers_ctx.submit_sem));
+	}
 }
 
 static void
@@ -329,7 +333,7 @@ prep_task(zio_task_t *task, struct iocb *io_cb)
 	}
 }
 
-static void
+static void*
 zio_task_submitter(void *args)
 {
 	io_workers_ctx_t *ctx = args;
@@ -356,6 +360,8 @@ zio_task_submitter(void *args)
 			    ctx->io_ctx, 1, &ptr)), ==, 1);
 		}
 	}
+
+	return (NULL);
 }
 
 static void
@@ -403,14 +409,13 @@ vdev_aio_file_init(void)
 
 	VERIFY0(sem_init(&workers_ctx.submit_sem, 0, 0));
 
-	workers_ctx.submitter = thread_create(NULL, 0, zio_task_submitter,
-	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE, defclsyspri);
+	pthread_create(&workers_ctx.submitter, NULL,
+	    zio_task_submitter, &workers_ctx);
 	pthread_setname_np((pthread_t)workers_ctx.submitter,
 	    "zio_task_submitter");
 
 	workers_ctx.reaper = thread_create(NULL, 0, zio_task_reaper,
-	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE, defclsyspri);
-	pthread_setname_np((pthread_t)workers_ctx.reaper, "zio_task_reaper");
+	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE | TS_NEW_RUNTIME, defclsyspri);
 }
 
 void
@@ -419,7 +424,7 @@ vdev_aio_file_fini(void)
 	workers_ctx.stop = B_TRUE;
 	thread_join(workers_ctx.reaper);
 	VERIFY0(sem_post(&workers_ctx.submit_sem));
-	thread_join(workers_ctx.submitter);
+	pthread_join(workers_ctx.submitter, NULL);
 	VERIFY0(syscall(__NR_io_destroy, workers_ctx.io_ctx));
 	sem_destroy(&workers_ctx.submit_sem);
 }
