@@ -415,7 +415,8 @@ vdev_aio_file_init(void)
 	    "zio_task_submitter");
 
 	workers_ctx.reaper = thread_create(NULL, 0, zio_task_reaper,
-	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE | TS_NEW_RUNTIME, defclsyspri);
+	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE | TS_NEW_RUNTIME,
+	    defclsyspri);
 }
 
 void
