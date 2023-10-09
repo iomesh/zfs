@@ -227,7 +227,7 @@ typedef pthread_t	kthread_t;
 
 #define	TS_RUN		0x00000002
 #define	TS_JOINABLE	0x00000004
-#define TS_NEW_RUNTIME	0x00000008
+#define	TS_NEW_RUNTIME	0x00000008
 
 #define	kpreempt(x)	yield()
 #define	getcomm()	"unknown"
@@ -309,8 +309,8 @@ typedef pthread_cond_t		kcondvar_t;
 #define	tsd_set(k, v) pthread_setspecific(k, v)
 #define	tsd_create(kp, d) pthread_key_create((pthread_key_t *)kp, d)
 #define	tsd_destroy(kp) /* nothing */
-#define	cond_resched()		sched_yield()
-#define nano_sleep(ts)	nanosleep(&ts, NULL)
+#define	cond_resched()	sched_yield()
+#define	nano_sleep(ts)	nanosleep(&ts, NULL)
 #else
 
 /*
@@ -341,7 +341,7 @@ typedef co_cond_t kcondvar_t;
 #define	tsd_set(k, v) coroutine_setkey(k, v)
 #define	tsd_create(kp, d) coroutine_key_create((uint32_t *)kp)
 #define	tsd_destroy(kp) /* nothing */
-#define nano_sleep(ts)	coroutine_sleep(&ts)
+#define	nano_sleep(ts)	coroutine_sleep(&ts)
 
 #endif
 

@@ -31,16 +31,23 @@ typedef struct co_specific {
 	struct co_specific *next;
 } co_specific_t;
 
+enum coroutine_state {
+	COROUTINE_RUNNABLE,
+	COROUTINE_PENDING,
+	COROUTINE_DONE,
+};
+
 #define	MAX_LOCAL	UINT32_MAX
 struct uzfs_coroutine {
+	uint32_t co_state;
 	list_node_t node;
 	ucontext_t main_ctx;
 	ucontext_t my_ctx;
-	boolean_t pending;
+	boolean_t pending; // only accessed by its coroutine
 	void (*wake) (void *);
 	void *arg;
 
-	cutex_waiter_state_t state; // protected by cutex waiter lock
+	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
 	cutex_t *cutex;
 
 	uint64_t task_id;
@@ -55,7 +62,6 @@ extern void cutex_fini(cutex_t *cutex);
 extern int cutex_wait(cutex_t *cutex, int expected_value,
     const struct timespec *abstime);
 extern int cutex_wake_one(cutex_t *cutex);
-extern int cutex_wake_all(cutex_t *cutex);
 // wake up the first waiter of cutex1, and move all waiters of cutex1 to cutex2
 extern int cutex_requeue(cutex_t *cutex1, cutex_t *cutex2);
 

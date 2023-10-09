@@ -23,6 +23,14 @@ static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
 static uint32_t cur_key_idx = 0;
 
+static inline void
+wakeup_coroutine(uzfs_coroutine_t *coroutine)
+{
+	VERIFY3U(atomic_cas_32(&coroutine->co_state, COROUTINE_PENDING,
+	    COROUTINE_RUNNABLE), ==, COROUTINE_PENDING);
+	coroutine->wake(coroutine->arg);
+}
+
 void
 cutex_init(cutex_t *cutex)
 {
@@ -43,16 +51,16 @@ erase_from_cutex_and_wakeup(void *arg)
 {
 	uzfs_coroutine_t *coroutine = arg;
 	VERIFY0(pthread_mutex_lock(&coroutine->cutex->waiter_lock));
-	ASSERT(coroutine->state == CUTEX_WAITER_NONE ||
-	    coroutine->state == CUTEX_WAITER_READY);
-	if (coroutine->state == CUTEX_WAITER_NONE) {
-		coroutine->state = CUTEX_WAITER_TIMEOUT;
+	ASSERT(coroutine->waiter_state == CUTEX_WAITER_NONE ||
+	    coroutine->waiter_state == CUTEX_WAITER_READY);
+	if (coroutine->waiter_state == CUTEX_WAITER_NONE) {
+		coroutine->waiter_state = CUTEX_WAITER_TIMEOUT;
 		list_remove(&coroutine->cutex->waiter_list, coroutine);
 	}
 	VERIFY0(pthread_mutex_unlock(&coroutine->cutex->waiter_lock));
 
-	if (coroutine->state == CUTEX_WAITER_TIMEOUT) {
-		coroutine->wake(coroutine->arg);
+	if (coroutine->waiter_state == CUTEX_WAITER_TIMEOUT) {
+		wakeup_coroutine(coroutine);
 	}
 }
 
@@ -84,8 +92,9 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 	}
 
 	timer_task_t *task = NULL;
-	thread_local_coroutine->state = CUTEX_WAITER_NONE;
+	thread_local_coroutine->waiter_state = CUTEX_WAITER_NONE;
 	thread_local_coroutine->cutex = cutex;
+	thread_local_coroutine->co_state = COROUTINE_PENDING;
 	// add current coroutine to the wait list
 	// what if wake up happens after this insertion and before context swap?
 	// will lost-wakeup happens?
@@ -116,7 +125,7 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 		thread_local_coroutine->expire_task = NULL;
 	}
 
-	switch (thread_local_coroutine->state) {
+	switch (thread_local_coroutine->waiter_state) {
 	case CUTEX_WAITER_NONE:
 		panic("unexpected coroutine state");
 		break;
@@ -138,42 +147,15 @@ cutex_wake_one(cutex_t *cutex)
 		VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
 		return (0);
 	}
-	front->state = CUTEX_WAITER_READY;
+	front->waiter_state = CUTEX_WAITER_READY;
 	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
 
 	if (front->expire_task != NULL) {
 		timer_thread_unschedule(front->expire_task);
 	}
-	front->wake(front->arg);
+	wakeup_coroutine(front);
 
 	return (1);
-}
-
-int
-cutex_wake_all(cutex_t *cutex)
-{
-	list_t waiters;
-	list_create(&waiters, sizeof (uzfs_coroutine_t),
-	    offsetof(uzfs_coroutine_t, node));
-	VERIFY0(pthread_mutex_lock(&cutex->waiter_lock));
-	for (uzfs_coroutine_t *cur = list_head(&cutex->waiter_list);
-	    cur != NULL; cur = list_next(&cutex->waiter_list, cur)) {
-		cur->state = CUTEX_WAITER_READY;
-	}
-	list_move_tail(&waiters, &cutex->waiter_list);
-	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
-
-	int nwakeup = 0;
-	for (uzfs_coroutine_t *cur = list_head(&waiters);
-	    cur != NULL; cur = list_next(&waiters, cur)) {
-		if (cur->expire_task != NULL) {
-			timer_thread_unschedule(cur->expire_task);
-		}
-		cur->wake(cur->arg);
-		++nwakeup;
-	}
-
-	return (nwakeup);
 }
 
 int
@@ -184,7 +166,7 @@ cutex_requeue(cutex_t *cutex1, cutex_t *cutex2)
 
 	uzfs_coroutine_t *front = list_remove_head(&cutex1->waiter_list);
 	if (front != NULL) {
-		front->state = CUTEX_WAITER_READY;
+		front->waiter_state = CUTEX_WAITER_READY;
 		list_move_tail(&cutex2->waiter_list, &cutex1->waiter_list);
 	}
 	VERIFY0(pthread_mutex_unlock(&cutex1->waiter_lock));
@@ -197,7 +179,7 @@ cutex_requeue(cutex_t *cutex1, cutex_t *cutex2)
 	if (front->expire_task != NULL) {
 		timer_thread_unschedule(front->expire_task);
 	}
-	front->wake(front->arg);
+	wakeup_coroutine(front);
 	return (1);
 }
 
@@ -250,6 +232,7 @@ libuzfs_new_coroutine(int stack_size, void (*func)(void *),
 
 	coroutine->pending = B_FALSE;
 	coroutine->task_id = task_id;
+	coroutine->co_state = COROUTINE_RUNNABLE;
 
 	return (coroutine);
 }
@@ -267,7 +250,7 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		umem_free(cur, sizeof (co_specific_t));
 		cur = next;
 	}
-	ASSERT(!coroutine->pending);
+	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
 	umem_free(coroutine->my_ctx.uc_stack.ss_sp,
 	    coroutine->my_ctx.uc_stack.ss_size);
 	umem_free(coroutine, sizeof (uzfs_coroutine_t));
@@ -279,13 +262,27 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 {
 	ASSERT(thread_local_coroutine == NULL);
 
-	coroutine->pending = 0;
-	thread_local_coroutine = coroutine;
-	coroutine->wake = wake;
-	coroutine->arg = arg;
+	switch (atomic_load_32(&coroutine->co_state)) {
+	case COROUTINE_RUNNABLE:
+		coroutine->pending = 0;
+		thread_local_coroutine = coroutine;
+		coroutine->wake = wake;
+		coroutine->arg = arg;
 
-	VERIFY0(swapcontext(&coroutine->main_ctx, &coroutine->my_ctx));
-	thread_local_coroutine = NULL;
+		VERIFY0(swapcontext(&coroutine->main_ctx,
+			&coroutine->my_ctx));
+		thread_local_coroutine = NULL;
+		// if pending, state will be set already
+		if (!coroutine->pending) {
+			coroutine->co_state = COROUTINE_DONE;
+		}
+		break;
+	case COROUTINE_PENDING:
+		return (B_TRUE);
+	case COROUTINE_DONE:
+		return (B_FALSE);
+	}
+
 	return (coroutine->pending);
 }
 
@@ -307,7 +304,7 @@ coroutine_getkey(uint32_t idx)
 		cur = cur->next;
 	}
 
-	return NULL;
+	return (NULL);
 }
 
 int
@@ -354,7 +351,7 @@ static void
 timed_wakeup(void *arg)
 {
 	uzfs_coroutine_t *coroutine = arg;
-	coroutine->wake(coroutine->arg);
+	wakeup_coroutine(coroutine);
 }
 
 void
@@ -369,6 +366,7 @@ coroutine_sleep(const struct timespec *sleep_time)
 	clock_gettime(CLOCK_REALTIME, &now);
 	now.tv_sec += sleep_time->tv_sec;
 	now.tv_nsec += sleep_time->tv_nsec;
+	thread_local_coroutine->co_state = COROUTINE_PENDING;
 
 	timer_task_t *task = timer_thread_schedule(&timer_thread,
 	    timed_wakeup, thread_local_coroutine, &now);
