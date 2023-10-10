@@ -21,6 +21,7 @@
 
 static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
+static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
 static uint32_t cur_key_idx = 0;
 
 static inline void
@@ -68,7 +69,6 @@ int
 cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 {
 	ASSERT(thread_local_coroutine != NULL);
-	thread_local_coroutine->cutex = NULL;
 
 	if (atomic_load_32(&cutex->value) != expected_value) {
 		return (EWOULDBLOCK);
@@ -215,24 +215,30 @@ typedef void (*context_func)(void);
 
 uzfs_coroutine_t *
 libuzfs_new_coroutine(int stack_size, void (*func)(void *),
-    void *arg, uint64_t task_id)
+    void *arg, uint64_t task_id, boolean_t foreground)
 {
-	uzfs_coroutine_t *coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
-	    UMEM_NOFAIL);
-
-	coroutine->specific_head = NULL;
-
-	VERIFY0(getcontext(&coroutine->my_ctx));
-	// TODO(sundengyu): add guard page
-	coroutine->my_ctx.uc_stack.ss_sp = umem_alloc(stack_size, UMEM_NOFAIL);
-	coroutine->my_ctx.uc_stack.ss_size = stack_size;
-	coroutine->my_ctx.uc_stack.ss_flags = 0;
-	coroutine->my_ctx.uc_link = &coroutine->main_ctx;
-	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
+	uzfs_coroutine_t *coroutine = NULL;
+	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
+		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
+		    UMEM_NOFAIL);
+		VERIFY0(getcontext(&coroutine->my_ctx));
+		// TODO(sundengyu): add guard page
+		coroutine->my_ctx.uc_stack.ss_sp = umem_alloc(stack_size,
+		    UMEM_NOFAIL);
+		coroutine->my_ctx.uc_stack.ss_size = stack_size;
+		coroutine->my_ctx.uc_stack.ss_flags = 0;
+		coroutine->my_ctx.uc_link = &coroutine->main_ctx;
+	} else {
+		coroutine = coroutine_pool_head;
+		coroutine_pool_head = coroutine_pool_head->next_in_pool;
+	}
 
 	coroutine->pending = B_FALSE;
 	coroutine->task_id = task_id;
 	coroutine->co_state = COROUTINE_RUNNABLE;
+	coroutine->specific_head = NULL;
+	coroutine->foreground = foreground;
+	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
 
 	return (coroutine);
 }
@@ -251,9 +257,14 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
-	umem_free(coroutine->my_ctx.uc_stack.ss_sp,
-	    coroutine->my_ctx.uc_stack.ss_size);
-	umem_free(coroutine, sizeof (uzfs_coroutine_t));
+	if (likely(coroutine->foreground)) {
+		coroutine->next_in_pool = coroutine_pool_head;
+		coroutine_pool_head = coroutine;
+	} else {
+		umem_free(coroutine->my_ctx.uc_stack.ss_sp,
+		    coroutine->my_ctx.uc_stack.ss_size);
+		umem_free(coroutine, sizeof (uzfs_coroutine_t));
+	}
 }
 
 boolean_t
@@ -270,7 +281,7 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		coroutine->arg = arg;
 
 		VERIFY0(swapcontext(&coroutine->main_ctx,
-			&coroutine->my_ctx));
+		    &coroutine->my_ctx));
 		thread_local_coroutine = NULL;
 		// if pending, state will be set already
 		if (!coroutine->pending) {

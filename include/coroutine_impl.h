@@ -46,15 +46,13 @@ struct uzfs_coroutine {
 	boolean_t pending; // only accessed by its coroutine
 	void (*wake) (void *);
 	void *arg;
-
 	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
 	cutex_t *cutex;
-
 	uint64_t task_id;
-
 	timer_task_t *expire_task;
-
 	co_specific_t *specific_head;
+	boolean_t foreground;
+	struct uzfs_coroutine *next_in_pool;
 };
 
 extern void cutex_init(cutex_t *cutex);
