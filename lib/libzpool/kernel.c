@@ -229,7 +229,7 @@ mutex_destroy(kmutex_t *mp)
 #ifndef UZFS_COROUTINE
 	VERIFY0(pthread_mutex_destroy(&mp->m_lock));
 #else
-	co_mutex_fini(mp);
+	co_mutex_destroy(mp);
 #endif
 }
 
@@ -407,7 +407,7 @@ cv_destroy(kcondvar_t *cv)
 #ifndef UZFS_COROUTINE
 	VERIFY0(pthread_cond_destroy(cv));
 #else
-	co_cond_fini(cv);
+	co_cond_destroy(cv);
 #endif
 }
 

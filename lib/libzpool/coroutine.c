@@ -23,6 +23,10 @@ static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
 static uint32_t cur_key_idx = 0;
 
+#define	MAX_COROUTINE_POOL_SIZE	100
+static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
+static __thread int cur_coroutine_pool_size = 0;
+
 static inline void
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
 {
@@ -31,7 +35,7 @@ wakeup_coroutine(uzfs_coroutine_t *coroutine)
 	coroutine->wake(coroutine->arg);
 }
 
-void
+static void
 cutex_init(cutex_t *cutex)
 {
 	cutex->value = 0;
@@ -40,7 +44,7 @@ cutex_init(cutex_t *cutex)
 	VERIFY0(pthread_mutex_init(&cutex->waiter_lock, NULL));
 }
 
-void
+static void
 cutex_fini(cutex_t *cutex)
 {
 	VERIFY0(pthread_mutex_destroy(&cutex->waiter_lock));
@@ -64,11 +68,10 @@ erase_from_cutex_and_wakeup(void *arg)
 	}
 }
 
-int
+static int
 cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 {
 	ASSERT(thread_local_coroutine != NULL);
-	thread_local_coroutine->cutex = NULL;
 
 	if (atomic_load_32(&cutex->value) != expected_value) {
 		return (EWOULDBLOCK);
@@ -138,7 +141,7 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 	return (0);
 }
 
-int
+static int
 cutex_wake_one(cutex_t *cutex)
 {
 	VERIFY0(pthread_mutex_lock(&cutex->waiter_lock));
@@ -158,7 +161,8 @@ cutex_wake_one(cutex_t *cutex)
 	return (1);
 }
 
-int
+// wake up the first waiter of cutex1, and move all waiters of cutex1 to cutex2
+static int
 cutex_requeue(cutex_t *cutex1, cutex_t *cutex2)
 {
 	VERIFY0(pthread_mutex_lock(&cutex1->waiter_lock));
@@ -215,24 +219,31 @@ typedef void (*context_func)(void);
 
 uzfs_coroutine_t *
 libuzfs_new_coroutine(int stack_size, void (*func)(void *),
-    void *arg, uint64_t task_id)
+    void *arg, uint64_t task_id, boolean_t foreground)
 {
-	uzfs_coroutine_t *coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
-	    UMEM_NOFAIL);
-
-	coroutine->specific_head = NULL;
-
-	VERIFY0(getcontext(&coroutine->my_ctx));
-	// TODO(sundengyu): add guard page
-	coroutine->my_ctx.uc_stack.ss_sp = umem_alloc(stack_size, UMEM_NOFAIL);
-	coroutine->my_ctx.uc_stack.ss_size = stack_size;
-	coroutine->my_ctx.uc_stack.ss_flags = 0;
-	coroutine->my_ctx.uc_link = &coroutine->main_ctx;
-	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
+	uzfs_coroutine_t *coroutine = NULL;
+	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
+		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
+		    UMEM_NOFAIL);
+		VERIFY0(getcontext(&coroutine->my_ctx));
+		// TODO(sundengyu): add guard page
+		coroutine->my_ctx.uc_stack.ss_sp = umem_alloc(stack_size,
+		    UMEM_NOFAIL);
+		coroutine->my_ctx.uc_stack.ss_size = stack_size;
+		coroutine->my_ctx.uc_stack.ss_flags = 0;
+		coroutine->my_ctx.uc_link = &coroutine->main_ctx;
+	} else {
+		coroutine = coroutine_pool_head;
+		coroutine_pool_head = coroutine_pool_head->next_in_pool;
+		--cur_coroutine_pool_size;
+	}
 
 	coroutine->pending = B_FALSE;
 	coroutine->task_id = task_id;
 	coroutine->co_state = COROUTINE_RUNNABLE;
+	coroutine->specific_head = NULL;
+	coroutine->foreground = foreground;
+	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
 
 	return (coroutine);
 }
@@ -251,9 +262,15 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
-	umem_free(coroutine->my_ctx.uc_stack.ss_sp,
-	    coroutine->my_ctx.uc_stack.ss_size);
-	umem_free(coroutine, sizeof (uzfs_coroutine_t));
+	if (likely(coroutine->foreground &&
+	    ++cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
+		coroutine->next_in_pool = coroutine_pool_head;
+		coroutine_pool_head = coroutine;
+	} else {
+		umem_free(coroutine->my_ctx.uc_stack.ss_sp,
+		    coroutine->my_ctx.uc_stack.ss_size);
+		umem_free(coroutine, sizeof (uzfs_coroutine_t));
+	}
 }
 
 boolean_t
@@ -270,7 +287,7 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		coroutine->arg = arg;
 
 		VERIFY0(swapcontext(&coroutine->main_ctx,
-			&coroutine->my_ctx));
+		    &coroutine->my_ctx));
 		thread_local_coroutine = NULL;
 		// if pending, state will be set already
 		if (!coroutine->pending) {
@@ -342,7 +359,7 @@ coroutine_init(void)
 }
 
 void
-coroutine_fini(void)
+coroutine_destroy(void)
 {
 	timer_thread_fini(&timer_thread);
 }
@@ -383,7 +400,7 @@ co_mutex_init(co_mutex_t *mutex)
 }
 
 void
-co_mutex_fini(co_mutex_t *mutex)
+co_mutex_destroy(co_mutex_t *mutex)
 {
 	ASSERT(mutex->owner == NULL);
 	SPIN_UNTIL(atomic_load_32(&mutex->refcount) == 0, 30);
@@ -463,7 +480,7 @@ co_cond_init(co_cond_t *cv)
 }
 
 void
-co_cond_fini(co_cond_t *cv)
+co_cond_destroy(co_cond_t *cv)
 {
 	SPIN_UNTIL(atomic_load_32(&cv->refcount) == 0, 30);
 	cutex_fini(&cv->seq);
@@ -552,9 +569,9 @@ co_rw_lock_init(co_rw_lock_t *rwlock)
 void
 co_rw_lock_destroy(co_rw_lock_t *rwlock)
 {
-	co_mutex_fini(&rwlock->lock);
-	co_cond_fini(&rwlock->readers_cv);
-	co_cond_fini(&rwlock->writers_cv);
+	co_mutex_destroy(&rwlock->lock);
+	co_cond_destroy(&rwlock->readers_cv);
+	co_cond_destroy(&rwlock->writers_cv);
 }
 
 static inline boolean_t

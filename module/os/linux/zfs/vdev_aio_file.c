@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <sys/vdev_file.h>
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
@@ -387,9 +388,11 @@ zio_task_reaper(void *args)
 				    task->buf, zio->io_size);
 			}
 
-			int res = events[i].res;
+			ssize_t res = events[i].res;
 			if (res < 0) {
 				zio->io_error = -res;
+			} else if (res < zio->io_size) {
+				zio->io_error = SET_ERROR(ENOSPC);
 			}
 
 			umem_free(task, sizeof (zio_task_t));

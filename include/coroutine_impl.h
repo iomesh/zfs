@@ -46,24 +46,14 @@ struct uzfs_coroutine {
 	boolean_t pending; // only accessed by its coroutine
 	void (*wake) (void *);
 	void *arg;
-
 	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
 	cutex_t *cutex;
-
 	uint64_t task_id;
-
 	timer_task_t *expire_task;
-
 	co_specific_t *specific_head;
+	boolean_t foreground;
+	struct uzfs_coroutine *next_in_pool;
 };
-
-extern void cutex_init(cutex_t *cutex);
-extern void cutex_fini(cutex_t *cutex);
-extern int cutex_wait(cutex_t *cutex, int expected_value,
-    const struct timespec *abstime);
-extern int cutex_wake_one(cutex_t *cutex);
-// wake up the first waiter of cutex1, and move all waiters of cutex1 to cutex2
-extern int cutex_requeue(cutex_t *cutex1, cutex_t *cutex2);
 
 struct co_mutex {
 	cutex_t lock;
@@ -97,6 +87,12 @@ struct co_rw_lock {
 	struct uzfs_coroutine *owner;
 };
 
+// cpu relax provides a hint to the processor that the code
+// is in a spin-wait loop, allowing the processor to optimize
+// its internal operations for this type of workload. This can
+// help to reduce power consumption and improve performance by
+// reducing the number of unnecessary instruction fetches and
+// pipeline stalls.
 #ifndef cpu_relax
 #if defined(ARCH_CPU_ARM_FAMILY)
 #define	cpu_relax() asm volatile("yield\n": : :"memory")
