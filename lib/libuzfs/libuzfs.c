@@ -599,7 +599,7 @@ void
 libuzfs_fini(void)
 {
 	kernel_fini();
-	coroutine_fini();
+	coroutine_destroy();
 	if (change_zpool_cache_path) {
 		free(spa_config_path);
 	}

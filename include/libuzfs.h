@@ -94,7 +94,7 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 #define	UZFS_XATTR_MAXVALUELEN (8192)
 
 extern uzfs_coroutine_t *libuzfs_new_coroutine(int stack_size,
-    void (*func)(void *), void *arg, uint64_t task_id);
+    void (*func)(void *), void *arg, uint64_t task_id, boolean_t foreground);
 extern void libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine);
 extern boolean_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
     void (*wake)(void *), void *arg);
