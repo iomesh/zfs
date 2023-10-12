@@ -10,6 +10,10 @@
 #include <pthread.h>
 #include <sched.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 // TODO(sundengyu): use object pool to manage cutex
 typedef struct cutex {
 	uint32_t value;
@@ -61,6 +65,9 @@ struct uzfs_coroutine {
 	struct uzfs_coroutine *next_in_pool;
 	void **bottom_fpp;
 	void *saved_fp;
+#ifdef ENABLE_MINITRACE_C
+	mtr_span *current_parent_span;
+#endif
 };
 
 struct co_mutex {

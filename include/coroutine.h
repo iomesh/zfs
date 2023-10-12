@@ -3,6 +3,11 @@
 
 #include "coroutine_impl.h"
 #include "sys/stdtypes.h"
+#include <bits/types/struct_timespec.h>
+#include <sys/ucontext.h>
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
 typedef struct uzfs_coroutine uzfs_coroutine_t;
 
 extern void coroutine_init(void);
@@ -49,5 +54,10 @@ extern int co_rw_lock_try_write(co_rw_lock_t *rwlock);
 extern void co_rw_lock_exit(co_rw_lock_t *rwlock);
 // TODO(sundengyu): implement read lock upgrade
 // extern int co_rw_lock_tryupgrade(co_rw_lock_t *rwlock);
+
+#ifdef ENABLE_MINITRACE_C
+extern mtr_span *get_current_parent_span();
+extern void set_current_parent_span(mtr_span *x);
+#endif
 
 #endif

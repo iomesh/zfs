@@ -63,6 +63,9 @@
 #include "sys/dnode.h"
 #include "sys/nvpair.h"
 #include "sys/stdtypes.h"
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
 
 static boolean_t change_zpool_cache_path = B_FALSE;
 
@@ -595,7 +598,7 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	ASSERT3U(size, !=, 0);
 
 	if (buf != NULL) {	/* immediate write */
-		int rc = libuzfs_object_read(dhp, object, offset, size, buf);
+		int rc = libuzfs_object_read(dhp, object, offset, size, buf, NULL);
 		if (rc < 0) {
 			error = -rc;
 		}
@@ -1405,11 +1408,25 @@ out:
 
 int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, char *buf)
+    uint64_t offset, uint64_t size, char *buf, const void *span_ctx)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span root_span;
+	// If span_ctx is null or if it points to a default context, a noop root span will be created.
+	if (unlikely(span_ctx && mtr_is_valid_context(*(mtr_span_ctx *)span_ctx))) {
+		root_span = mtr_create_root_span("libuzfs_object_read", *(mtr_span_ctx *)span_ctx);
+		set_current_parent_span(&root_span);
+	} else {
+		// Do nothing. Current parent span is already set to NULL upon coroutine creation.
+	}
+#endif
 	libuzfs_node_t *up;
 	int rc = libuzfs_acquire_node(dhp, obj, &up);
 	if (rc != 0) {
+#ifdef ENABLE_MINITRACE_C
+		if (unlikely(get_current_parent_span() != NULL))
+			mtr_destroy_span(root_span);
+#endif
 		return (-rc);
 	}
 
@@ -1433,6 +1450,10 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 out:
 	zfs_rangelock_exit(lr);
 	libuzfs_release_node(dhp, up);
+#ifdef ENABLE_MINITRACE_C
+	if (unlikely(get_current_parent_span() != NULL))
+		mtr_destroy_span(root_span);
+#endif
 	return (rc);
 }
 

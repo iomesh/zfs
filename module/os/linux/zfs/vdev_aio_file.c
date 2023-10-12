@@ -265,6 +265,12 @@ vdev_aio_file_io_start(zio_t *zio)
 
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
+#ifdef ENABLE_MINITRACE_C
+	if (unlikely(zio->span != NULL)) {
+		mtr_span s = mtr_create_child_span_enter("read zio start", zio->span);
+		mtr_destroy_span(s);
+	}
+#endif
 	submit_zio_task(zio);
 }
 
@@ -350,6 +356,13 @@ zio_task_submitter(void *args)
 		struct iocb iocb;
 		struct iocb *ptr = &iocb;
 		while (head != NULL) {
+#ifdef ENABLE_MINITRACE_C
+			zio_t *zio = head->zio;
+			if (unlikely(zio->span != NULL)) {
+				mtr_span s = mtr_create_child_span_enter("read zio submit", zio->span);
+				mtr_destroy_span(s);
+			}
+#endif
 			prep_task(head, ptr);
 			head = head->next;
 			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
@@ -383,6 +396,12 @@ zio_task_reaper(void *args)
 				    task->buf, zio->io_size);
 			}
 
+#ifdef ENABLE_MINITRACE_C
+			if (unlikely(zio->span != NULL)) {
+				mtr_span s = mtr_create_child_span_enter("read zio interrupt", zio->span);
+				mtr_destroy_span(s);
+			}
+#endif
 			ssize_t res = events[i].res;
 			if (res < 0) {
 				zio->io_error = -res;
