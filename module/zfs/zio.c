@@ -52,6 +52,11 @@
 #include <sys/dsl_crypt.h>
 #include <cityhash.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include "coroutine.h"
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * ==========================================================================
  * I/O type descriptions
@@ -884,6 +889,9 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 		if (zio->io_child_type == ZIO_CHILD_GANG)
 			zio->io_gang_leader = pio->io_gang_leader;
 		zio_add_child(pio, zio);
+#ifdef ENABLE_MINITRACE_C
+		zio->span = pio->span;
+#endif
 	}
 
 	taskq_init_ent(&zio->io_tqent);
@@ -894,6 +902,12 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 static void
 zio_destroy(zio_t *zio)
 {
+#ifdef ENABLE_MINITRACE_C
+	if (zio->span) {
+		mtr_span s = mtr_create_child_span_enter("read zio destroy", zio->span);
+		mtr_destroy_span(s);
+	}
+#endif
 	metaslab_trace_fini(&zio->io_alloc_list);
 	list_destroy(&zio->io_parent_list);
 	list_destroy(&zio->io_child_list);
@@ -3882,6 +3896,12 @@ zio_vdev_io_start(zio_t *zio)
 			return (NULL);
 		}
 		zio->io_delay = gethrtime();
+#ifdef ENABLE_MINITRACE_C
+		if (zio->span) {
+			mtr_span s = mtr_create_child_span_enter("zio->iodelay start", zio->span);
+			mtr_destroy_span(s);
+		}
+#endif
 	}
 
 	vd->vdev_ops->vdev_op_io_start(zio);
@@ -3902,8 +3922,15 @@ zio_vdev_io_done(zio_t *zio)
 	ASSERT(zio->io_type == ZIO_TYPE_READ ||
 	    zio->io_type == ZIO_TYPE_WRITE || zio->io_type == ZIO_TYPE_TRIM);
 
-	if (zio->io_delay)
+	if (zio->io_delay) {
 		zio->io_delay = gethrtime() - zio->io_delay;
+#ifdef ENABLE_MINITRACE_C
+		if (zio->span) {
+			mtr_span s = mtr_create_child_span_enter("zio->iodelay end", zio->span);
+			mtr_destroy_span(s);
+		}
+#endif
+	}
 
 	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
 	    vd->vdev_ops != &vdev_draid_spare_ops) {

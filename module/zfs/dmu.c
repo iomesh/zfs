@@ -59,6 +59,11 @@
 #include <sys/zfs_znode.h>
 #endif
 
+#ifdef ENABLE_MINITRACE_C
+#include "coroutine.h"
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Enable/disable nopwrite feature.
  */
@@ -500,6 +505,11 @@ int
 dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
     boolean_t read, void *tag, int *numbufsp, dmu_buf_t ***dbpp, uint32_t flags)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span *parent = get_current_parent_span();
+	mtr_span span = parent ? mtr_create_child_span_enter("dmu_buf_hold_array_by_dnode", parent) : mtr_create_noop_span();
+	set_current_parent_span(&span);
+#endif
 	dmu_buf_t **dbp;
 	zstream_t *zs = NULL;
 	uint64_t blkid, nblks, i;
@@ -532,15 +542,25 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			    (longlong_t)dn->dn_object, dn->dn_datablksz,
 			    (longlong_t)offset, (longlong_t)length);
 			rw_exit(&dn->dn_struct_rwlock);
+#ifdef ENABLE_MINITRACE_C
+			set_current_parent_span(parent);
+			mtr_destroy_span(span);
+#endif
 			return (SET_ERROR(EIO));
 		}
 		nblks = 1;
 	}
 	dbp = kmem_zalloc(sizeof (dmu_buf_t *) * nblks, KM_SLEEP);
 
-	if (read)
+	if (read) {
 		zio = zio_root(dn->dn_objset->os_spa, NULL, NULL,
 		    ZIO_FLAG_CANFAIL);
+#ifdef ENABLE_MINITRACE_C
+		if (parent) {
+			zio->span = &span;
+		}
+#endif
+	}
 	blkid = dbuf_whichblock(dn, 0, offset);
 	if ((flags & DMU_READ_NO_PREFETCH) == 0 &&
 	    DNODE_META_IS_CACHEABLE(dn) && length <= zfetch_array_rd_sz) {
@@ -561,6 +581,10 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			dmu_buf_rele_array(dbp, nblks, tag);
 			if (read)
 				zio_nowait(zio);
+#ifdef ENABLE_MINITRACE_C
+			set_current_parent_span(parent);
+			mtr_destroy_span(span);
+#endif
 			return (SET_ERROR(EIO));
 		}
 
@@ -592,6 +616,10 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 		err = zio_wait(zio);
 		if (err) {
 			dmu_buf_rele_array(dbp, nblks, tag);
+#ifdef ENABLE_MINITRACE_C
+			set_current_parent_span(parent);
+			mtr_destroy_span(span);
+#endif
 			return (err);
 		}
 
@@ -607,6 +635,10 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			mutex_exit(&db->db_mtx);
 			if (err) {
 				dmu_buf_rele_array(dbp, nblks, tag);
+#ifdef ENABLE_MINITRACE_C
+				set_current_parent_span(parent);
+				mtr_destroy_span(span);
+#endif
 				return (err);
 			}
 		}
@@ -614,6 +646,10 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 
 	*numbufsp = nblks;
 	*dbpp = dbp;
+#ifdef ENABLE_MINITRACE_C
+	set_current_parent_span(parent);
+	mtr_destroy_span(span);
+#endif
 	return (0);
 }
 
@@ -1031,6 +1067,18 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 		if (err)
 			break;
 
+#ifdef ENABLE_MINITRACE_C
+		mtr_span *parent = get_current_parent_span();
+		mtr_span span;
+		if (parent)
+		{
+			span = mtr_create_child_span_enter("dmu_read_impl memcpy", parent);
+		}
+		else
+		{
+			span = mtr_create_noop_span();
+		}
+#endif
 		for (i = 0; i < numbufs; i++) {
 			uint64_t tocpy;
 			int64_t bufoff;
@@ -1047,6 +1095,9 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 			size -= tocpy;
 			buf = (char *)buf + tocpy;
 		}
+#ifdef ENABLE_MINITRACE_C
+		mtr_destroy_span(span);
+#endif
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
 	return (err);
