@@ -61,6 +61,9 @@
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
 #include "sys/stdtypes.h"
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
 
 static boolean_t change_zpool_cache_path = B_FALSE;
 
@@ -1422,9 +1425,17 @@ int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span_ctx span_ctx = mtr_create_rand_span_ctx();
+	// Create a non-empty root span with probability given by the environment variable MINITRACE_SAMPLE_RATIO
+	mtr_span root_span = mtr_create_root_span_with_preset_prob("alloc_nfs_request", span_ctx);
+#endif
 	libuzfs_node_t *up;
 	int rc = libuzfs_acquire_node(dhp, obj, &up);
 	if (rc != 0) {
+#ifdef ENABLE_MINITRACE_C
+	mtr_destroy_span(root_span);
+#endif
 		return (-rc);
 	}
 
@@ -1448,6 +1459,9 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 out:
 	zfs_rangelock_exit(lr);
 	libuzfs_release_node(dhp, up);
+#ifdef ENABLE_MINITRACE_C
+	mtr_destroy_span(root_span);
+#endif
 	return (rc);
 }
 

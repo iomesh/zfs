@@ -56,6 +56,10 @@
 #include <zfs_fletcher.h>
 #include <zlib.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Emulation of kernel services in userland.
  */
@@ -916,6 +920,27 @@ umem_out_of_memory(void)
 	return (0);
 }
 
+#ifdef ENABLE_MINITRACE_C
+static mtr_otel_rptr global_rptr;
+
+static void mtr_otel_init(void)
+{
+	mtr_otlp_grpcio_cfg gcfg = mtr_create_def_otlp_grpcio_cfg();
+	mtr_otlp_exp_cfg ecfg = mtr_create_def_otlp_exp_cfg();
+	mtr_coll_cfg cfg = mtr_create_def_coll_cfg();
+	mtr_coll_cfg cfg_2 = mtr_set_report_max_spans(cfg, 200);
+	mtr_otel_rptr rptr = mtr_create_otel_rptr(ecfg, gcfg);
+	mtr_set_otel_rptr(rptr, cfg_2);
+	global_rptr = rptr;
+}
+
+static void mtr_otel_fini(void)
+{
+	mtr_flush();
+	mtr_destroy_otel_rptr(global_rptr);
+}
+#endif
+
 void
 kernel_init(int mode)
 {
@@ -951,6 +976,10 @@ kernel_init(int mode)
 	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, rrw_tsd_destroy);
 	tsd_create(&zfs_allow_log_key, zfs_allow_log_destroy);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_otel_init();
+#endif
 }
 
 void
@@ -971,6 +1000,10 @@ kernel_fini(void)
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);
 	tsd_destroy(&zfs_allow_log_key);
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_otel_fini();
+#endif
 }
 
 uid_t
