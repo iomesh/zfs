@@ -19,6 +19,9 @@
 #include <timer_thread.h>
 #include <stddef.h>
 #include <libuzfs.h>
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
 
 static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
@@ -279,6 +282,10 @@ libuzfs_coroutine_yield(void)
 	}
 	jump_fcontext(&thread_local_coroutine->my_ctx,
 	    thread_local_coroutine->main_ctx, 0, B_TRUE);
+//TODO: save thread-local tracing context, because next time this coroutine may be run in a different thread.
+#ifdef ENABLE_MINITRACE_C
+	
+#endif
 }
 
 void
@@ -367,6 +374,11 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	coroutine->next_in_pool = NULL;
 	coroutine->bottom_fpp = NULL;
 	coroutine->saved_fp = NULL;
+	//TODO: initialize thread-local tracing context here (if necessary?)
+#ifdef ENABLE_MINITRACE_C
+	coroutine->current_parent_span = NULL;
+#endif
+
 	return (coroutine);
 }
 
@@ -430,6 +442,10 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		// TODO(sundengyu): use one instruction other that a function
 		// call this implementation may not be compatible with arm arch
 		*((void **)coroutine->stack_bottom - 1) = current_pc();
+		//TODO: restore thread-local tracing context here. This is correct because calling swapcontext() doesn't change current thread.
+#ifdef ENABLE_MINITRACE_C
+
+#endif
 
 		jump_fcontext(&coroutine->main_ctx,
 		    coroutine->my_ctx, 0, B_TRUE);
@@ -892,11 +908,11 @@ co_rw_lock_write_held(co_rw_lock_t *rwlock)
 #ifdef ENABLE_MINITRACE_C
 mtr_span *get_current_parent_span(void)
 {
-	return thread_local_coroutine->cutex->current_parent_span;
+	return thread_local_coroutine->current_parent_span;
 }
 
 void set_current_parent_span(mtr_span *ctx)
 {
-	thread_local_coroutine->cutex->current_parent_span = ctx;
+	thread_local_coroutine->current_parent_span = ctx;
 }
 #endif

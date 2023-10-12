@@ -59,6 +59,10 @@
 #include <zfs_fletcher.h>
 #include <zlib.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Emulation of kernel services in userland.
  */

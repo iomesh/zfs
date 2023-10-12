@@ -21,9 +21,6 @@ typedef struct cutex {
 	pthread_mutex_t waiter_lock;
 	// TODO(sundnegyu): use a smaller list
 	list_t waiter_list;
-#ifdef ENABLE_MINITRACE_C
-	mtr_span *current_parent_span;
-#endif
 } cutex_t;
 
 typedef enum cutex_waiter_state {
@@ -69,6 +66,9 @@ struct uzfs_coroutine {
 	struct uzfs_coroutine *next_in_pool;
 	void **bottom_fpp;
 	void *saved_fp;
+#ifdef ENABLE_MINITRACE_C
+	mtr_span *current_parent_span;
+#endif
 };
 
 struct co_mutex {

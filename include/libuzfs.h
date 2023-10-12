@@ -148,7 +148,7 @@ extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
 extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, char *buf);
+    uint64_t offset, uint64_t size, char *buf, const void *span_ctx);
 
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync, const void *ctx);

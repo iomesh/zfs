@@ -267,7 +267,7 @@ vdev_aio_file_io_start(zio_t *zio)
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
 #ifdef ENABLE_MINITRACE_C
-	if (zio->span) {
+	if (unlikely(zio->span != NULL)) {
 		mtr_span s = mtr_create_child_span_enter("vdev_aio_file_io_start",zio->span);
 		mtr_destroy_span(s);
 	}
@@ -359,8 +359,8 @@ zio_task_submitter(void *args)
 		while (head != NULL) {
 #ifdef ENABLE_MINITRACE_C
 			zio_t *zio = head->zio;
-			if (zio->span) {
-				mtr_span s = mtr_create_child_span_enter("zio task submitter",zio->span);
+			if (unlikely(zio->span != NULL)) {
+				mtr_span s = mtr_create_child_span_enter("zio_task_submitter",zio->span);
 				mtr_destroy_span(s);
 			}
 #endif
@@ -398,8 +398,8 @@ zio_task_reaper(void *args)
 			}
 
 #ifdef ENABLE_MINITRACE_C
-			if (zio->span) {
-				mtr_span s = mtr_create_child_span_enter("zio task reaper",zio->span);
+			if (unlikely(zio->span != NULL)) {
+				mtr_span s = mtr_create_child_span_enter("zio_task_reaper",zio->span);
 				mtr_destroy_span(s);
 			}
 #endif

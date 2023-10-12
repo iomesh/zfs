@@ -6444,6 +6444,13 @@ top:
 
 		rzio = zio_read(pio, spa, bp, hdr_abd, size,
 		    arc_read_done, hdr, priority, zio_flags, zb);
+#ifdef ENABLE_MINITRACE_C
+		rzio->span = pio ? pio->span : NULL;
+		if (unlikely(rzio->span != NULL)) {
+			mtr_span s = mtr_create_child_span_enter("read zio create", rzio->span);
+			mtr_destroy_span(s);
+		}
+#endif
 		acb->acb_zio_head = rzio;
 
 		if (hash_lock != NULL)
