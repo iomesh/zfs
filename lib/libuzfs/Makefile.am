@@ -20,6 +20,6 @@ USER_C = \
 
 libuzfs_la_SOURCES = $(USER_C)
 
-libuzfs_la_LIBADD = $(abs_top_builddir)/lib/libzpool/libzpool.la
+libuzfs_la_LIBADD = $(abs_top_builddir)/lib/libzpool/libzpool.la /usr/local/lib/libminitrace_c.a
 
 include $(top_srcdir)/config/CppCheck.am
