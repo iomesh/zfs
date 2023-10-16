@@ -53,7 +53,7 @@ if test "$enable_minitrace_c" != "no"; then
   fi
   if test "$minitrace_c_have_headers" != "0"; then
     has_minitrace_c=1
-    LIBS="${LIBS} -Bstatic -lminitrace_c -Bdynamic -lstdc++"
+    LIBS="${LIBS} -Bstatic -L/usr/local/lib -l:libminitrace_c.a -Bdynamic -lstdc++"
     AC_DEFINE(has_minitrace_c, [1], [Link/compile against minitrace_c])
   else
     AC_MSG_ERROR([Couldn't find a minitrace_c installation])
