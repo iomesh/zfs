@@ -1,5 +1,7 @@
 include $(top_srcdir)/config/Shellcheck.am
 
+LDADD = /usr/local/lib/libminitrace_c.a
+
 ACLOCAL_AMFLAGS = -I config
 
 SUBDIRS = include
