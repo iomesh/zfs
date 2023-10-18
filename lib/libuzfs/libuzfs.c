@@ -1428,7 +1428,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 #ifdef ENABLE_MINITRACE_C
 	mtr_span_ctx span_ctx = mtr_create_rand_span_ctx();
 	// Create a non-empty root span with probability given by the environment variable MINITRACE_SAMPLE_RATIO
-	mtr_span root_span = mtr_create_root_span_with_preset_prob("alloc_nfs_request", span_ctx);
+	mtr_span root_span = mtr_create_root_span_with_preset_prob("libuzfs_object_read", span_ctx);
 #endif
 	libuzfs_node_t *up;
 	int rc = libuzfs_acquire_node(dhp, obj, &up);
