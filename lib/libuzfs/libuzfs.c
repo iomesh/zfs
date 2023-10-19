@@ -1423,12 +1423,16 @@ out:
 
 int
 libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, char *buf)
+    uint64_t offset, uint64_t size, char *buf, const void *span_ctx)
 {
 #ifdef ENABLE_MINITRACE_C
-	mtr_span_ctx span_ctx = mtr_create_rand_span_ctx();
-	// Create a non-empty root span with probability given by the environment variable MINITRACE_SAMPLE_RATIO
-	mtr_span root_span = mtr_create_root_span("libuzfs_object_read", span_ctx);
+	mtr_span root_span;
+	// If span_ctx is null or if it points to a default context, a noop root span will be created.
+	if (span_ctx) {
+		root_span = mtr_create_root_span("libuzfs_object_read", *(mtr_span_ctx *)span_ctx);
+	} else {
+		root_span = mtr_create_noop_span();
+	}
 #endif
 	libuzfs_node_t *up;
 	int rc = libuzfs_acquire_node(dhp, obj, &up);
