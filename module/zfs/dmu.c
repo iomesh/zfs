@@ -1037,7 +1037,16 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 			break;
 
 #ifdef ENABLE_MINITRACE_C
-		mtr_span span = mtr_create_child_span_enter("dmu_read_impl memcpy", get_current_parent_span());
+		mtr_span *parent = get_current_parent_span();
+		mtr_span span;
+		if (parent)
+		{
+			span = mtr_create_child_span_enter("dmu_read_impl memcpy", parent);
+		}
+		else
+		{
+			span = mtr_create_noop_span();
+		}
 #endif
 		for (i = 0; i < numbufs; i++) {
 			uint64_t tocpy;
