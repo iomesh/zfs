@@ -10,6 +10,10 @@
 #include <sched.h>
 #include <sys/ucontext.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 // TODO(sundengyu): use object pool to manage cutex
 typedef struct cutex {
 	uint32_t value;
