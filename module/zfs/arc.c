@@ -6445,7 +6445,7 @@ top:
 		rzio = zio_read(pio, spa, bp, hdr_abd, size,
 		    arc_read_done, hdr, priority, zio_flags, zb);
 #ifdef ENABLE_MINITRACE_C
-		rzio->span = pio->span;
+		rzio->span = pio ? pio->span : NULL;
 #endif
 		acb->acb_zio_head = rzio;
 
