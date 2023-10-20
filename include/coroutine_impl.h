@@ -53,6 +53,9 @@ struct uzfs_coroutine {
 	co_specific_t *specific_head;
 	boolean_t foreground;
 	struct uzfs_coroutine *next_in_pool;
+#ifdef ENABLE_MINITRACE_C
+	mtr_span *current_parent_span;
+#endif
 };
 
 extern void cutex_init(cutex_t *cutex);

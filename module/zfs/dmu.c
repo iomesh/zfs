@@ -59,6 +59,11 @@
 #include <sys/zfs_znode.h>
 #endif
 
+#ifdef ENABLE_MINITRACE_C
+#include "coroutine.h"
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * Enable/disable nopwrite feature.
  */
@@ -1031,6 +1036,9 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 		if (err)
 			break;
 
+#ifdef ENABLE_MINITRACE_C
+		mtr_span span = mtr_create_child_span_enter("dmu_read_impl memcpy", get_current_parent_span());
+#endif
 		for (i = 0; i < numbufs; i++) {
 			uint64_t tocpy;
 			int64_t bufoff;
@@ -1047,6 +1055,9 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 			size -= tocpy;
 			buf = (char *)buf + tocpy;
 		}
+#ifdef ENABLE_MINITRACE_C
+		mtr_destroy_span(span);
+#endif
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
 	return (err);

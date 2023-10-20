@@ -18,6 +18,9 @@
 #include <timer_thread.h>
 #include <stddef.h>
 #include <libuzfs.h>
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
 
 static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
@@ -187,6 +190,10 @@ void
 libuzfs_coroutine_yield(void)
 {
 	thread_local_coroutine->pending = B_TRUE;
+	//TODO: save thread-local tracing context, because next time this coroutine may be run in a different thread.
+#ifdef ENABLE_MINITRACE_C
+	
+#endif
 	VERIFY0(swapcontext(&thread_local_coroutine->my_ctx,
 	    &thread_local_coroutine->main_ctx));
 }
@@ -238,6 +245,10 @@ libuzfs_new_coroutine(int stack_size, void (*func)(void *),
 	coroutine->co_state = COROUTINE_RUNNABLE;
 	coroutine->specific_head = NULL;
 	coroutine->foreground = foreground;
+	//TODO: initialize thread-local tracing context here (if necessary?)
+#ifdef ENABLE_MINITRACE_C
+	coroutine->current_parent_span = NULL;
+#endif
 	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
 
 	return (coroutine);
@@ -279,6 +290,10 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		thread_local_coroutine = coroutine;
 		coroutine->wake = wake;
 		coroutine->arg = arg;
+		//TODO: restore thread-local tracing context here. This is correct because calling swapcontext() doesn't change current thread.
+#ifdef ENABLE_MINITRACE_C
+
+#endif
 
 		VERIFY0(swapcontext(&coroutine->main_ctx,
 		    &coroutine->my_ctx));
@@ -724,3 +739,12 @@ co_rw_lock_write_held(co_rw_lock_t *rwlock)
 {
 	return (rwlock->owner == thread_local_coroutine);
 }
+#ifdef ENABLE_MINITRACE_C
+mtr_span *get_current_parent_span() {
+	return thread_local_coroutine->current_parent_span;
+}
+
+void set_current_parent_span(mtr_span *x) {
+	thread_local_coroutine->current_parent_span = x;
+}
+#endif

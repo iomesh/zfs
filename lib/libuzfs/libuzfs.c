@@ -1433,11 +1433,14 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	} else {
 		root_span = mtr_create_noop_span();
 	}
+	mtr_span *prev = get_current_parent_span();
+	set_current_parent_span(&root_span);
 #endif
 	libuzfs_node_t *up;
 	int rc = libuzfs_acquire_node(dhp, obj, &up);
 	if (rc != 0) {
 #ifdef ENABLE_MINITRACE_C
+	set_current_parent_span(prev);
 	mtr_destroy_span(root_span);
 #endif
 		return (-rc);
@@ -1464,6 +1467,7 @@ out:
 	zfs_rangelock_exit(lr);
 	libuzfs_release_node(dhp, up);
 #ifdef ENABLE_MINITRACE_C
+	set_current_parent_span(prev);
 	mtr_destroy_span(root_span);
 #endif
 	return (rc);
