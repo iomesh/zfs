@@ -52,6 +52,11 @@
 #include <sys/dsl_crypt.h>
 #include <cityhash.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include "coroutine.h"
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 /*
  * ==========================================================================
  * I/O type descriptions
@@ -3882,6 +3887,12 @@ zio_vdev_io_start(zio_t *zio)
 			return (NULL);
 		}
 		zio->io_delay = gethrtime();
+#ifdef ENABLE_MINITRACE_C
+		if (zio->span) {
+			mtr_span s = mtr_create_child_span_enter("zio->iodelay start", zio->span);
+			mtr_destroy_span(s);
+		}
+#endif
 	}
 
 	vd->vdev_ops->vdev_op_io_start(zio);
@@ -3902,8 +3913,15 @@ zio_vdev_io_done(zio_t *zio)
 	ASSERT(zio->io_type == ZIO_TYPE_READ ||
 	    zio->io_type == ZIO_TYPE_WRITE || zio->io_type == ZIO_TYPE_TRIM);
 
-	if (zio->io_delay)
+	if (zio->io_delay) {
 		zio->io_delay = gethrtime() - zio->io_delay;
+#ifdef ENABLE_MINITRACE_C
+		if (zio->span) {
+			mtr_span s = mtr_create_child_span_enter("zio->iodelay end", zio->span);
+			mtr_destroy_span(s);
+		}
+#endif
+	}
 
 	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
 	    vd->vdev_ops != &vdev_draid_spare_ops) {
