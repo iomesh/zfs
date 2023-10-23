@@ -899,6 +899,12 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 static void
 zio_destroy(zio_t *zio)
 {
+#ifdef ENABLE_MINITRACE_C
+	if (zio->span) {
+		mtr_span s = mtr_create_child_span_enter("read zio destroy", zio->span);
+		mtr_destroy_span(s);
+	}
+#endif
 	metaslab_trace_fini(&zio->io_alloc_list);
 	list_destroy(&zio->io_parent_list);
 	list_destroy(&zio->io_child_list);
