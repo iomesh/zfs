@@ -889,6 +889,9 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 		if (zio->io_child_type == ZIO_CHILD_GANG)
 			zio->io_gang_leader = pio->io_gang_leader;
 		zio_add_child(pio, zio);
+#ifdef ENABLE_MINITRACE_C
+		zio->span = pio->span;
+#endif
 	}
 
 	taskq_init_ent(&zio->io_tqent);
