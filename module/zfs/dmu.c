@@ -556,7 +556,9 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 		zio = zio_root(dn->dn_objset->os_spa, NULL, NULL,
 		    ZIO_FLAG_CANFAIL);
 #ifdef ENABLE_MINITRACE_C
-		zio->span = &span;
+		if (parent) {
+			zio->span = &span;
+		}
 #endif
 	}
 	blkid = dbuf_whichblock(dn, 0, offset);
