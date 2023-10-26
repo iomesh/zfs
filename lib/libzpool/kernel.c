@@ -27,6 +27,7 @@
 #include "coroutine.h"
 #include "sys/stdtypes.h"
 #include <assert.h>
+#include <bits/types/struct_timespec.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <poll.h>
@@ -791,7 +792,10 @@ cmn_err(int ce, const char *fmt, ...)
 void
 delay(clock_t ticks)
 {
-	(void) poll(0, 0, ticks * (1000 / hz));
+	struct timespec duration;
+	duration.tv_sec = ticks / hz;
+	duration.tv_nsec = (ticks - hz * duration.tv_sec) * NANOSEC / hz;
+	nano_sleep(duration);
 }
 
 /*
