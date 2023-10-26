@@ -194,7 +194,13 @@ zio_init(void)
 		 * Since userland probably doesn't need optimized buffer caches,
 		 * we just force 4K alignment on everything.
 		 */
-		align = 8 * SPA_MINBLOCKSIZE;
+		// align = 8 * SPA_MINBLOCKSIZE;
+
+		if (size < PAGESIZE) {
+			align = SPA_MINBLOCKSIZE;
+		} else {
+			align = PAGESIZE;
+		}
 #else
 		if (size < PAGESIZE) {
 			align = SPA_MINBLOCKSIZE;
