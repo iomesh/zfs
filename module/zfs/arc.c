@@ -6446,7 +6446,7 @@ top:
 		    arc_read_done, hdr, priority, zio_flags, zb);
 #ifdef ENABLE_MINITRACE_C
 		rzio->span = pio ? pio->span : NULL;
-		if (rzio->span) {
+		if (unlikely(rzio->span != NULL)) {
 			mtr_span s = mtr_create_child_span_enter("read zio create", rzio->span);
 			mtr_destroy_span(s);
 		}

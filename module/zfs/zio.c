@@ -903,7 +903,7 @@ static void
 zio_destroy(zio_t *zio)
 {
 #ifdef ENABLE_MINITRACE_C
-	if (zio->span) {
+	if (unlikely(zio->span != NULL)) {
 		mtr_span s = mtr_create_child_span_enter("read zio destroy", zio->span);
 		mtr_destroy_span(s);
 	}
@@ -3897,7 +3897,7 @@ zio_vdev_io_start(zio_t *zio)
 		}
 		zio->io_delay = gethrtime();
 #ifdef ENABLE_MINITRACE_C
-		if (zio->span) {
+		if (unlikely(zio->span != NULL)) {
 			mtr_span s = mtr_create_child_span_enter("zio->iodelay start", zio->span);
 			mtr_destroy_span(s);
 		}
@@ -3925,7 +3925,7 @@ zio_vdev_io_done(zio_t *zio)
 	if (zio->io_delay) {
 		zio->io_delay = gethrtime() - zio->io_delay;
 #ifdef ENABLE_MINITRACE_C
-		if (zio->span) {
+		if (unlikely(zio->span != NULL)) {
 			mtr_span s = mtr_create_child_span_enter("zio->iodelay end", zio->span);
 			mtr_destroy_span(s);
 		}

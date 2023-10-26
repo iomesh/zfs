@@ -533,7 +533,6 @@ struct zio {
 
 #ifdef ENABLE_MINITRACE_C
 	mtr_span	*span;
-	void		*span_executor;
 #endif
 };
 

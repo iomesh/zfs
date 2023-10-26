@@ -271,7 +271,7 @@ vdev_aio_file_io_start(zio_t *zio)
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
 #ifdef ENABLE_MINITRACE_C
-	if (zio->span) {
+	if (unlikely(zio->span != NULL)) {
 		mtr_span s = mtr_create_child_span_enter("read zio start", zio->span);
 		mtr_destroy_span(s);
 	}
@@ -363,7 +363,7 @@ zio_task_submitter(void *args)
 		while (head != NULL) {
 #ifdef ENABLE_MINITRACE_C
 			zio_t *zio = head->zio;
-			if (zio->span) {
+			if (unlikely(zio->span != NULL)) {
 				mtr_span s = mtr_create_child_span_enter("read zio submit", zio->span);
 				mtr_destroy_span(s);
 			}
@@ -402,7 +402,7 @@ zio_task_reaper(void *args)
 			}
 
 #ifdef ENABLE_MINITRACE_C
-			if (zio->span) {
+			if (unlikely(zio->span != NULL)) {
 				mtr_span s = mtr_create_child_span_enter("read zio interrupt", zio->span);
 				mtr_destroy_span(s);
 			}
