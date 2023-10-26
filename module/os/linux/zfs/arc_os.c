@@ -26,6 +26,7 @@
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
+#include <stdio.h>
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/spa_impl.h>
@@ -42,6 +43,7 @@
 #include <sys/abd.h>
 #include <sys/zil.h>
 #include <sys/fm/fs/zfs.h>
+#include <sys/sysinfo.h>
 #ifdef _KERNEL
 #include <sys/shrinker.h>
 #include <sys/vmsystm.h>
@@ -446,13 +448,8 @@ arc_unregister_hotplug(void)
 int64_t
 arc_available_memory(void)
 {
-	int64_t lowest = INT64_MAX;
-
-	/* Every 100 calls, free a small amount */
-	if (random_in_range(100) == 0)
-		lowest = -1024;
-
-	return (lowest);
+	printf("sys free: %lu\n", arc_sys_free);
+	return (arc_free_memory() - arc_sys_free);
 }
 
 int
@@ -470,7 +467,7 @@ arc_all_memory(void)
 uint64_t
 arc_free_memory(void)
 {
-	return (random_in_range(arc_all_memory() * 20 / 100));
+	return (get_avphys_pages() * PAGESIZE);
 }
 
 void
