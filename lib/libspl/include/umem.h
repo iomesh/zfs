@@ -36,12 +36,14 @@
  *
  * https://labs.omniti.com/trac/portableumem
  */
+#include "atomic.h"
 #include <sys/debug.h>
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <malloc.h>
 
 #ifdef  __cplusplus
 extern "C" {
@@ -129,10 +131,15 @@ umem_zalloc(size_t size, int flags)
 	return (ptr);
 }
 
+static uint64_t xx = 0;
+
 static inline void
 umem_free(void *ptr, size_t size __maybe_unused)
 {
 	free(ptr);
+	if (atomic_inc_64_nv(&xx) % 10000 == 0) {
+		malloc_trim(0);
+	}
 }
 
 static inline void

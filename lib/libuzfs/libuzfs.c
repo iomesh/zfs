@@ -1358,6 +1358,12 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
 	uint64_t max_blksz = dhp->max_blksz;
+
+	sa_bulk_attr_t bulk[2];
+	int count = 0;
+	struct timespec mtime;
+	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE], NULL, &up->u_size, sizeof (up->u_size));
+	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME], NULL, &mtime, sizeof (mtime));
 	while (size > 0) {
 		uint64_t nwrite = MIN(size,
 		    max_blksz - P2PHASE(offset, max_blksz));
@@ -1381,22 +1387,12 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
 
-		// set mtime in the last iteration
-		if (size == nwrite) {
-			struct timespec mtime;
-			gethrestime(&mtime);
-			VERIFY0(sa_update(up->sa_hdl, sa_tbl[UZFS_MTIME],
-			    &mtime, sizeof (mtime), tx));
-		}
-
 		uint64_t up_size;
 		while ((up_size = up->u_size) < offset + nwrite) {
 			atomic_cas_64(&up->u_size, up_size, offset + nwrite);
 		}
-		if (up_size == offset + nwrite) {
-			VERIFY0(sa_update(up->sa_hdl, sa_tbl[UZFS_SIZE],
-			    &up->u_size, 8, tx));
-		}
+		gethrestime(&mtime);
+		VERIFY0(sa_bulk_update(up->sa_hdl, bulk, 2, tx));
 
 		libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, nwrite, sync);
 		dmu_tx_commit(tx);
