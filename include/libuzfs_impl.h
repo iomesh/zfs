@@ -40,24 +40,12 @@ extern "C" {
 #endif
 
 typedef enum uzfs_attr_type {
-	UZFS_PINO,
-	UZFS_PSID,
-	UZFS_FTYPE,
 	UZFS_GEN,
-	UZFS_NLINK,
-	UZFS_PERM,
-	UZFS_UID,
-	UZFS_GID,
 	UZFS_SIZE,
-	UZFS_NSID,
-	UZFS_DSID,
-	UZFS_OID,
-	UZFS_OGEN,
-	UZFS_ATIME,
 	UZFS_MTIME,
-	UZFS_CTIME,
-	UZFS_BTIME,
-	UZFS_ZXATTR, // sa index for dir xattr inode
+	UZFS_ZXATTR, // sa index for zap xattr inode
+	UZFS_RESERVED,
+	UZFS_XATTR_HIGH, // high priority kv pairs
 	UZFS_XATTR,  // sa index for sa xattr (name, value) pairs
 	UZFS_END
 } uzfs_attr_type_t;
@@ -95,8 +83,10 @@ struct libuzfs_dataset_handle {
 };
 
 struct libuzfs_kvattr_iterator {
+	nvlist_t *hp_kvattrs_in_sa;
 	nvlist_t *kvattrs_in_sa;
-	nvpair_t *current_pair;
+	nvpair_t *cur_hp_sa_pair;
+	nvpair_t *cur_sa_pair;
 	zap_cursor_t zc;
 	uint64_t zap_obj;
 };
@@ -106,12 +96,9 @@ struct libuzfs_zap_iterator {
 	zap_attribute_t za;
 };
 
-#define	UZFS_SIZE_OFFSET 0
-#define	UZFS_GEN_OFFSET 8
-#define	UZFS_UID_OFFSET 16
-#define	UZFS_GID_OFFSET 20
-#define	UZFS_PARENT_OFFSET 24
-#define	UZFS_MAX_BLOCKSIZE (1<<18)
+#define	UZFS_MAX_BLOCKSIZE	(1<<18)
+#define	UZFS_BONUS_LEN_DEFAULT	DN_BONUS_SIZE(512)
+#define	UZFS_BONUS_LEN_4K	DN_BONUS_SIZE(4096)
 
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
     sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
