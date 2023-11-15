@@ -28,6 +28,7 @@
 
 #include "coroutine.h"
 #include "sys/stdtypes.h"
+#include "sys/time.h"
 #include <libnvpair.h>
 #include <sys/dmu.h>
 
@@ -51,29 +52,23 @@ typedef enum {
 	TYPE_BLK
 } FileType;
 
-// objects in ds also use this struct for convenience,
-// even if we don't need so many attrs in ds obj
-struct uzfs_attr {
-	uint64_t ino;
-	uint64_t pino;
-	uint32_t psid;
-	FileType ftype;
+typedef enum {
+	HIGH_PRIORITY,
+	LOW_PRIORITY,
+} libuzfs_kvset_option_t;
+
+struct uzfs_inode_attr {
 	uint64_t gen;
-	uint32_t nlink;
-	uint32_t perm;
-	uint32_t uid;
-	uint32_t gid;
+	uint32_t blksize; // not on disk
+	uint64_t blocks; // not on disk
+};
+
+struct uzfs_object_attr {
+	uint64_t gen;
 	uint64_t size;
-	uint64_t blksize;
-	uint64_t blocks;
-	uint32_t nsid;
-	uint32_t dsid;
-	uint64_t oid;
-	uint64_t ogen;
-	struct timespec atime;
-	struct timespec mtime;
-	struct timespec ctime;
-	struct timespec btime;
+	timespec_t mtime;
+	uint32_t blksize; // not on disk
+	uint64_t blocks; // not on disk
 };
 
 struct uzfs_dentry {
@@ -85,7 +80,8 @@ struct uzfs_dentry {
 
 typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
-typedef struct uzfs_attr uzfs_attr_t;
+typedef struct uzfs_inode_attr uzfs_inode_attr_t;
+typedef struct uzfs_object_attr uzfs_object_attr_t;
 typedef struct libuzfs_kvattr_iterator libuzfs_kvattr_iterator_t;
 typedef struct libuzfs_zap_iterator libuzfs_zap_iterator_t;
 
@@ -149,11 +145,8 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync);
 
-extern int libuzfs_object_get_gen(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *gen);
-
-extern int libuzfs_object_get_size(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t *size);
+extern int libuzfs_object_get_attr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uzfs_object_attr_t *attr);
 
 extern void libuzfs_object_sync(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 
@@ -258,14 +251,14 @@ extern int libuzfs_fsync(uint64_t fsid, uint64_t ino, int syncflag);
 extern int libuzfs_inode_delete(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     libuzfs_inode_type_t type, uint64_t *txg);
 extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    uzfs_attr_t *attr);
+    uzfs_inode_attr_t *attr, char *reserved, int *size);
 extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const uzfs_attr_t *attr, uint64_t *txg);
+    const char *reserved, uint32_t size, uint64_t *txg);
 extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    const char *name, const char *value,
-    uint64_t size, int flags, uint64_t *txg);
+    const char *name, const char *value, uint64_t size,
+    uint64_t *txg, libuzfs_kvset_option_t option);
 extern ssize_t libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, const char *name, char *value, uint64_t size, int flags);
+    uint64_t ino, const char *name, char *value, uint64_t size);
 extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, const char *name, uint64_t *txg);
 
@@ -283,6 +276,8 @@ extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
 
 extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
+
+extern int libuzfs_dataset_set_props(const char *dsname, uint32_t dnodesize);
 
 #ifdef	__cplusplus
 }

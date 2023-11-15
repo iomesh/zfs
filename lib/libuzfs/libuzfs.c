@@ -60,6 +60,7 @@
 #include "coroutine.h"
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
+#include "sys/nvpair.h"
 #include "sys/stdtypes.h"
 
 static boolean_t change_zpool_cache_path = B_FALSE;
@@ -820,15 +821,21 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 int
 libuzfs_dataset_create(const char *dsname)
 {
-	int err = 0;
+	return (dmu_objset_create(dsname, DMU_OST_ZFS, 0, NULL,
+	    libuzfs_objset_create_cb, NULL));
+}
 
-	err = dmu_objset_create(dsname, DMU_OST_ZFS, 0, NULL,
-	    libuzfs_objset_create_cb, NULL);
-	if (err)
-		return (err);
+int
+libuzfs_dataset_set_props(const char *dsname, uint32_t dnodesize)
+{
+	int err = libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
+	    ZFS_SYNC_STANDARD, B_FALSE);
+	if (err == 0) {
+		err = libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_DNODESIZE,
+		    dnodesize, B_FALSE);
+	}
 
-	return (libuzfs_dsl_prop_set_uint64(dsname, ZFS_PROP_SYNC,
-	    ZFS_SYNC_STANDARD, B_FALSE));
+	return (err);
 }
 
 static int
@@ -865,54 +872,9 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 	if (bonustype != DMU_OT_SA)
 		return (SET_ERROR(ENOENT));
 
-	zoi->zfi_project = ZFS_DEFAULT_PROJID;
-
-	/*
-	 * If we have a NULL data pointer
-	 * then assume the id's aren't changing and
-	 * return EEXIST to the dmu to let it know to
-	 * use the same ids
-	 */
-	if (data == NULL)
-		return (SET_ERROR(EEXIST));
-
-	const sa_hdr_phys_t *sap = data;
-	if (sap->sa_magic == 0) {
-		/*
-		 * This should only happen for newly created files
-		 * that haven't had the znode data filled in yet.
-		 */
-		zoi->zfi_user = 0;
-		zoi->zfi_group = 0;
-		zoi->zfi_generation = 0;
-		return (0);
-	}
-
-	sa_hdr_phys_t sa = *sap;
-	boolean_t swap = B_FALSE;
-	if (sa.sa_magic == BSWAP_32(SA_MAGIC)) {
-		sa.sa_magic = SA_MAGIC;
-		sa.sa_layout_info = BSWAP_16(sa.sa_layout_info);
-		swap = B_TRUE;
-	}
-	VERIFY3U(sa.sa_magic, ==, SA_MAGIC);
-
-	int hdrsize = sa_hdrsize(&sa);
-	VERIFY3U(hdrsize, >=, sizeof (sa_hdr_phys_t));
-
-	uintptr_t data_after_hdr = (uintptr_t)data + hdrsize;
-	uint32_t zfi_user = *((uint32_t *)(data_after_hdr + UZFS_UID_OFFSET));
-	uint32_t zfi_group = *((uint32_t *)(data_after_hdr + UZFS_GID_OFFSET));
-	zoi->zfi_generation = *((uint64_t *)(data_after_hdr + UZFS_GEN_OFFSET));
-
-	if (swap) {
-		zfi_user = BSWAP_32(zfi_user);
-		zfi_group = BSWAP_32(zfi_group);
-		zoi->zfi_project = BSWAP_64(zoi->zfi_project);
-		zoi->zfi_generation = BSWAP_64(zoi->zfi_generation);
-	}
-	zoi->zfi_user = zfi_user;
-	zoi->zfi_group = zfi_group;
+	zoi->zfi_user = 0;
+	zoi->zfi_group = 0;
+	zoi->zfi_generation = 0;
 	return (0);
 }
 
@@ -1125,7 +1087,7 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 {
 	objset_t *os = dhp->os;
 	dmu_tx_t *tx = dmu_tx_create(os);
-	dmu_tx_hold_sa_create(tx, sizeof (uzfs_attr_t));
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_inode_attr_t));
 	if (type == INODE_DIR) {
 		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
 	}
@@ -1155,7 +1117,7 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 	objset_t *os = dhp->os;
 	// objects creation needs to be in 1 tx to ensure atomicity
 	dmu_tx_t *tx = dmu_tx_create(os);
-	dmu_tx_hold_sa_create(tx, sizeof (uzfs_attr_t));
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_object_attr_t));
 	int err = dmu_tx_assign(tx, TXG_WAIT);
 	if (err != 0) {
 		dmu_tx_abort(tx);
@@ -1362,8 +1324,10 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	sa_bulk_attr_t bulk[2];
 	int count = 0;
 	struct timespec mtime;
-	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE], NULL, &up->u_size, sizeof (up->u_size));
-	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME], NULL, &mtime, sizeof (mtime));
+	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE],
+	    NULL, &up->u_size, sizeof (up->u_size));
+	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
+	    NULL, &mtime, sizeof (mtime));
 	while (size > 0) {
 		uint64_t nwrite = MIN(size,
 		    max_blksz - P2PHASE(offset, max_blksz));
