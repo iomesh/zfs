@@ -55,23 +55,8 @@ struct libuzfs_zpool_handle {
 	spa_t *spa;
 };
 
-typedef struct hash_bucket {
-	avl_tree_t tree;
-	kmutex_t mutex;
-} hash_bucket_t;
+#define	HOLDS_SIZE	997
 
-typedef struct libuzfs_node {
-	avl_node_t node;
-	zfs_rangelock_t rl;
-	sa_handle_t *sa_hdl;
-	uint64_t u_size;
-	uint64_t u_blksz;
-	uint64_t u_maxblksz;
-	uint64_t u_obj;
-	uint64_t ref_count;
-} libuzfs_node_t;
-
-#define	NUM_NODE_BUCKETS 997
 struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	objset_t *os;
@@ -79,7 +64,26 @@ struct libuzfs_dataset_handle {
 	uint64_t sb_ino;
 	uint64_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
-	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
+	kmutex_t handles_locks[HOLDS_SIZE];
+};
+
+struct libuzfs_inode_handle {
+	sa_handle_t *sa_hdl;
+	nvlist_t *hp_kvattr_cache;
+	uint64_t obj;
+};
+
+struct libuzfs_object_handle {
+	// inode_handle as the first member to
+	// make object_handle shares the same address
+	// with inode_handle
+	struct libuzfs_inode_handle inode_handle;
+	zfs_rangelock_t rl;
+	uint64_t u_size;
+	uint64_t u_blksz;
+	uint64_t u_maxblksz;
+	uint32_t rc;
+	struct libuzfs_dataset_handle *dhp;
 };
 
 struct libuzfs_kvattr_iterator {
@@ -103,12 +107,8 @@ struct libuzfs_zap_iterator {
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
     sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
-extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, uint64_t *xattr_zap_obj);
-extern int libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
-    uint64_t obj, libuzfs_node_t **upp);
-extern void libuzfs_release_node(libuzfs_dataset_handle_t *dhp,
-    libuzfs_node_t *up);
+extern int libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
+    nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr);
 
 #ifdef	__cplusplus
 }
