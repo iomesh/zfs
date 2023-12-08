@@ -34,7 +34,8 @@ USER_C = \
 	taskq.c \
 	util.c \
 	timer_thread.c \
-	coroutine.c
+	coroutine.c \
+	libcontext.c
 
 KERNEL_C = \
 	zfeature_common.c \
