@@ -10,7 +10,8 @@ COMMON_H = \
 	zfs_prop.h \
 	coroutine.h \
 	timer_thread.h \
-	coroutine_impl.h
+	coroutine_impl.h \
+	libcontext.h
 
 USER_H = \
 	libnvpair.h \

@@ -1,5 +1,6 @@
 #include "atomic.h"
 #include "coroutine_impl.h"
+#include "libcontext.h"
 #include "sys/list.h"
 #include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
@@ -11,9 +12,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdlib.h>
-#include <sys/ucontext.h>
 #include <time.h>
-#include <ucontext.h>
 #include <coroutine.h>
 #include <timer_thread.h>
 #include <stddef.h>
@@ -32,7 +31,7 @@ wakeup_coroutine(uzfs_coroutine_t *coroutine)
 {
 	VERIFY3U(atomic_cas_32(&coroutine->co_state, COROUTINE_PENDING,
 	    COROUTINE_RUNNABLE), ==, COROUTINE_PENDING);
-	coroutine->wake(coroutine->arg);
+	coroutine->wake(coroutine->wake_arg);
 }
 
 static void
@@ -191,47 +190,50 @@ void
 libuzfs_coroutine_yield(void)
 {
 	thread_local_coroutine->pending = B_TRUE;
-	VERIFY0(swapcontext(&thread_local_coroutine->my_ctx,
-	    &thread_local_coroutine->main_ctx));
+	jump_fcontext(&thread_local_coroutine->my_ctx,
+	    thread_local_coroutine->main_ctx, 0, B_TRUE);
 }
 
 void
 coroutine_wake_and_yield(void)
 {
-	thread_local_coroutine->wake(thread_local_coroutine->arg);
+	thread_local_coroutine->wake(thread_local_coroutine->wake_arg);
 	libuzfs_coroutine_yield();
 }
 
 void
 libuzfs_coroutine_exit(void)
 {
-	VERIFY0(swapcontext(&thread_local_coroutine->my_ctx,
-	    &thread_local_coroutine->main_ctx));
+	jump_fcontext(&thread_local_coroutine->my_ctx,
+	    thread_local_coroutine->main_ctx, 0, B_TRUE);
 }
 
 void *
 libuzfs_current_coroutine_arg(void)
 {
-	return (thread_local_coroutine->arg);
+	return (thread_local_coroutine->wake_arg);
 }
 
-typedef void (*context_func)(void);
+static void
+task_runner(intptr_t _)
+{
+	uzfs_coroutine_t *coroutine = thread_local_coroutine;
+	coroutine->fn(coroutine->arg);
+	jump_fcontext(&coroutine->my_ctx, coroutine->main_ctx, 0, B_TRUE);
+}
 
 uzfs_coroutine_t *
-libuzfs_new_coroutine(int stack_size, void (*func)(void *),
+libuzfs_new_coroutine(int stack_size, void (*fn)(void *),
     void *arg, uint64_t task_id, boolean_t foreground)
 {
 	uzfs_coroutine_t *coroutine = NULL;
 	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
-		VERIFY0(getcontext(&coroutine->my_ctx));
 		// TODO(sundengyu): add guard page
-		coroutine->my_ctx.uc_stack.ss_sp = umem_alloc(stack_size,
-		    UMEM_NOFAIL);
-		coroutine->my_ctx.uc_stack.ss_size = stack_size;
-		coroutine->my_ctx.uc_stack.ss_flags = 0;
-		coroutine->my_ctx.uc_link = &coroutine->main_ctx;
+		char *sp = umem_alloc(stack_size, UMEM_NOFAIL);
+		coroutine->stack_bottom = sp + stack_size;
+		coroutine->stack_size = stack_size;
 	} else {
 		coroutine = coroutine_pool_head;
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
@@ -243,7 +245,10 @@ libuzfs_new_coroutine(int stack_size, void (*func)(void *),
 	coroutine->co_state = COROUTINE_RUNNABLE;
 	coroutine->specific_head = NULL;
 	coroutine->foreground = foreground;
-	makecontext(&coroutine->my_ctx, (context_func)func, 1, arg);
+	coroutine->fn = fn;
+	coroutine->arg = arg;
+	coroutine->my_ctx = make_fcontext(coroutine->stack_bottom,
+	    stack_size, task_runner);
 
 	return (coroutine);
 }
@@ -267,15 +272,15 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		coroutine->next_in_pool = coroutine_pool_head;
 		coroutine_pool_head = coroutine;
 	} else {
-		umem_free(coroutine->my_ctx.uc_stack.ss_sp,
-		    coroutine->my_ctx.uc_stack.ss_size);
+		umem_free(coroutine->stack_bottom - coroutine->stack_size,
+		    coroutine->stack_size);
 		umem_free(coroutine, sizeof (uzfs_coroutine_t));
 	}
 }
 
 boolean_t
 libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
-    void (*wake)(void *), void *arg)
+    void (*wake)(void *), void *wake_arg)
 {
 	ASSERT(thread_local_coroutine == NULL);
 
@@ -284,10 +289,10 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		coroutine->pending = 0;
 		thread_local_coroutine = coroutine;
 		coroutine->wake = wake;
-		coroutine->arg = arg;
+		coroutine->wake_arg = wake_arg;
 
-		VERIFY0(swapcontext(&coroutine->main_ctx,
-		    &coroutine->my_ctx));
+		jump_fcontext(&coroutine->main_ctx,
+		    coroutine->my_ctx, 0, B_TRUE);
 		thread_local_coroutine = NULL;
 		// if pending, state will be set already
 		if (!coroutine->pending) {

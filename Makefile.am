@@ -120,7 +120,7 @@ cstyle:
 		-o -type f -name '*.[hc]' \
 		! -name 'zfs_config.*' ! -name '*.mod.c' \
 		! -name 'opt_global.h' ! -name '*_if*.h' \
-		! -name 'zstd_compat_wrapper.h' \
+		! -name 'zstd_compat_wrapper.h' ! -name 'libcontext.*' \
 		! -path './module/zstd/lib/*' \
 		-exec ${top_srcdir}/scripts/cstyle.pl -cpP {} \+
 

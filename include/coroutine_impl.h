@@ -1,6 +1,7 @@
 #ifndef _COROUTINE_IMPL_H
 #define	_COROUTINE_IMPL_H
 
+#include "libcontext.h"
 #include "sys/list.h"
 #include "sys/stdtypes.h"
 #include "timer_thread.h"
@@ -8,7 +9,6 @@
 #include <bits/types/struct_timespec.h>
 #include <pthread.h>
 #include <sched.h>
-#include <sys/ucontext.h>
 
 // TODO(sundengyu): use object pool to manage cutex
 typedef struct cutex {
@@ -41,11 +41,15 @@ enum coroutine_state {
 struct uzfs_coroutine {
 	uint32_t co_state;
 	list_node_t node;
-	ucontext_t main_ctx;
-	ucontext_t my_ctx;
+	fcontext_t main_ctx;
+	fcontext_t my_ctx;
+	char *stack_bottom;
+	int stack_size;
+	void (*fn)(void *);
+	void *arg;
 	boolean_t pending; // only accessed by its coroutine
 	void (*wake) (void *);
-	void *arg;
+	void *wake_arg;
 	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
 	cutex_t *cutex;
 	uint64_t task_id;

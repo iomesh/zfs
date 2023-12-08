@@ -3,8 +3,6 @@
 
 #include "coroutine_impl.h"
 #include "sys/stdtypes.h"
-#include <bits/types/struct_timespec.h>
-#include <sys/ucontext.h>
 typedef struct uzfs_coroutine uzfs_coroutine_t;
 
 extern void coroutine_init(void);
