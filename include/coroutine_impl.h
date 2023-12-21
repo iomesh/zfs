@@ -45,6 +45,7 @@ struct uzfs_coroutine {
 	fcontext_t my_ctx;
 	char *stack_bottom;
 	int stack_size;
+	int guard_size;
 	void (*fn)(void *);
 	void *arg;
 	boolean_t pending; // only accessed by its coroutine

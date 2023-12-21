@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <coroutine.h>
 #include <timer_thread.h>
@@ -222,6 +223,25 @@ task_runner(intptr_t _)
 	jump_fcontext(&coroutine->my_ctx, coroutine->main_ctx, 0, B_TRUE);
 }
 
+static inline void
+allocate_stack_storage(uzfs_coroutine_t *coroutine,
+    int stack_size, int guard_size)
+{
+	const int page_size = getpagesize();
+	ASSERT((stack_size & (page_size - 1)) == 0);
+	ASSERT((guard_size & (page_size - 1)) == 0);
+	const int memsize = stack_size + guard_size;
+	void* const mem = mmap(NULL, memsize, (PROT_READ | PROT_WRITE),
+	    (MAP_PRIVATE | MAP_ANONYMOUS), -1, 0);
+	VERIFY3P(mem, !=, MAP_FAILED);
+
+	VERIFY3U(((intptr_t)mem & (page_size - 1)), ==, 0);
+	VERIFY0(mprotect(mem, guard_size, PROT_NONE));
+	coroutine->guard_size = guard_size;
+	coroutine->stack_size = stack_size;
+	coroutine->stack_bottom = mem + memsize;
+}
+
 uzfs_coroutine_t *
 libuzfs_new_coroutine(int stack_size, void (*fn)(void *),
     void *arg, uint64_t task_id, boolean_t foreground)
@@ -230,10 +250,7 @@ libuzfs_new_coroutine(int stack_size, void (*fn)(void *),
 	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
-		// TODO(sundengyu): add guard page
-		char *sp = umem_alloc(stack_size, UMEM_NOFAIL);
-		coroutine->stack_bottom = sp + stack_size;
-		coroutine->stack_size = stack_size;
+		allocate_stack_storage(coroutine, stack_size, getpagesize());
 	} else {
 		coroutine = coroutine_pool_head;
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
@@ -272,8 +289,8 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		coroutine->next_in_pool = coroutine_pool_head;
 		coroutine_pool_head = coroutine;
 	} else {
-		umem_free(coroutine->stack_bottom - coroutine->stack_size,
-		    coroutine->stack_size);
+		int memsize = coroutine->stack_size + coroutine->guard_size;
+		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
 		umem_free(coroutine, sizeof (uzfs_coroutine_t));
 	}
 }
