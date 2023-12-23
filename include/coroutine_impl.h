@@ -52,12 +52,14 @@ struct uzfs_coroutine {
 	void (*wake) (void *);
 	void *wake_arg;
 	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
-	cutex_t *cutex;
-	uint64_t task_id;
+	cutex_t *cutex; // the cutex this coroutine sleeps on
+	uint64_t task_id; // uniquely identifies the coroutine
 	timer_task_t *expire_task;
-	co_specific_t *specific_head;
+	co_specific_t *specific_head; // head of coroutine specific list
 	boolean_t foreground;
 	struct uzfs_coroutine *next_in_pool;
+	void **bottom_fpp;
+	void *saved_fp;
 };
 
 struct co_mutex {
