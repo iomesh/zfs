@@ -27,6 +27,9 @@ static uint32_t cur_key_idx = 0;
 static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
 static __thread int cur_coroutine_pool_size = 0;
 
+#define	DEFAULT_STACK_SIZE	(1<<20)
+#define	DEFAULT_GUARD_SIZE	getpagesize()
+
 static inline void
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
 {
@@ -219,6 +222,8 @@ static void
 task_runner(intptr_t _)
 {
 	uzfs_coroutine_t *coroutine = thread_local_coroutine;
+	coroutine->bottom_fpp = __builtin_frame_address(0);
+	*coroutine->bottom_fpp = coroutine->saved_fp;
 	coroutine->fn(coroutine->arg);
 	jump_fcontext(&coroutine->my_ctx, coroutine->main_ctx, 0, B_TRUE);
 }
@@ -243,14 +248,16 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 }
 
 uzfs_coroutine_t *
-libuzfs_new_coroutine(int stack_size, void (*fn)(void *),
-    void *arg, uint64_t task_id, boolean_t foreground)
+libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
+    boolean_t foreground)
 {
 	uzfs_coroutine_t *coroutine = NULL;
 	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
-		allocate_stack_storage(coroutine, stack_size, getpagesize());
+		// use fixed stack size and guard to reuse stack
+		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
+		    DEFAULT_GUARD_SIZE);
 	} else {
 		coroutine = coroutine_pool_head;
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
@@ -264,8 +271,9 @@ libuzfs_new_coroutine(int stack_size, void (*fn)(void *),
 	coroutine->foreground = foreground;
 	coroutine->fn = fn;
 	coroutine->arg = arg;
+	coroutine->bottom_fpp = NULL;
 	coroutine->my_ctx = make_fcontext(coroutine->stack_bottom,
-	    stack_size, task_runner);
+	    DEFAULT_STACK_SIZE, task_runner);
 
 	return (coroutine);
 }
@@ -295,6 +303,12 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 	}
 }
 
+static noinline void *
+current_pc(void)
+{
+	return (__builtin_return_address(0));
+}
+
 boolean_t
 libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
     void (*wake)(void *), void *wake_arg)
@@ -307,6 +321,19 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		thread_local_coroutine = coroutine;
 		coroutine->wake = wake;
 		coroutine->wake_arg = wake_arg;
+
+		// when the coroutine is first run, the data where the frame
+		// pointer to is the task_runner, so we cannot overwrite that
+		// data. after the first run, this address are used as frame
+		// pointer so we can just set the address
+		if (coroutine->bottom_fpp) {
+			*coroutine->bottom_fpp = __builtin_frame_address(0);
+		} else {
+			coroutine->saved_fp = __builtin_frame_address(0);
+		}
+		// TODO(sundengyu): use one instruction other that a function
+		// call this implementation may not be compatible with arm arch
+		*((void **)coroutine->stack_bottom - 1) = current_pc();
 
 		jump_fcontext(&coroutine->main_ctx,
 		    coroutine->my_ctx, 0, B_TRUE);
