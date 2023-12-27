@@ -25,6 +25,7 @@
  * Copyright (c) 2021 Hewlett Packard Enterprise Development LP
  */
 
+#include "sys/zfs_context.h"
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
 #include <sys/txg.h>
@@ -1243,7 +1244,6 @@ vdev_autotrim_thread(void *arg)
 			metaslab_t *msp = vd->vdev_ms[i];
 			range_tree_t *trim_tree;
 			boolean_t issued_trim = B_FALSE;
-			boolean_t wait_aborted = B_FALSE;
 
 			spa_config_exit(spa, SCL_CONFIG, FTAG);
 			metaslab_disable(msp);
@@ -1400,12 +1400,12 @@ vdev_autotrim_thread(void *arg)
 			 * vdev_autotrim_exit_wanted, we need to signal
 			 * metaslab_enable() to wait for sync.
 			 */
-			if (issued_trim) {
-				wait_aborted = vdev_autotrim_wait_kick(vd,
-				    TXG_CONCURRENT_STATES + TXG_DEFER_SIZE);
-			}
+			// if (issued_trim) {
+			// 	wait_aborted = vdev_autotrim_wait_kick(vd,
+			// 	    TXG_CONCURRENT_STATES + TXG_DEFER_SIZE);
+			// }
 
-			metaslab_enable(msp, wait_aborted, B_FALSE);
+			metaslab_enable(msp, issued_trim, B_FALSE);
 			spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 
 			for (uint64_t c = 0; c < children; c++) {
@@ -1420,6 +1420,7 @@ vdev_autotrim_thread(void *arg)
 
 			kmem_free(tap, sizeof (trim_args_t) * children);
 
+			// TODO(sundengyu): spa export should wait until all trim finished
 			if (vdev_autotrim_should_stop(vd))
 				break;
 		}
@@ -1486,7 +1487,7 @@ vdev_autotrim(spa_t *spa)
 			ASSERT3P(tvd->vdev_top, ==, tvd);
 
 			tvd->vdev_autotrim_thread = thread_create(NULL, 0,
-			    vdev_autotrim_thread, tvd, 0, &p0, TS_RUN,
+			    vdev_autotrim_thread, tvd, 0, &p0, TS_RUN | TS_NEW_RUNTIME,
 			    maxclsyspri);
 			ASSERT(tvd->vdev_autotrim_thread != NULL);
 		}
