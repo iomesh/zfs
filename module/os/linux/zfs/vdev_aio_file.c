@@ -31,8 +31,10 @@
 #include <asm/unistd_64.h>
 #include <bits/stdint-uintn.h>
 #include <errno.h>
+#include <linux/fs.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/vdev_file.h>
@@ -252,14 +254,9 @@ vdev_aio_file_io_start(zio_t *zio)
 		zio_execute(zio);
 		return;
 	} else if (zio->io_type == ZIO_TYPE_TRIM) {
-		int mode = 0;
-
-		ASSERT3U(zio->io_size, !=, 0);
-#ifdef __linux__
-		mode = FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE;
-#endif
-		if (fallocate(vf->vf_fd, mode, zio->io_offset,
-		    zio->io_size) < 0) {
+		// TODO(sundengyu): use a thread pool to process trim request
+		uint64_t range[2] = {zio->io_offset, zio->io_size};
+		if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
 			zio->io_error = errno;
 		}
 		zio_execute(zio);
