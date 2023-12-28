@@ -50,6 +50,7 @@ struct uzfs_coroutine {
 	void *arg;
 	boolean_t pending; // only accessed by its coroutine
 	void (*wake) (void *);
+	void (*record_backtrace) (uint64_t);
 	void *wake_arg;
 	cutex_waiter_state_t waiter_state; // protected by cutex waiter lock
 	cutex_t *cutex; // the cutex this coroutine sleeps on
