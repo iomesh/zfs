@@ -7,6 +7,7 @@
 #include "umem.h"
 #include <asm-generic/errno-base.h>
 #include <asm-generic/errno.h>
+#include <bits/stdint-uintn.h>
 #include <bits/types/struct_timespec.h>
 #include <libintl.h>
 #include <pthread.h>
@@ -194,6 +195,10 @@ void
 libuzfs_coroutine_yield(void)
 {
 	thread_local_coroutine->pending = B_TRUE;
+	if (unlikely(thread_local_coroutine->record_backtrace != NULL)) {
+		thread_local_coroutine->record_backtrace(
+		    thread_local_coroutine->task_id);
+	}
 	jump_fcontext(&thread_local_coroutine->my_ctx,
 	    thread_local_coroutine->main_ctx, 0, B_TRUE);
 }
@@ -249,17 +254,19 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 
 uzfs_coroutine_t *
 libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
-    boolean_t foreground)
+    boolean_t foreground, void (*record_backtrace)(uint64_t))
 {
 	uzfs_coroutine_t *coroutine = NULL;
 	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
+		coroutine->record_backtrace = record_backtrace;
 		// use fixed stack size and guard to reuse stack
 		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
 		    DEFAULT_GUARD_SIZE);
 	} else {
 		coroutine = coroutine_pool_head;
+		memset(coroutine, 0, sizeof (uzfs_coroutine_t));
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
 		--cur_coroutine_pool_size;
 	}
@@ -267,11 +274,9 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	coroutine->pending = B_FALSE;
 	coroutine->task_id = task_id;
 	coroutine->co_state = COROUTINE_RUNNABLE;
-	coroutine->specific_head = NULL;
 	coroutine->foreground = foreground;
 	coroutine->fn = fn;
 	coroutine->arg = arg;
-	coroutine->bottom_fpp = NULL;
 	coroutine->my_ctx = make_fcontext(coroutine->stack_bottom,
 	    DEFAULT_STACK_SIZE, task_runner);
 
