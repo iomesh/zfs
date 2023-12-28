@@ -1,4 +1,6 @@
 #include "libuzfs.h"
+#include "sys/zil.h"
+#include <bits/stdint-uintn.h>
 #include <sys/sa.h>
 #include <sys/dbuf.h>
 #include <time.h>
@@ -330,6 +332,32 @@ libuzfs_lp_kvattr_exists(sa_handle_t *sa_hdl, sa_attr_type_t *sa_tbl,
 	}
 }
 
+static void
+libuzfs_log_kvattr_set(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj,
+    const char *name, const char *value, uint64_t value_len, uint32_t option)
+{
+	if ((option & KVSET_NEED_LOG) == 0 || zil_replaying(zilog, tx)) {
+		return;
+	}
+
+	uint64_t name_len = strlen(name);
+	itx_t *itx = zil_itx_create(TX_MKXATTR,
+	    sizeof (lr_kv_set_t) + name_len + 1 + value_len);
+	lr_kv_set_t *lr = (lr_kv_set_t *)&itx->itx_lr;
+	lr->lr_foid = obj;
+	lr->lr_name_len = name_len;
+	lr->lr_value_size = value_len;
+	lr->option = option;
+	itx->itx_sync = B_TRUE;
+
+	char *dst = (char *)lr + sizeof (lr_kv_set_t);
+	memcpy(dst, name, name_len + 1);
+	dst += name_len + 1;
+	memcpy(dst, value, value_len);
+
+	zil_itx_assign(zilog, itx, tx);
+}
+
 // setting high priority kvattr will first check whether
 // the hp area has enough space, if not enough, that kv will
 // be removed from hp area and inserted into normal sa space,
@@ -338,7 +366,7 @@ libuzfs_lp_kvattr_exists(sa_handle_t *sa_hdl, sa_attr_type_t *sa_tbl,
 int
 libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *name, const char *value, uint64_t size,
-    uint64_t *txg, libuzfs_kvset_option_t option)
+    uint64_t *txg, uint32_t option)
 {
 	if (size > UZFS_XATTR_MAXVALUELEN) {
 		return (EFBIG);
@@ -359,7 +387,7 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	size_t hp_xattr_data_size = 0;
 
 	// try to insert this kv into high priority area
-	if (option == HIGH_PRIORITY) {
+	if (option & KVSET_HIGH_PRIORITY) {
 		nvlist_t *hp_nvl = NULL;
 		sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
 		err = libuzfs_get_nvlist_from_handle(sa_tbl,
@@ -417,6 +445,8 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 				if (txg != NULL) {
 					*txg = tx->tx_txg;
 				}
+				libuzfs_log_kvattr_set(dhp->zilog, tx, ino,
+				    name, value, size, option);
 				dmu_tx_commit(tx);
 			}
 			goto out_handle;
@@ -529,6 +559,9 @@ set_normal:
 			VERIFY0(zap_update(os, xattr_zap_obj, name,
 			    1, size, value, tx));
 		}
+
+		libuzfs_log_kvattr_set(dhp->zilog, tx, ino, name,
+		    value, size, option);
 
 		if (txg != NULL) {
 			*txg = tx->tx_txg;

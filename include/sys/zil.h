@@ -353,6 +353,14 @@ typedef struct {
 	/* lr_acl_bytes number of variable sized ace's follows */
 } lr_acl_t;
 
+typedef struct {
+	lr_t		lr_common;	/* common portion of log record */
+	uint64_t	lr_foid;	/* obj id of file */
+	uint64_t	lr_name_len;	/* length of name */
+	uint64_t	lr_value_size;	/* size of value */
+	uint64_t	option;		/* option of kv set */
+} lr_kv_set_t;
+
 /*
  * ZIL structure definitions, interface function prototype and globals.
  */
