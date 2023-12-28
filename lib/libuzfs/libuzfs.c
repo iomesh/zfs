@@ -58,6 +58,7 @@
 #include <sys/sa_impl.h>
 
 #include "coroutine.h"
+#include "libuzfs.h"
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
 #include "sys/nvpair.h"
@@ -343,7 +344,7 @@ libuzfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	if (zil_replaying(zilog, tx))
 		return;
 
-	itx = zil_itx_create(txtype, sizeof (*lr));
+	itx = zil_itx_create(txtype, sizeof (lr_truncate_t));
 	lr = (lr_truncate_t *)&itx->itx_lr;
 	lr->lr_foid = obj;
 	lr->lr_offset = offset;
@@ -538,11 +539,29 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	    obj, offset, length, data, FALSE));
 }
 
+static int
+libuzfs_replay_kvattr_set(void *arg1, void *arg2, boolean_t byteswap)
+{
+	lr_kv_set_t *lr = arg2;
+	if (byteswap) {
+		byteswap_uint64_array(lr, sizeof (lr_kv_set_t));
+	}
+
+	char *name = (char *)(lr + 1);
+	char *value = name + lr->lr_name_len + 1;
+	libuzfs_dataset_handle_t *dhp = arg1;
+
+	int err = libuzfs_inode_set_kvattr(dhp, lr->lr_foid, name, value,
+	    lr->lr_value_size, NULL, lr->option);
+
+	return (err);
+}
+
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,				/* 0 no such transaction type */
 	libuzfs_replay_create,		/* TX_CREATE */
 	NULL,				/* TX_MKDIR */
-	NULL,				/* TX_MKXATTR */
+	libuzfs_replay_kvattr_set,	/* TX_MKXATTR */
 	NULL,				/* TX_SYMLINK */
 	libuzfs_replay_remove,		/* TX_REMOVE */
 	NULL,				/* TX_RMDIR */
@@ -566,7 +585,6 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
     struct lwb *lwb, zio_t *zio)
 {
 	libuzfs_dataset_handle_t *dhp = arg;
-	objset_t *os = dhp->os;
 	uint64_t object = lr->lr_foid;
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;
@@ -577,8 +595,10 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	ASSERT3U(size, !=, 0);
 
 	if (buf != NULL) {	/* immediate write */
-		error = dmu_read(os, object, offset, size, buf,
-		    DMU_READ_NO_PREFETCH);
+		int rc = libuzfs_object_read(dhp, object, offset, size, buf);
+		if (rc < 0) {
+			error = -rc;
+		}
 	} else {
 		/* TODO(hping): support indirect write */
 		ASSERT(0);

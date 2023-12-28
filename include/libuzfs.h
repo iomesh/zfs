@@ -53,8 +53,9 @@ typedef enum {
 } FileType;
 
 typedef enum {
-	HIGH_PRIORITY,
-	LOW_PRIORITY,
+	KVSET_NONE = 0,
+	KVSET_HIGH_PRIORITY = 1 << 0,
+	KVSET_NEED_LOG = 1 << 1,
 } libuzfs_kvset_option_t;
 
 struct uzfs_inode_attr {
@@ -256,7 +257,7 @@ extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *reserved, uint32_t size, uint64_t *txg);
 extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *name, const char *value, uint64_t size,
-    uint64_t *txg, libuzfs_kvset_option_t option);
+    uint64_t *txg, uint32_t option);
 extern ssize_t libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, const char *name, char *value, uint64_t size);
 extern int libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp,
