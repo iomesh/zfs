@@ -645,13 +645,12 @@ libuzfs_zpool_destroy(const char *zpool)
 }
 
 libuzfs_zpool_handle_t *
-libuzfs_zpool_open(const char *zpool)
+libuzfs_zpool_open(const char *zpool, int *err)
 {
-	int err = 0;
 	spa_t *spa = NULL;
 
-	err = spa_open(zpool, &spa, FTAG);
-	if (err)
+	*err = spa_open(zpool, &spa, FTAG);
+	if (*err)
 		return (NULL);
 
 	libuzfs_zpool_handle_t *zhp;
@@ -930,18 +929,17 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 }
 
 libuzfs_dataset_handle_t *
-libuzfs_dataset_open(const char *dsname)
+libuzfs_dataset_open(const char *dsname, int *err)
 {
-	int err = 0;
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
 
 	dhp = umem_alloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
 	dhp->max_blksz = UZFS_MAX_BLOCKSIZE;
 
-	err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
+	*err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
-	if (err) {
+	if (*err) {
 		umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 		return (NULL);
 	}
