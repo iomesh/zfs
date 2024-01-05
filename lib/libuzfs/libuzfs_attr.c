@@ -30,9 +30,9 @@ libuzfs_get_max_reserved_len(sa_handle_t *sa_hdl)
 	ASSERT(sa_hdl->sa_bonus != NULL);
 	switch (sa_hdl->sa_bonus->db_size) {
 		case UZFS_BONUS_LEN_DEFAULT:
-			return (160);
-		case UZFS_BONUS_LEN_4K:
-			return (512);
+			return (UZFS_MAX_RESERVED_DEFAULT);
+		case UZFS_BONUS_LEN_1K:
+			return (UZFS_MAX_RESERVED_1K);
 		default:
 			panic("unexpected bonus len: %lu",
 			    sa_hdl->sa_bonus->db_size);
@@ -46,9 +46,9 @@ libuzfs_get_max_hp_kvs_capacity(sa_handle_t *sa_hdl)
 	ASSERT(sa_hdl->sa_bonus != NULL);
 	switch (sa_hdl->sa_bonus->db_size) {
 		case UZFS_BONUS_LEN_DEFAULT:
-			return (128);
-		case UZFS_BONUS_LEN_4K:
-			return (3072);
+			return (UZFS_KV_CAPACITY_DEFAULT);
+		case UZFS_BONUS_LEN_1K:
+			return (UZFS_KV_CAPACITY_1K);
 		default:
 			panic("unexpected bonus len: %lu",
 			    sa_hdl->sa_bonus->db_size);

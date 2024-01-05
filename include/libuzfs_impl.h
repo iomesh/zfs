@@ -96,9 +96,19 @@ struct libuzfs_zap_iterator {
 	zap_attribute_t za;
 };
 
-#define	UZFS_MAX_BLOCKSIZE	(1<<18)
-#define	UZFS_BONUS_LEN_DEFAULT	DN_BONUS_SIZE(512)
-#define	UZFS_BONUS_LEN_4K	DN_BONUS_SIZE(4096)
+#define	UZFS_MAX_BLOCKSIZE		(1<<18)
+
+// dnode layout(512): 192(dnode data) + 32(bonus header)
+// + 32(max reserve) + 256(max kv capacity)
+#define	UZFS_BONUS_LEN_DEFAULT		DN_BONUS_SIZE(512)
+#define	UZFS_MAX_RESERVED_DEFAULT	32
+#define UZFS_KV_CAPACITY_DEFAULT	256
+
+// dnode layout(1024): 192(dnode data) + 32(bonus header)
+// + 192(max reserve) + 608(max kv capacity)
+#define	UZFS_BONUS_LEN_1K		DN_BONUS_SIZE(1024)
+#define UZFS_MAX_RESERVED_1K		192
+#define UZFS_KV_CAPACITY_1K		608
 
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
     sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
