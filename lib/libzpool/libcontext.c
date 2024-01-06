@@ -371,6 +371,7 @@ __asm (
 "    jmp  *%r8\n"
 ".size jump_fcontext,.-jump_fcontext\n"
 ".section .note.GNU-stack,\"\",%progbits\n"
+".previous\n"
 );
 
 #endif
@@ -397,6 +398,7 @@ __asm (
 "    hlt\n"
 ".size make_fcontext,.-make_fcontext\n"
 ".section .note.GNU-stack,\"\",%progbits\n"
+".previous\n"
 );
 
 #endif

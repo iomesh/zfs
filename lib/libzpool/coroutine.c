@@ -7,6 +7,7 @@
 #include "umem.h"
 #include <asm-generic/errno-base.h>
 #include <asm-generic/errno.h>
+#include <bits/pthreadtypes.h>
 #include <bits/stdint-uintn.h>
 #include <bits/types/struct_timespec.h>
 #include <libintl.h>
@@ -27,6 +28,10 @@ static uint32_t cur_key_idx = 0;
 #define	MAX_COROUTINE_POOL_SIZE	100
 static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
 static __thread int cur_coroutine_pool_size = 0;
+
+static pthread_mutex_t pools_lock = PTHREAD_MUTEX_INITIALIZER;
+static boolean_t pools_list_initialized = B_FALSE;
+static list_t coroutine_pools_list;
 
 #define	DEFAULT_STACK_SIZE	(1<<20)
 #define	DEFAULT_GUARD_SIZE	getpagesize()
@@ -252,22 +257,52 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 	coroutine->stack_bottom = mem + memsize;
 }
 
+static inline void
+initialize_coroutine_pool(void)
+{
+	coroutine_pool_head = umem_zalloc(sizeof (uzfs_coroutine_t),
+	    UMEM_NOFAIL);
+	VERIFY0(pthread_mutex_lock(&pools_lock));
+	if (unlikely(!pools_list_initialized)) {
+		list_create(&coroutine_pools_list, sizeof (uzfs_coroutine_t),
+		    offsetof(uzfs_coroutine_t, pool_node));
+		pools_list_initialized = B_TRUE;
+	}
+	list_insert_tail(&coroutine_pools_list, coroutine_pool_head);
+	VERIFY0(pthread_mutex_unlock(&pools_lock));
+}
+
+static inline uzfs_coroutine_t *
+fetch_or_new_coroutine(boolean_t foreground)
+{
+	uzfs_coroutine_t *coroutine;
+	if (likely(foreground && cur_coroutine_pool_size > 0)) {
+		ASSERT(coroutine_pool_head != NULL &&
+		    coroutine_pool_head->next_in_pool != NULL);
+		coroutine = coroutine_pool_head->next_in_pool;
+		coroutine_pool_head->next_in_pool = coroutine->next_in_pool;
+		--cur_coroutine_pool_size;
+		return (coroutine);
+	}
+
+	if (unlikely(foreground && coroutine_pool_head == NULL)) {
+		initialize_coroutine_pool();
+	}
+
+	coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
+	    UMEM_NOFAIL);
+	// use fixed stack size and guard to reuse stack
+	allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
+	    DEFAULT_GUARD_SIZE);
+
+	return (coroutine);
+}
+
 uzfs_coroutine_t *
 libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
     boolean_t foreground, void (*record_backtrace)(uint64_t))
 {
-	uzfs_coroutine_t *coroutine = NULL;
-	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
-		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
-		    UMEM_NOFAIL);
-		// use fixed stack size and guard to reuse stack
-		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
-		    DEFAULT_GUARD_SIZE);
-	} else {
-		coroutine = coroutine_pool_head;
-		coroutine_pool_head = coroutine_pool_head->next_in_pool;
-		--cur_coroutine_pool_size;
-	}
+	uzfs_coroutine_t *coroutine = fetch_or_new_coroutine(foreground);
 
 	coroutine->co_state = COROUTINE_RUNNABLE;
 	coroutine->my_ctx = make_fcontext(coroutine->stack_bottom,
@@ -289,6 +324,33 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	return (coroutine);
 }
 
+static inline void
+free_coroutine(uzfs_coroutine_t *coroutine)
+{
+	if (likely(coroutine->stack_bottom != NULL)) {
+		int memsize = coroutine->stack_size + coroutine->guard_size;
+		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
+	}
+	umem_free(coroutine, sizeof (uzfs_coroutine_t));
+}
+
+static inline void
+return_or_free_coroutine(uzfs_coroutine_t *coroutine)
+{
+	if (likely(coroutine->foreground &&
+	    cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
+		if (unlikely(coroutine_pool_head == NULL)) {
+			initialize_coroutine_pool();
+		}
+
+		coroutine->next_in_pool = coroutine_pool_head->next_in_pool;
+		coroutine_pool_head->next_in_pool = coroutine;
+		++cur_coroutine_pool_size;
+	} else {
+		free_coroutine(coroutine);
+	}
+}
+
 // now that this coroutine may be accessed by multi thread,
 // what if someone still want to run this coroutine after coroutine_destroy?
 // this cannot happen because a coroutine will only be destroyed after the
@@ -303,15 +365,8 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
-	if (likely(coroutine->foreground &&
-	    ++cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
-		coroutine->next_in_pool = coroutine_pool_head;
-		coroutine_pool_head = coroutine;
-	} else {
-		int memsize = coroutine->stack_size + coroutine->guard_size;
-		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
-		umem_free(coroutine, sizeof (uzfs_coroutine_t));
-	}
+
+	return_or_free_coroutine(coroutine);
 }
 
 static noinline void *
@@ -419,9 +474,17 @@ coroutine_init(void)
 }
 
 void
-coroutine_destroy(void)
+coroutine_fini(void)
 {
 	timer_thread_fini(&timer_thread);
+	uzfs_coroutine_t *head;
+	while ((head = list_remove_head(&coroutine_pools_list)) != NULL) {
+		while (head != NULL) {
+			uzfs_coroutine_t *next = head->next_in_pool;
+			free_coroutine(head);
+			head = next;
+		}
+	}
 }
 
 static void

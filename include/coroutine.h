@@ -6,7 +6,7 @@
 typedef struct uzfs_coroutine uzfs_coroutine_t;
 
 extern void coroutine_init(void);
-extern void coroutine_destroy(void);
+extern void coroutine_fini(void);
 extern void coroutine_key_create(uint32_t *idx);
 // key delete is not needed for now,
 // all keys will be deleted when coroutine destroyed

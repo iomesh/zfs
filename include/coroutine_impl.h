@@ -41,6 +41,7 @@ enum coroutine_state {
 struct uzfs_coroutine {
 	uint32_t co_state;
 	list_node_t node;
+	list_node_t pool_node;
 	fcontext_t main_ctx;
 	fcontext_t my_ctx;
 	char *stack_bottom;

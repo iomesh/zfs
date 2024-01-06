@@ -1402,7 +1402,7 @@ vdev_autotrim_thread(void *arg)
 			 */
 			// if (issued_trim) {
 			// 	wait_aborted = vdev_autotrim_wait_kick(vd,
-			// 	    TXG_CONCURRENT_STATES + TXG_DEFER_SIZE);
+			// TXG_CONCURRENT_STATES + TXG_DEFER_SIZE);
 			// }
 
 			metaslab_enable(msp, issued_trim, B_FALSE);
@@ -1420,7 +1420,8 @@ vdev_autotrim_thread(void *arg)
 
 			kmem_free(tap, sizeof (trim_args_t) * children);
 
-			// TODO(sundengyu): spa export should wait until all trim finished
+			// TODO(sundengyu): spa export should wait
+			// until all trim finished
 			if (vdev_autotrim_should_stop(vd))
 				break;
 		}
@@ -1487,8 +1488,8 @@ vdev_autotrim(spa_t *spa)
 			ASSERT3P(tvd->vdev_top, ==, tvd);
 
 			tvd->vdev_autotrim_thread = thread_create(NULL, 0,
-			    vdev_autotrim_thread, tvd, 0, &p0, TS_RUN | TS_NEW_RUNTIME,
-			    maxclsyspri);
+			    vdev_autotrim_thread, tvd, 0, &p0,
+			    TS_RUN | TS_NEW_RUNTIME, maxclsyspri);
 			ASSERT(tvd->vdev_autotrim_thread != NULL);
 		}
 		mutex_exit(&tvd->vdev_autotrim_lock);
