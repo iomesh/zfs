@@ -55,23 +55,8 @@ struct libuzfs_zpool_handle {
 	spa_t *spa;
 };
 
-typedef struct hash_bucket {
-	avl_tree_t tree;
-	kmutex_t mutex;
-} hash_bucket_t;
+#define	HOLDS_SIZE	997
 
-typedef struct libuzfs_node {
-	avl_node_t node;
-	zfs_rangelock_t rl;
-	sa_handle_t *sa_hdl;
-	uint64_t u_size;
-	uint64_t u_blksz;
-	uint64_t u_maxblksz;
-	uint64_t u_obj;
-	uint64_t ref_count;
-} libuzfs_node_t;
-
-#define	NUM_NODE_BUCKETS 997
 struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	objset_t *os;
@@ -79,7 +64,19 @@ struct libuzfs_dataset_handle {
 	uint64_t sb_ino;
 	uint64_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
-	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
+	kmutex_t handles_locks[HOLDS_SIZE];
+};
+
+struct libuzfs_inode_handle {
+	nvlist_t *hp_kvattr_cache;
+	uint64_t ino;
+	uint32_t rc;
+	sa_handle_t *sa_hdl;
+	uint64_t gen;
+	zfs_rangelock_t rl;
+	uint64_t u_size;
+	uint64_t u_blksz;
+	uint64_t u_maxblksz;
 };
 
 struct libuzfs_kvattr_iterator {
@@ -102,23 +99,19 @@ struct libuzfs_zap_iterator {
 // + 32(max reserve) + 256(max kv capacity)
 #define	UZFS_BONUS_LEN_DEFAULT		DN_BONUS_SIZE(512)
 #define	UZFS_MAX_RESERVED_DEFAULT	32
-#define UZFS_KV_CAPACITY_DEFAULT	256
+#define	UZFS_KV_CAPACITY_DEFAULT	256
 
 // dnode layout(1024): 192(dnode data) + 32(bonus header)
 // + 192(max reserve) + 608(max kv capacity)
 #define	UZFS_BONUS_LEN_1K		DN_BONUS_SIZE(1024)
-#define UZFS_MAX_RESERVED_1K		192
-#define UZFS_KV_CAPACITY_1K		608
+#define	UZFS_MAX_RESERVED_1K		192
+#define	UZFS_KV_CAPACITY_1K		608
 
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
+    libuzfs_inode_handle_t *ihp, dmu_tx_t *tx, libuzfs_inode_type_t type);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
-extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, uint64_t *xattr_zap_obj);
-extern int libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
-    uint64_t obj, libuzfs_node_t **upp);
-extern void libuzfs_release_node(libuzfs_dataset_handle_t *dhp,
-    libuzfs_node_t *up);
+extern int libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
+    nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr);
 
 #ifdef	__cplusplus
 }
