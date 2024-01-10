@@ -246,7 +246,12 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 	VERIFY3P(mem, !=, MAP_FAILED);
 
 	VERIFY3U(((intptr_t)mem & (page_size - 1)), ==, 0);
-	VERIFY0(mprotect(mem, guard_size, PROT_NONE));
+	if (mprotect(mem, guard_size, PROT_NONE) < 0) {
+		cmn_err(CE_WARN, "Failed to call mprotect during alloc "
+		    "coroutine stack. mem: %p, guard_size: %d, err: %d, "
+		    "try to increase /proc/sys/vm/max_map_count",
+		    mem, guard_size, errno);
+	}
 	coroutine->guard_size = guard_size;
 	coroutine->stack_size = stack_size;
 	coroutine->stack_bottom = mem + memsize;
