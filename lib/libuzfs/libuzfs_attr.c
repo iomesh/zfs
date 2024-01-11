@@ -910,3 +910,27 @@ libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter)
 	}
 	umem_free(iter, sizeof (libuzfs_kvattr_iterator_t));
 }
+
+int
+libuzfs_inode_check_valid(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, uint64_t gen)
+{
+	kmutex_t *mp = &dhp->objs_lock[ino % NUM_NODE_BUCKETS];
+	mutex_enter(mp);
+
+	sa_handle_t *sa_hdl = NULL;
+	int err = sa_handle_get(dhp->os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (err == 0) {
+		uint64_t stored_gen;
+		err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_GEN],
+		    &stored_gen, sizeof (stored_gen));
+		if (err == 0 && stored_gen != gen) {
+			err = ENOENT;
+		}
+		sa_handle_destroy(sa_hdl);
+	}
+
+	mutex_exit(mp);
+
+	return (err);
+}
