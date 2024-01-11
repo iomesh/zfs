@@ -197,7 +197,7 @@ libuzfs_coroutine_yield(void)
 	thread_local_coroutine->pending = B_TRUE;
 	if (unlikely(thread_local_coroutine->record_backtrace != NULL)) {
 		thread_local_coroutine->record_backtrace(
-		    thread_local_coroutine->task_id);
+		    thread_local_coroutine->task_id, thread_local_coroutine);
 	}
 	jump_fcontext(&thread_local_coroutine->my_ctx,
 	    thread_local_coroutine->main_ctx, 0, B_TRUE);
@@ -254,7 +254,7 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 
 uzfs_coroutine_t *
 libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
-    boolean_t foreground, void (*record_backtrace)(uint64_t))
+    boolean_t foreground, void (*record_backtrace)(uint64_t, void *))
 {
 	uzfs_coroutine_t *coroutine = NULL;
 	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
