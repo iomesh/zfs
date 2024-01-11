@@ -931,6 +931,8 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 		avl_create(&bucket->tree, libuzfs_node_compare,
 		    sizeof (libuzfs_node_t), offsetof(libuzfs_node_t, node));
 		mutex_init(&bucket->mutex, NULL, 0, NULL);
+
+		mutex_init(&dhp->objs_lock[i], NULL, 0, NULL);
 	}
 
 	dhp->zilog = zil_open(os, libuzfs_get_data);
@@ -945,6 +947,8 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 		avl_destroy(&bucket->tree);
 		ASSERT(avl_is_empty(&bucket->tree));
 		mutex_destroy(&bucket->mutex);
+
+		mutex_destroy(&dhp->objs_lock[i]);
 	}
 }
 
@@ -1093,10 +1097,13 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		VERIFY0(1);
 	}
 
+	kmutex_t *mp = &dhp->objs_lock[(*obj) % NUM_NODE_BUCKETS];
+	mutex_enter(mp);
 	sa_handle_t *sa_hdl;
 	VERIFY0(sa_handle_get(os, *obj, NULL, SA_HDL_PRIVATE, &sa_hdl));
 	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type);
 	sa_handle_destroy(sa_hdl);
+	mutex_exit(mp);
 }
 
 static int
