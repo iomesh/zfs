@@ -57,6 +57,7 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/sa_impl.h>
 
+#include "atomic.h"
 #include "coroutine.h"
 #include "libuzfs.h"
 #include "libuzfs_impl.h"
@@ -70,6 +71,12 @@ static void libuzfs_create_inode_with_type_impl(
     libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     boolean_t claiming, libuzfs_inode_type_t type,
     dmu_tx_t *tx);
+
+static uint64_t tx_delay = 0;
+static uint64_t hold_delay = 0;
+static uint64_t create_ino_delay = 0;
+static uint64_t set_attr_delay = 0;
+static uint64_t ino_create_times = 0;
 
 typedef struct dir_emit_ctx {
 	char *buf;
@@ -616,6 +623,16 @@ libuzfs_init(thread_create_func create, thread_exit_func exit,
 	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
 }
 
+extern uint64_t before_tx_1;
+extern uint64_t tx_assign_1;
+extern uint64_t sa_update_1;
+extern uint64_t after_tx_1;
+extern uint64_t setkv_tx;
+extern uint64_t assign_tx_delay;
+extern uint64_t assign_times;
+extern uint64_t find_times;
+extern uint64_t find_delay;
+
 void
 libuzfs_fini(void)
 {
@@ -624,6 +641,24 @@ libuzfs_fini(void)
 	if (change_zpool_cache_path) {
 		free(spa_config_path);
 	}
+
+	tx_delay /= ino_create_times * 1000;
+	create_ino_delay /= ino_create_times * 1000;
+	set_attr_delay /= ino_create_times * 1000;
+	hold_delay /= ino_create_times * 1000;
+	before_tx_1 /= ino_create_times * 1000;
+	tx_assign_1 /= ino_create_times * 1000;
+	sa_update_1 /= ino_create_times * 1000;
+	after_tx_1 /= ino_create_times * 1000;
+	setkv_tx /= ino_create_times * 1000;
+	assign_tx_delay /= assign_times * 1000;
+	find_delay /= find_times * 1000;
+
+	printf("avg: hold: %luus, tx: %luus, create: %luus, attr: %luus "
+	    "before_tx_1: %luus, tx_assign_1: %luus, sa_update_1: %luus, after_tx_1: %luus,"
+	    " setkv_tx: %luus, assign_tx_delay: %luus, debuf_find delay: %luus\n",
+	    hold_delay, tx_delay, create_ino_delay, set_attr_delay, before_tx_1,
+	    tx_assign_1, sa_update_1, after_tx_1, setkv_tx, assign_tx_delay, find_delay);
 }
 
 void
@@ -1062,6 +1097,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t *obj, boolean_t claiming, libuzfs_inode_type_t type,
     dmu_tx_t *tx)
 {
+	hrtime_t before = gethrtime();
 	// create/claim object
 	objset_t *os = dhp->os;
 	int dnodesize = dmu_objset_dnodesize(os);
@@ -1097,6 +1133,9 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		VERIFY0(1);
 	}
 
+	hrtime_t now = gethrtime();
+	atomic_add_64(&create_ino_delay, now - before);
+
 	kmutex_t *mp = &dhp->objs_lock[(*obj) % NUM_NODE_BUCKETS];
 	mutex_enter(mp);
 	sa_handle_t *sa_hdl;
@@ -1104,19 +1143,25 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type);
 	sa_handle_destroy(sa_hdl);
 	mutex_exit(mp);
+	atomic_add_64(&set_attr_delay, gethrtime() - now);
 }
 
 static int
 libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     boolean_t claiming, libuzfs_inode_type_t type, uint64_t *txg)
 {
+	hrtime_t before = gethrtime();
 	objset_t *os = dhp->os;
 	dmu_tx_t *tx = dmu_tx_create(os);
 	dmu_tx_hold_sa_create(tx, sizeof (uzfs_inode_attr_t));
 	if (type == INODE_DIR) {
 		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
 	}
+	hrtime_t now = gethrtime();
+	atomic_add_64(&hold_delay, now - before);
 	int err = dmu_tx_assign(tx, TXG_WAIT);
+	atomic_add_64(&tx_delay, gethrtime() - now);
+	atomic_inc_64(&ino_create_times);
 	if (err != 0) {
 		dmu_tx_abort(tx);
 		return (err);

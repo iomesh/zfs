@@ -291,8 +291,12 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	coroutine->next_in_pool = NULL;
 	coroutine->bottom_fpp = NULL;
 	coroutine->saved_fp = NULL;
+	coroutine->dbuf_find_delay = 0;
 	return (coroutine);
 }
+
+uint64_t find_times = 0;
+uint64_t find_delay = 0;
 
 // now that this coroutine may be accessed by multi thread,
 // what if someone still want to run this coroutine after coroutine_destroy?
@@ -307,6 +311,10 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		umem_free(cur, sizeof (co_specific_t));
 		cur = next;
 	}
+	if (coroutine->foreground) {
+		atomic_inc_64(&find_times);
+		atomic_add_64(&find_delay, coroutine->dbuf_find_delay);
+	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
 	if (likely(coroutine->foreground &&
 	    ++cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
@@ -316,6 +324,15 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		int memsize = coroutine->stack_size + coroutine->guard_size;
 		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
 		umem_free(coroutine, sizeof (uzfs_coroutine_t));
+	}
+}
+
+void
+record_dbuf_find_delay(uint64_t delay)
+{
+	if (thread_local_coroutine != NULL &&
+	    thread_local_coroutine->foreground) {
+		thread_local_coroutine->dbuf_find_delay += delay;
 	}
 }
 

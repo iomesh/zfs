@@ -50,4 +50,6 @@ extern void co_rw_lock_exit(co_rw_lock_t *rwlock);
 // TODO(sundengyu): implement read lock upgrade
 // extern int co_rw_lock_tryupgrade(co_rw_lock_t *rwlock);
 
+extern void record_dbuf_find_delay(uint64_t delay);
+
 #endif

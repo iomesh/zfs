@@ -24,6 +24,9 @@
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  */
 
+#include "atomic.h"
+#include "sys/time.h"
+#include <bits/stdint-uintn.h>
 #include <sys/dmu.h>
 #include <sys/dmu_impl.h>
 #include <sys/dbuf.h>
@@ -994,6 +997,9 @@ dmu_tx_unassign(dmu_tx_t *tx)
 	tx->tx_txg = 0;
 }
 
+uint64_t assign_tx_delay = 0;
+uint64_t assign_times = 0;
+
 /*
  * Assign tx to a transaction group; txg_how is a bitmask:
  *
@@ -1045,16 +1051,21 @@ dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 	if ((txg_how & TXG_NOTHROTTLE))
 		tx->tx_dirty_delayed = B_TRUE;
 
+	hrtime_t wait_delay = 0;
 	while ((err = dmu_tx_try_assign(tx, txg_how)) != 0) {
 		dmu_tx_unassign(tx);
 
 		if (err != ERESTART || !(txg_how & TXG_WAIT))
 			return (err);
 
+		hrtime_t before = gethrtime();
 		dmu_tx_wait(tx);
+		wait_delay += gethrtime() - before;
 	}
 
 	txg_rele_to_quiesce(&tx->tx_txgh);
+	atomic_inc_64(&assign_times);
+	atomic_add_64(&assign_tx_delay, wait_delay);
 
 	return (0);
 }

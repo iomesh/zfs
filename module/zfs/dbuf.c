@@ -28,6 +28,9 @@
  * Copyright (c) 2019, Allan Jude
  */
 
+#include "atomic.h"
+#include "sys/time.h"
+#include <bits/stdint-uintn.h>
 #include <sys/zfs_context.h>
 #include <sys/arc.h>
 #include <sys/dmu.h>
@@ -338,18 +341,21 @@ dbuf_find(objset_t *os, uint64_t obj, uint8_t level, uint64_t blkid)
 	hv = dbuf_hash(os, obj, level, blkid);
 	idx = hv & h->hash_table_mask;
 
+	hrtime_t before = gethrtime();
 	rw_enter(DBUF_HASH_RWLOCK(h, idx), RW_READER);
 	for (db = h->hash_table[idx]; db != NULL; db = db->db_hash_next) {
 		if (DBUF_EQUAL(db, os, obj, level, blkid)) {
 			mutex_enter(&db->db_mtx);
 			if (db->db_state != DB_EVICTING) {
 				rw_exit(DBUF_HASH_RWLOCK(h, idx));
+				record_dbuf_find_delay(gethrtime() - before);
 				return (db);
 			}
 			mutex_exit(&db->db_mtx);
 		}
 	}
 	rw_exit(DBUF_HASH_RWLOCK(h, idx));
+	record_dbuf_find_delay(gethrtime() - before);
 	return (NULL);
 }
 

@@ -1,4 +1,7 @@
+#include "atomic.h"
 #include "libuzfs.h"
+#include "sys/stdtypes.h"
+#include "sys/time.h"
 #include "sys/zil.h"
 #include <bits/stdint-uintn.h>
 #include <sys/sa.h>
@@ -201,16 +204,23 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	return (err);
 }
 
+uint64_t before_tx_1 = 0;
+uint64_t tx_assign_1 = 0;
+uint64_t sa_update_1 = 0;
+uint64_t after_tx_1 = 0;
+
 int
 libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *reserved, uint32_t size, uint64_t *txg)
 {
+	hrtime_t before = gethrtime();
 	sa_handle_t *sa_hdl;
 	objset_t *os = dhp->os;
 	int err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
 	if (err != 0) {
 		return (err);
 	}
+	hrtime_t mid = gethrtime();
 
 	sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
 	int cur_size;
@@ -222,22 +232,31 @@ libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	}
 
 	dmu_tx_t *tx = dmu_tx_create(os);
-	dmu_tx_hold_sa(tx, sa_hdl, cur_size < size);
+	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+	atomic_add_64(&before_tx_1, mid - before);
 	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 		dmu_tx_abort(tx);
 		return (err);
 	}
 
+	hrtime_t assign = gethrtime();
+	atomic_add_64(&tx_assign_1, assign - mid);
+
 	VERIFY0(sa_update(sa_hdl, dhp->uzfs_attr_table[UZFS_RESERVED],
 	    (void *)reserved, size, tx));
 
-	sa_handle_destroy(sa_hdl);
+	hrtime_t update = gethrtime();
+
+	atomic_add_64(&sa_update_1, update -assign);
 
 	if (txg != NULL) {
 		*txg = tx->tx_txg;
 	}
 
 	dmu_tx_commit(tx);
+
+	sa_handle_destroy(sa_hdl);
+	atomic_add_64(&sa_update_1, gethrtime() - update);
 
 	return (0);
 }
@@ -358,6 +377,8 @@ libuzfs_log_kvattr_set(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj,
 	zil_itx_assign(zilog, itx, tx);
 }
 
+uint64_t setkv_tx = 0;
+
 // setting high priority kvattr will first check whether
 // the hp area has enough space, if not enough, that kv will
 // be removed from hp area and inserted into normal sa space,
@@ -435,10 +456,12 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		// hp area has enough space, just put in hp area
 		if (err == 0) {
 			dmu_tx_t *tx = dmu_tx_create(dhp->os);
-			dmu_tx_hold_sa(tx, sa_hdl, B_TRUE);
+			dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+			hrtime_t before = gethrtime();
 			if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 				dmu_tx_abort(tx);
 			} else {
+				atomic_add_64(&setkv_tx, gethrtime() - before);
 				VERIFY0(sa_update(sa_hdl,
 				    sa_tbl[UZFS_XATTR_HIGH], hp_xattr_data,
 				    hp_xattr_data_size, tx));

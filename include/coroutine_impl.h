@@ -61,6 +61,7 @@ struct uzfs_coroutine {
 	struct uzfs_coroutine *next_in_pool;
 	void **bottom_fpp;
 	void *saved_fp;
+	uint64_t dbuf_find_delay;
 };
 
 struct co_mutex {
