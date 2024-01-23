@@ -69,7 +69,7 @@ static boolean_t change_zpool_cache_path = B_FALSE;
 static void libuzfs_create_inode_with_type_impl(
     libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     boolean_t claiming, libuzfs_inode_type_t type,
-    dmu_tx_t *tx);
+    dmu_tx_t *tx, uint64_t gen);
 
 typedef struct dir_emit_ctx {
 	char *buf;
@@ -433,6 +433,9 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
 	dmu_buf_rele(db_fake, FTAG);
 }
 
+static int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t gen);
+
 static int
 libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
 {
@@ -444,7 +447,8 @@ libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
 	uint64_t obj = LR_FOID_GET_OBJ(lr->lr_foid);
 	printf("replay create, obj: %ld\n", obj);
 
-	return (libuzfs_object_claim((libuzfs_dataset_handle_t *)arg1, obj));
+	return (libuzfs_object_claim((libuzfs_dataset_handle_t *)arg1,
+	    obj, lr->lr_gen));
 }
 
 static int
@@ -833,7 +837,7 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	libuzfs_setup_dataset_sa(&dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_create_inode_with_type_impl(&dhp, &sb_obj,
-	    B_FALSE, INODE_DIR, tx);
+	    B_FALSE, INODE_DIR, tx, 0);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx));
 }
 
@@ -1060,7 +1064,7 @@ libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
 static void
 libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t *obj, boolean_t claiming, libuzfs_inode_type_t type,
-    dmu_tx_t *tx)
+    dmu_tx_t *tx, uint64_t gen)
 {
 	// create/claim object
 	objset_t *os = dhp->os;
@@ -1097,18 +1101,22 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		VERIFY0(1);
 	}
 
+	if (!claiming) {
+		gen = tx->tx_txg;
+	}
+
 	kmutex_t *mp = &dhp->objs_lock[(*obj) % NUM_NODE_BUCKETS];
 	mutex_enter(mp);
 	sa_handle_t *sa_hdl;
 	VERIFY0(sa_handle_get(os, *obj, NULL, SA_HDL_PRIVATE, &sa_hdl));
-	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type);
+	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type, gen);
 	sa_handle_destroy(sa_hdl);
 	mutex_exit(mp);
 }
 
 static int
 libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    boolean_t claiming, libuzfs_inode_type_t type, uint64_t *txg)
+    boolean_t claiming, libuzfs_inode_type_t type, uint64_t *txg, uint64_t gen)
 {
 	objset_t *os = dhp->os;
 	dmu_tx_t *tx = dmu_tx_create(os);
@@ -1122,7 +1130,7 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 		return (err);
 	}
 
-	libuzfs_create_inode_with_type_impl(dhp, obj, claiming, type, tx);
+	libuzfs_create_inode_with_type_impl(dhp, obj, claiming, type, tx, gen);
 
 	if (txg != NULL) {
 		*txg = tx->tx_txg;
@@ -1151,7 +1159,7 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 
 	for (int i = 0; i < num_objs; ++i) {
 		libuzfs_create_inode_with_type_impl(dhp, &objs[i],
-		    B_FALSE, INODE_DATA_OBJ, tx);
+		    B_FALSE, INODE_DATA_OBJ, tx, 0);
 	}
 
 	*gen = tx->tx_txg;
@@ -1186,8 +1194,8 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	return (err);
 }
 
-int
-libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
+static int
+libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t gen)
 {
 	objset_t *os = dhp->os;
 	int dnodesize = dmu_objset_dnodesize(os);
@@ -1202,7 +1210,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 	}
 
 	return (libuzfs_create_inode_with_type(dhp, &obj,
-	    TRUE, INODE_DATA_OBJ, NULL));
+	    TRUE, INODE_DATA_OBJ, NULL, gen));
 }
 
 uint64_t
@@ -1716,12 +1724,12 @@ libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, uint64_t *txg)
 {
 	return (libuzfs_create_inode_with_type(dhp, ino,
-	    B_FALSE, type, txg));
+	    B_FALSE, type, txg, 0));
 }
 
 int
 libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    libuzfs_inode_type_t type)
+    uint64_t gen, libuzfs_inode_type_t type)
 {
 	int err = 0;
 	int dnodesize = dmu_objset_dnodesize(dhp->os);
@@ -1737,7 +1745,7 @@ libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	}
 
 	return (libuzfs_create_inode_with_type(dhp, &ino,
-	    B_TRUE, type, NULL));
+	    B_TRUE, type, NULL, gen));
 }
 
 int

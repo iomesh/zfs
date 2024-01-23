@@ -68,11 +68,11 @@ libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp)
 
 void
 libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type)
+    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type,
+    uint64_t gen)
 {
 	sa_bulk_attr_t sa_attrs[UZFS_END];
 	int cnt = 0;
-	uint64_t gen = tx->tx_txg;
 	uint64_t size = 0;
 	timespec_t mtime = {0, 0};
 
