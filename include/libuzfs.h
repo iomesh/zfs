@@ -137,7 +137,6 @@ extern int libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
     int num_objs, uint64_t *gen);
 
 extern int libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj);
-extern int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj);
 
 extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
@@ -202,7 +201,7 @@ extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, uint64_t *txg);
 
 extern int libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    libuzfs_inode_type_t type);
+    uint64_t gen, libuzfs_inode_type_t type);
 
 extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *kvobj);

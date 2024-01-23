@@ -112,7 +112,7 @@ struct libuzfs_zap_iterator {
 #define	UZFS_KV_CAPACITY_1K		608
 
 extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type);
+    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type, uint64_t gen);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *xattr_zap_obj);
