@@ -63,6 +63,8 @@
 #include "sys/dnode.h"
 #include "sys/nvpair.h"
 #include "sys/stdtypes.h"
+#include "sys/txg.h"
+#include "sys/zfs_refcount.h"
 
 static boolean_t change_zpool_cache_path = B_FALSE;
 
@@ -434,7 +436,7 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
 }
 
 static int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
-    uint64_t obj, uint64_t gen);
+    uint64_t obj, uint64_t gen, libuzfs_inode_type_t type);
 
 static int
 libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
@@ -448,7 +450,7 @@ libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
 	printf("replay create, obj: %ld\n", obj);
 
 	return (libuzfs_object_claim((libuzfs_dataset_handle_t *)arg1,
-	    obj, lr->lr_gen));
+	    obj, lr->lr_gen, INODE_DATA_OBJ));
 }
 
 static int
@@ -1195,7 +1197,8 @@ libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 }
 
 static int
-libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t gen)
+libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t gen, libuzfs_inode_type_t type)
 {
 	objset_t *os = dhp->os;
 	int dnodesize = dmu_objset_dnodesize(os);
@@ -1203,12 +1206,23 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t gen)
 
 	// FIXME(hping): double comfirm the waived error codes
 	if (err == ENOSPC || err == EEXIST) {
-		printf("object %ld already created\n", obj);
-		return (0);
+		dnode_t *dn;
+		err = dnode_hold(dhp->os, obj, FTAG, &dn);
+		if (err == ENOENT) {
+			printf("object %lu is being deleted, "
+			    "wait txg sync..\n", obj);
+			libuzfs_wait_synced(dhp);
+			goto do_claim;
+		} else if (err == 0) {
+			dnode_rele(dn, FTAG);
+			printf("object %lu already created\n", obj);
+		}
+		return (err);
 	} else if (err != 0) {
 		return (err);
 	}
 
+do_claim:
 	return (libuzfs_create_inode_with_type(dhp, &obj,
 	    TRUE, INODE_DATA_OBJ, NULL, gen));
 }
@@ -1731,21 +1745,7 @@ int
 libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     uint64_t gen, libuzfs_inode_type_t type)
 {
-	int err = 0;
-	int dnodesize = dmu_objset_dnodesize(dhp->os);
-
-	err = dnode_try_claim(dhp->os, ino, dnodesize >> DNODE_SHIFT);
-
-	// FIXME(hping): double comfirm the waived error codes
-	if (err == ENOSPC || err == EEXIST) {
-		printf("object %ld already created\n", ino);
-		return (0);
-	} else if (err != 0) {
-		return (err);
-	}
-
-	return (libuzfs_create_inode_with_type(dhp, &ino,
-	    B_TRUE, type, NULL, gen));
+	return (libuzfs_object_claim(dhp, ino, gen, type));
 }
 
 int
