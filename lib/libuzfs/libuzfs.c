@@ -1127,6 +1127,8 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	int err = dmu_tx_assign(tx, TXG_WAIT);
 	if (err != 0) {
 		dmu_tx_abort(tx);
+		zfs_dbgmsg("inode create failed, %s, claiming: %d, type: %d,"
+		    " obj: %lu, gen: %lu", dhp->name, claiming, type, *obj, gen);
 		return (err);
 	}
 

@@ -28,6 +28,9 @@
  * Copyright (c) 2018, loli10K <ezomori.nozomu@gmail.com>. All rights reserved.
  */
 
+#include <asm-generic/errno-base.h>
+#include <bits/stdint-uintn.h>
+#include <stdio.h>
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
 #include <sys/dmu_tx.h>
@@ -1343,9 +1346,14 @@ top_of_function:
 		} else {
 			ASSERT3U(used_on_disk, >=, quota);
 
-			if (retval == ENOSPC && (used_on_disk - quota) <
-			    dsl_pool_deferred_space(dd->dd_pool)) {
-				retval = SET_ERROR(ERESTART);
+			if (retval == ENOSPC) {
+				uint64_t deferred_space = dsl_pool_deferred_space(dd->dd_pool);
+				if (used_on_disk - quota < deferred_space) {
+					retval = SET_ERROR(ERESTART);
+				} else {
+					zfs_dbgmsg("deferred_space: %lu, used_on_disk: %lu, quota: %lu",
+					    deferred_space, used_on_disk, quota);
+				}
 			}
 		}
 
@@ -1689,6 +1697,9 @@ dsl_dir_set_quota_check(void *arg, dmu_tx_t *tx)
 	    (newval < dsl_dir_phys(ds->ds_dir)->dd_reserved ||
 	    newval < dsl_dir_phys(ds->ds_dir)->dd_used_bytes + towrite)) {
 		error = SET_ERROR(ENOSPC);
+		zfs_dbgmsg("towrite: %lu, dd_reserved: %lu, dd_used_bytes: %lu, newval: %lu",
+		    towrite, dsl_dir_phys(ds->ds_dir)->dd_reserved,
+		    dsl_dir_phys(ds->ds_dir)->dd_used_bytes, newval);
 	}
 	mutex_exit(&ds->ds_dir->dd_lock);
 	dsl_dataset_rele(ds, FTAG);
@@ -1789,8 +1800,11 @@ dsl_dir_set_reservation_check(void *arg, dmu_tx_t *tx)
 
 		if (delta > avail ||
 		    (dsl_dir_phys(dd)->dd_quota > 0 &&
-		    newval > dsl_dir_phys(dd)->dd_quota))
+		    newval > dsl_dir_phys(dd)->dd_quota)) {
 			error = SET_ERROR(ENOSPC);
+			zfs_dbgmsg("delta: %lu, avail: %lu, dd_quota: %lu, newval: %lu",
+			    delta, avail, dsl_dir_phys(dd)->dd_quota, newval);
+		}
 	}
 
 	dsl_dataset_rele(ds, FTAG);
@@ -2215,8 +2229,10 @@ dsl_dir_transfer_possible(dsl_dir_t *sdd, dsl_dir_t *tdd,
 	ancestor = closest_common_ancestor(sdd, tdd);
 	adelta = would_change(sdd, -space, ancestor);
 	avail = dsl_dir_space_available(tdd, ancestor, adelta, FALSE);
-	if (avail < space)
+	if (avail < space) {
+		zfs_dbgmsg("avail: %lu, space: %lu", avail, space);
 		return (SET_ERROR(ENOSPC));
+	}
 
 	err = dsl_fs_ss_limit_check(tdd, fs_cnt, ZFS_PROP_FILESYSTEM_LIMIT,
 	    ancestor, cr, proc);

@@ -3377,6 +3377,7 @@ metaslab_activate(metaslab_t *msp, int allocator, uint64_t activation_weight)
 	 */
 	if (msp->ms_weight == 0) {
 		ASSERT0(range_tree_space(msp->ms_allocatable));
+		zfs_dbgmsg("metaslab has no space");
 		return (SET_ERROR(ENOSPC));
 	}
 
@@ -5086,6 +5087,7 @@ metaslab_alloc_dva(spa_t *spa, metaslab_class_t *mc, uint64_t psize,
 	if (psize >= metaslab_force_ganging && (random_in_range(100) < 3)) {
 		metaslab_trace_add(zal, NULL, NULL, psize, d, TRACE_FORCE_GANG,
 		    allocator);
+		zfs_dbgmsg("psize: %lu, force ganging: %lu", psize, metaslab_force_ganging);
 		return (SET_ERROR(ENOSPC));
 	}
 
@@ -5305,6 +5307,7 @@ next:
 	bzero(&dva[d], sizeof (dva_t));
 
 	metaslab_trace_add(zal, rotor, NULL, psize, d, TRACE_ENOSPC, allocator);
+	zfs_dbgmsg("");
 	return (SET_ERROR(ENOSPC));
 }
 
@@ -5798,6 +5801,7 @@ metaslab_alloc(spa_t *spa, metaslab_class_t *mc, uint64_t psize, blkptr_t *bp,
 	if (mc->mc_allocator[allocator].mca_rotor == NULL) {
 		/* no vdevs in this class */
 		spa_config_exit(spa, SCL_ALLOC, FTAG);
+		zfs_dbgmsg("allocator: %d", allocator);
 		return (SET_ERROR(ENOSPC));
 	}
 

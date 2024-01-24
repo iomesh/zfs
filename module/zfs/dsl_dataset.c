@@ -1464,8 +1464,11 @@ dsl_dataset_snapshot_reserve_space(dsl_dataset_t *ds, dmu_tx_t *tx)
 	 */
 	ASSERT(ds->ds_reserved == 0 || DS_UNIQUE_IS_ACCURATE(ds));
 	asize = MIN(dsl_dataset_phys(ds)->ds_unique_bytes, ds->ds_reserved);
-	if (asize > dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE))
+	uint64_t avail = dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE);
+	if (asize > avail) {
+		zfs_dbgmsg("asize: %lu, avail: %lu", asize, avail);
 		return (SET_ERROR(ENOSPC));
+	}
 
 	/*
 	 * Propagate any reserved space for this snapshot to other
@@ -3231,11 +3234,13 @@ dsl_dataset_rollback_check(void *arg, dmu_tx_t *tx)
 	unused_refres_delta = (int64_t)MIN(ds->ds_reserved,
 	    dsl_dataset_phys(ds)->ds_unique_bytes);
 
-	if (unused_refres_delta > 0 &&
-	    unused_refres_delta >
-	    dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE)) {
-		dsl_dataset_rele(ds, FTAG);
-		return (SET_ERROR(ENOSPC));
+	if (unused_refres_delta > 0) {
+		uint64_t avail = dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE);
+		if (unused_refres_delta > avail) {
+			dsl_dataset_rele(ds, FTAG);
+			zfs_dbgmsg("unused_refres_delta: %ld, avail: %lu", unused_refres_delta, avail);
+			return (SET_ERROR(ENOSPC));
+		}
 	}
 
 	dsl_dataset_rele(ds, FTAG);
@@ -3976,10 +3981,13 @@ dsl_dataset_clone_swap_check_impl(dsl_dataset_t *clone,
 	    (int64_t)MIN(origin_head->ds_reserved,
 	    dsl_dataset_phys(clone)->ds_unique_bytes);
 
-	if (unused_refres_delta > 0 &&
-	    unused_refres_delta >
-	    dsl_dir_space_available(origin_head->ds_dir, NULL, 0, TRUE))
-		return (SET_ERROR(ENOSPC));
+	if (unused_refres_delta > 0) {
+		uint64_t avail = dsl_dir_space_available(origin_head->ds_dir, NULL, 0, TRUE);
+		if (unused_refres_delta > avail) {
+			zfs_dbgmsg("unused_refres_delta: %ld, avail: %lu", unused_refres_delta, avail);
+			return (SET_ERROR(ENOSPC));
+		}
+	}
 
 	/*
 	 * The clone can't be too much over the head's refquota.
@@ -4349,6 +4357,8 @@ dsl_dataset_set_refquota_check(void *arg, dmu_tx_t *tx)
 	if (newval < dsl_dataset_phys(ds)->ds_referenced_bytes ||
 	    newval < ds->ds_reserved) {
 		dsl_dataset_rele(ds, FTAG);
+		zfs_dbgmsg("newval: %lu, ds_referenced_bytes: %lu, ds_reserved: %lu",
+		    newval, dsl_dataset_phys(ds)->ds_referenced_bytes, ds->ds_reserved);
 		return (SET_ERROR(ENOSPC));
 	}
 
@@ -4443,11 +4453,13 @@ dsl_dataset_set_refreservation_check(void *arg, dmu_tx_t *tx)
 	if (MAX(unique, newval) > MAX(unique, ds->ds_reserved)) {
 		uint64_t delta = MAX(unique, newval) -
 		    MAX(unique, ds->ds_reserved);
+		uint64_t avail = dsl_dir_space_available(ds->ds_dir, NULL, 0, B_TRUE);
 
-		if (delta >
-		    dsl_dir_space_available(ds->ds_dir, NULL, 0, B_TRUE) ||
+		if (delta > avail ||
 		    (ds->ds_quota > 0 && newval > ds->ds_quota)) {
 			dsl_dataset_rele(ds, FTAG);
+			zfs_dbgmsg("delta: %lu, avail: %lu, quota: %lu, newval: %lu",
+			    delta, avail, ds->ds_quota, newval);
 			return (SET_ERROR(ENOSPC));
 		}
 	}

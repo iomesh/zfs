@@ -232,6 +232,8 @@ dsl_sync_task_sync(dsl_sync_task_t *dst, dmu_tx_t *tx)
 
 		/* MOS space is triple-dittoed, so we multiply by 3. */
 		if (used + dst->dst_space * 3 > quota) {
+			zfs_dbgmsg("used: %lu, dst_space: %d, quota: %lu",
+			    used, dst->dst_space, quota);
 			dst->dst_error = SET_ERROR(ENOSPC);
 			if (dst->dst_nowaiter)
 				kmem_free(dst, sizeof (*dst));

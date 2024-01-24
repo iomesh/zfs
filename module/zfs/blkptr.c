@@ -135,8 +135,10 @@ decode_embedded_bp(const blkptr_t *bp, void *buf, int buflen)
 	lsize = BPE_GET_LSIZE(bp);
 	psize = BPE_GET_PSIZE(bp);
 
-	if (lsize > buflen)
+	if (lsize > buflen) {
+		zfs_dbgmsg("lsize: %d, psize: %d", lsize, psize);
 		return (SET_ERROR(ENOSPC));
+	}
 	ASSERT3U(lsize, ==, buflen);
 
 	if (BP_GET_COMPRESS(bp) != ZIO_COMPRESS_OFF) {
