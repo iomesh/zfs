@@ -1209,6 +1209,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		dnode_t *dn;
 		err = dnode_hold(dhp->os, obj, FTAG, &dn);
 		if (err == ENOENT) {
+			VERIFY(type != INODE_DATA_OBJ);
 			printf("object %lu is being deleted, "
 			    "wait txg sync..\n", obj);
 			libuzfs_wait_synced(dhp);

@@ -556,7 +556,7 @@ extern void delay(clock_t ticks);
 #define	USEC_TO_TICK(usec)	(howmany((hrtime_t)(usec) * hz, MICROSEC))
 #define	NSEC_TO_TICK(nsec)	(howmany((hrtime_t)(nsec) * hz, NANOSEC))
 
-#define	max_ncpus	64
+#define	max_ncpus	97
 #define	boot_ncpus	(sysconf(_SC_NPROCESSORS_ONLN))
 
 /*
@@ -566,7 +566,7 @@ extern void delay(clock_t ticks);
 #define	maxclsyspri	-20
 #define	defclsyspri	0
 
-#define	CPU_SEQID	((uintptr_t)pthread_self() & (max_ncpus - 1))
+#define	CPU_SEQID	(((uintptr_t)uzfs_coroutine_self()) % max_ncpus)
 #define	CPU_SEQID_UNSTABLE	CPU_SEQID
 
 #define	ptob(x)		((x) * PAGESIZE)
