@@ -212,17 +212,9 @@ libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		return (err);
 	}
 
-	sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
-	int cur_size;
 	ASSERT3U(size, <=, libuzfs_get_max_reserved_len(sa_hdl));
-	err = sa_size(sa_hdl, attr_tbl[UZFS_RESERVED], &cur_size);
-	if (err != 0) {
-		sa_handle_destroy(sa_hdl);
-		return (err);
-	}
-
 	dmu_tx_t *tx = dmu_tx_create(os);
-	dmu_tx_hold_sa(tx, sa_hdl, cur_size < size);
+	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
 	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 		dmu_tx_abort(tx);
 		return (err);
