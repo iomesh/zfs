@@ -485,12 +485,27 @@ const mutex_internal_t mutex_locked_raw		= {1, 0, 0};
 #define	MUTEX_LOCKED	(*(uint32_t *)(&mutex_locked_raw))
 
 static inline void
+co_mutex_spin(co_mutex_t *mutex)
+{
+	uint32_t nspins = 100;
+	for (int i = 0; i < nspins; ++i) {
+		if (atomic_load_32(&mutex->lock.value)
+		    & MUTEX_LOCKED) {
+			break;
+		}
+		cpu_relax();
+	}
+}
+
+static inline void
 co_mutex_contended(co_mutex_t *mutex)
 {
+	co_mutex_spin(mutex);
 	while (atomic_swap_32(&mutex->lock.value,
 	    MUTEX_CONTENDED) & MUTEX_LOCKED) {
 		// ignore return value
 		(void) cutex_wait(&mutex->lock, MUTEX_CONTENDED, NULL);
+		co_mutex_spin(mutex);
 	}
 }
 
