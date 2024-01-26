@@ -45,27 +45,27 @@ cutex_init(cutex_t *cutex)
 	cutex->value = 0;
 	list_create(&cutex->waiter_list, sizeof (uzfs_coroutine_t),
 	    offsetof(uzfs_coroutine_t, node));
-	VERIFY0(pthread_mutex_init(&cutex->waiter_lock, NULL));
+	VERIFY0(pthread_spin_init(&cutex->waiter_lock, 0));
 }
 
 static void
 cutex_fini(cutex_t *cutex)
 {
-	VERIFY0(pthread_mutex_destroy(&cutex->waiter_lock));
+	VERIFY0(pthread_spin_destroy(&cutex->waiter_lock));
 }
 
 static void
 erase_from_cutex_and_wakeup(void *arg)
 {
 	uzfs_coroutine_t *coroutine = arg;
-	VERIFY0(pthread_mutex_lock(&coroutine->cutex->waiter_lock));
+	VERIFY0(pthread_spin_lock(&coroutine->cutex->waiter_lock));
 	ASSERT(coroutine->waiter_state == CUTEX_WAITER_NONE ||
 	    coroutine->waiter_state == CUTEX_WAITER_READY);
 	if (coroutine->waiter_state == CUTEX_WAITER_NONE) {
 		coroutine->waiter_state = CUTEX_WAITER_TIMEOUT;
 		list_remove(&coroutine->cutex->waiter_list, coroutine);
 	}
-	VERIFY0(pthread_mutex_unlock(&coroutine->cutex->waiter_lock));
+	VERIFY0(pthread_spin_unlock(&coroutine->cutex->waiter_lock));
 
 	if (coroutine->waiter_state == CUTEX_WAITER_TIMEOUT) {
 		wakeup_coroutine(coroutine);
@@ -89,12 +89,12 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 		}
 	}
 
-	VERIFY0(pthread_mutex_lock(&cutex->waiter_lock));
+	VERIFY0(pthread_spin_lock(&cutex->waiter_lock));
 
 	// the waker would call wake up before we add this coroutine
 	// to the waiter list, so we need to double-check the value in the lock
 	if (atomic_load_32(&cutex->value) != expected_value) {
-		VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
+		VERIFY0(pthread_spin_unlock(&cutex->waiter_lock));
 		return (EWOULDBLOCK);
 	}
 
@@ -116,7 +116,7 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 		VERIFY(task != NULL);
 		thread_local_coroutine->expire_task = task;
 	}
-	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
+	VERIFY0(pthread_spin_unlock(&cutex->waiter_lock));
 
 	libuzfs_coroutine_yield();
 
@@ -148,14 +148,14 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 static int
 cutex_wake_one(cutex_t *cutex)
 {
-	VERIFY0(pthread_mutex_lock(&cutex->waiter_lock));
+	VERIFY0(pthread_spin_lock(&cutex->waiter_lock));
 	uzfs_coroutine_t *front = list_remove_head(&cutex->waiter_list);
 	if (front == NULL) {
-		VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
+		VERIFY0(pthread_spin_unlock(&cutex->waiter_lock));
 		return (0);
 	}
 	front->waiter_state = CUTEX_WAITER_READY;
-	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
+	VERIFY0(pthread_spin_unlock(&cutex->waiter_lock));
 
 	if (front->expire_task != NULL) {
 		timer_thread_unschedule(front->expire_task);
@@ -169,16 +169,16 @@ cutex_wake_one(cutex_t *cutex)
 static int
 cutex_requeue(cutex_t *cutex1, cutex_t *cutex2)
 {
-	VERIFY0(pthread_mutex_lock(&cutex1->waiter_lock));
-	VERIFY0(pthread_mutex_lock(&cutex2->waiter_lock));
+	VERIFY0(pthread_spin_lock(&cutex1->waiter_lock));
+	VERIFY0(pthread_spin_lock(&cutex2->waiter_lock));
 
 	uzfs_coroutine_t *front = list_remove_head(&cutex1->waiter_list);
 	if (front != NULL) {
 		front->waiter_state = CUTEX_WAITER_READY;
 		list_move_tail(&cutex2->waiter_list, &cutex1->waiter_list);
 	}
-	VERIFY0(pthread_mutex_unlock(&cutex1->waiter_lock));
-	VERIFY0(pthread_mutex_unlock(&cutex2->waiter_lock));
+	VERIFY0(pthread_spin_unlock(&cutex1->waiter_lock));
+	VERIFY0(pthread_spin_unlock(&cutex2->waiter_lock));
 
 	if (front == NULL) {
 		return (0);
@@ -489,8 +489,8 @@ co_mutex_spin(co_mutex_t *mutex)
 {
 	uint32_t nspins = 100;
 	for (int i = 0; i < nspins; ++i) {
-		if (atomic_load_32(&mutex->lock.value)
-		    & MUTEX_LOCKED) {
+		if ((atomic_load_32(&mutex->lock.value)
+		    & MUTEX_LOCKED) == 0) {
 			break;
 		}
 		cpu_relax();

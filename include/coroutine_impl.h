@@ -14,7 +14,7 @@
 typedef struct cutex {
 	uint32_t value;
 	// TODO(sundengyu): use a spin lock
-	pthread_mutex_t waiter_lock;
+	pthread_spinlock_t waiter_lock;
 	// TODO(sundnegyu): use a smaller list
 	list_t waiter_list;
 } cutex_t;
