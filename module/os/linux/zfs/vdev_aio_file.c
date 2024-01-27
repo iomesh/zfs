@@ -387,6 +387,10 @@ zio_task_reaper(void *args)
 			if (res < 0) {
 				zio->io_error = -res;
 			} else if (res < zio->io_size) {
+				zfs_dbgmsg("partial io, type: %d, "
+				    "offset: %lu, size: %lu, actual"
+				    " iosize: %ld", zio->io_type,
+				    zio->io_offset, zio->io_size, res);
 				zio->io_error = SET_ERROR(ENOSPC);
 			}
 

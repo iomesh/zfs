@@ -687,28 +687,13 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 	if (dprint) {
 		/* dprintf messages are printed immediately */
 
-		if (!dprintf_print_all &&
-		    !dprintf_find_string(newfile) &&
-		    !dprintf_find_string(func))
-			return;
-
 		/* Print out just the function name if requested */
 		flockfile(stdout);
-		if (dprintf_find_string("pid"))
-			(void) printf("%d ", getpid());
-		if (dprintf_find_string("tid"))
-			(void) printf("%ju ",
-			    (uintmax_t)(uintptr_t)pthread_self());
-		if (dprintf_find_string("cpu"))
-			(void) printf("%u ", getcpuid());
-		if (dprintf_find_string("time"))
-			(void) printf("%llu ", gethrtime());
-		if (dprintf_find_string("long"))
-			(void) printf("%s, line %d: ", newfile, line);
-		(void) printf("dprintf: %s: ", func);
+		(void) printf("%s:%d:%s(): ", newfile, line, func);
 		va_start(adx, fmt);
 		(void) vprintf(fmt, adx);
 		va_end(adx);
+		printf("\n");
 		funlockfile(stdout);
 	} else {
 		/* zfs_dbgmsg is logged for dumping later */

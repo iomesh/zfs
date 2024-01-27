@@ -541,7 +541,8 @@ set_normal:
 		if (!sa_space_enough) {
 			if (xattr_zap_obj == DMU_NEW_OBJECT) {
 				int dnodesize = dmu_objset_dnodesize(os);
-				// use sa to make sure check valid can be called for this object
+				// use sa to make sure check valid
+				// can be called for this object
 				xattr_zap_obj = zap_create_dnsize(os,
 				    DMU_OT_DIRECTORY_CONTENTS, DMU_OT_SA, 0,
 				    dnodesize, tx);
