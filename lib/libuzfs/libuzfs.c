@@ -613,10 +613,13 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	return (error);
 }
 
+extern void (*do_backtrace)(void);
+
 void
 libuzfs_init(thread_create_func create, thread_exit_func exit,
-    thread_join_func join)
+    thread_join_func join, backtrace_func bt_func)
 {
+	do_backtrace = bt_func;
 	set_thread_funcs(create, exit, join);
 	coroutine_init();
 	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);

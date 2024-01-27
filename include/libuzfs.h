@@ -100,7 +100,7 @@ extern void *libuzfs_current_coroutine_arg(void);
 extern void libuzfs_coroutine_exit(void);
 
 extern void libuzfs_init(thread_create_func create, thread_exit_func exit,
-    thread_join_func join);
+    thread_join_func join, backtrace_func bt_func);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 

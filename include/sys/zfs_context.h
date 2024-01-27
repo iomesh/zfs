@@ -236,6 +236,7 @@ typedef uint64_t (*thread_create_func)(void (*thread_func)(void *), void *arg,
     int stksize, boolean_t joinable, boolean_t new_runtime);
 typedef void (*thread_exit_func)(void);
 typedef void (*thread_join_func)(uint64_t);
+typedef void (*backtrace_func)(void);
 
 extern void set_thread_funcs(thread_create_func create, thread_exit_func exit,
     thread_join_func join);
