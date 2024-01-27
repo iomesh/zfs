@@ -27,6 +27,8 @@
 
 int aok = 0;
 
+void (*do_backtrace)(void) = NULL;
+
 /* printf version of libspl_assert */
 void
 libspl_assertf(const char *file, const char *func, int line,
@@ -42,5 +44,10 @@ libspl_assertf(const char *file, const char *func, int line,
 	if (aok) {
 		return;
 	}
+
+	if (do_backtrace != NULL) {
+		do_backtrace();
+	}
+
 	abort();
 }
