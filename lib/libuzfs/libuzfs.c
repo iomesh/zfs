@@ -447,7 +447,7 @@ libuzfs_replay_create(void *arg1, void *arg2, boolean_t byteswap)
 	}
 
 	uint64_t obj = LR_FOID_GET_OBJ(lr->lr_foid);
-	printf("replay create, obj: %ld\n", obj);
+	zfs_dbgmsg("replay create, obj: %ld", obj);
 
 	return (libuzfs_object_claim((libuzfs_dataset_handle_t *)arg1,
 	    obj, lr->lr_gen, INODE_DATA_OBJ));
@@ -460,7 +460,7 @@ libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
-	printf("replay remove, obj: %ld\n", lr->lr_doid);
+	zfs_dbgmsg("replay remove, obj: %ld", lr->lr_doid);
 
 	return (libuzfs_inode_delete((libuzfs_dataset_handle_t *)arg1,
 	    lr->lr_doid, INODE_DATA_OBJ, NULL));
@@ -517,8 +517,8 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;
 
-	printf("replay truncate, obj: %ld, off: %ld, size: %ld\n", obj, offset,
-	    size);
+	zfs_dbgmsg("replay truncate, obj: %ld, off: %ld, size: %ld",
+	    obj, offset, size);
 
 	ASSERT3U(offset, ==, 0);
 
@@ -538,7 +538,7 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	uint64_t offset = lr->lr_offset;
 	uint64_t length = lr->lr_length;
 
-	printf("replay write, obj: %ld, off: %ld, length: %ld\n",
+	zfs_dbgmsg("replay write, obj: %ld, off: %ld, length: %ld",
 	    obj, offset, length);
 
 	return (libuzfs_object_write((libuzfs_dataset_handle_t *)arg1,
@@ -1213,13 +1213,13 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		err = dnode_hold(dhp->os, obj, FTAG, &dn);
 		if (err == ENOENT) {
 			VERIFY(type != INODE_DATA_OBJ);
-			printf("object %lu is being deleted, "
-			    "wait txg sync..\n", obj);
+			zfs_dbgmsg("object %lu is being deleted, "
+			    "wait txg sync..", obj);
 			libuzfs_wait_synced(dhp);
 			goto do_claim;
 		} else if (err == 0) {
 			dnode_rele(dn, FTAG);
-			printf("object %lu already created\n", obj);
+			zfs_dbgmsg("object %lu already created", obj);
 		}
 		return (err);
 	} else if (err != 0) {
@@ -1244,10 +1244,10 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 
 	for (obj = 0; err == 0; err = dmu_object_next(os, &obj, B_FALSE, 0)) {
 		if (libuzfs_object_stat(dhp, obj, &doi)) {
-			printf("skip obj w/o bonus buf: %ld\n", obj);
+			zfs_dbgmsg("skip obj w/o bonus buf: %ld", obj);
 			continue;
 		} else {
-			printf("object: %ld\n", obj);
+			zfs_dbgmsg("object: %ld", obj);
 		}
 		i++;
 	}
@@ -1836,8 +1836,8 @@ libuzfs_dentry_iterate(libuzfs_dataset_handle_t *dhp, uint64_t dino,
 		 * XXX: This should be a feature flag for compatibility
 		 */
 		if (zap.za_integer_length != 8 || zap.za_num_integers == 0) {
-			printf("zap_readdir: bad directory entry, obj = %ld,"
-			    " whence = %ld, length = %d, num = %ld\n",
+			zfs_dbgmsg("zap_readdir: bad directory entry,"
+			    " obj = %ld, whence = %ld, length = %d, num = %ld",
 			    zap.za_first_integer, whence,
 			    zap.za_integer_length, zap.za_num_integers);
 			error = SET_ERROR(ENXIO);
