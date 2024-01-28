@@ -12,13 +12,16 @@
 #include <libintl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <semaphore.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <coroutine.h>
 #include <timer_thread.h>
 #include <stddef.h>
 #include <libuzfs.h>
+#include <unistd.h>
 
 static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
@@ -199,13 +202,20 @@ libuzfs_coroutine_yield(void)
 		thread_local_coroutine->record_backtrace(
 		    thread_local_coroutine->task_id);
 	}
-	jump_fcontext(&thread_local_coroutine->my_ctx,
-	    thread_local_coroutine->main_ctx, 0, B_TRUE);
+
+	if (thread_local_coroutine->run_as_thread) {
+		VERIFY0(TEMP_FAILURE_RETRY(sem_wait(
+		    thread_local_coroutine->wake_arg)));
+	} else {
+		jump_fcontext(&thread_local_coroutine->my_ctx,
+		    thread_local_coroutine->main_ctx, 0, B_TRUE);
+	}
 }
 
 void
 coroutine_wake_and_yield(void)
 {
+	ASSERT(!thread_local_coroutine->run_as_thread);
 	thread_local_coroutine->wake(thread_local_coroutine->wake_arg);
 	libuzfs_coroutine_yield();
 }
@@ -213,6 +223,7 @@ coroutine_wake_and_yield(void)
 void
 libuzfs_coroutine_exit(void)
 {
+	ASSERT(!thread_local_coroutine->run_as_thread);
 	jump_fcontext(&thread_local_coroutine->my_ctx,
 	    thread_local_coroutine->main_ctx, 0, B_TRUE);
 }
@@ -227,6 +238,7 @@ static void
 task_runner(intptr_t _)
 {
 	uzfs_coroutine_t *coroutine = thread_local_coroutine;
+	ASSERT(!coroutine->run_as_thread);
 	coroutine->bottom_fpp = __builtin_frame_address(0);
 	*coroutine->bottom_fpp = coroutine->saved_fp;
 	coroutine->fn(coroutine->arg);
@@ -291,6 +303,7 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	coroutine->next_in_pool = NULL;
 	coroutine->bottom_fpp = NULL;
 	coroutine->saved_fp = NULL;
+	coroutine->run_as_thread = B_FALSE;
 	return (coroutine);
 }
 
@@ -323,6 +336,32 @@ static noinline void *
 current_pc(void)
 {
 	return (__builtin_return_address(0));
+}
+
+static void
+thread_coroutine_waker(void *arg)
+{
+	VERIFY0(sem_post(arg));
+}
+
+void
+libuzfs_run_in_thread(void (*func)(void *), void *arg,
+    uint64_t task_id, void (*record_backtrace)(uint64_t))
+{
+	sem_t sem;
+	VERIFY0(sem_init(&sem, 0, 0));
+
+	uzfs_coroutine_t coroutine;
+	memset(&coroutine, 0, sizeof (coroutine));
+	coroutine.run_as_thread = B_TRUE;
+	coroutine.wake_arg = &sem;
+	coroutine.wake = thread_coroutine_waker;
+	coroutine.record_backtrace = record_backtrace;
+	coroutine.task_id = task_id;
+
+	thread_local_coroutine = &coroutine;
+	func(arg);
+	thread_local_coroutine = NULL;
 }
 
 boolean_t

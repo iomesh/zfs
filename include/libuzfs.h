@@ -95,6 +95,9 @@ extern uzfs_coroutine_t *libuzfs_new_coroutine(void (*func)(void *), void *arg,
 extern void libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine);
 extern boolean_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
     void (*wake)(void *), void *arg);
+// some task in uzfs may want to run in thread context to avoid context switch
+extern void libuzfs_run_in_thread(void (*func)(void *), void *arg,
+    uint64_t task_id, void (*record_backtrace)(uint64_t));
 extern void libuzfs_coroutine_yield(void);
 extern void *libuzfs_current_coroutine_arg(void);
 extern void libuzfs_coroutine_exit(void);

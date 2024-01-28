@@ -61,6 +61,7 @@ struct uzfs_coroutine {
 	struct uzfs_coroutine *next_in_pool;
 	void **bottom_fpp;
 	void *saved_fp;
+	boolean_t run_as_thread;
 };
 
 struct co_mutex {
