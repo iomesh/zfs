@@ -72,8 +72,8 @@ erase_from_cutex_and_wakeup(void *arg)
 	}
 }
 
-static int
-cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
+static inline int
+cutex_check(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 {
 	ASSERT(thread_local_coroutine != NULL);
 
@@ -118,17 +118,17 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 	}
 	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
 
+	return (0);
+}
+
+static inline int
+cutex_do_wait(void)
+{
 	libuzfs_coroutine_yield();
 
-	// the timeout task is already running, wait for that
-	if (unlikely(task != NULL && !timer_thread_unschedule(task))) {
-		// the timer func is quick, so use busyloop to wait
-		// for the completion
-		SPIN_UNTIL(atomic_load_32(&task->refcount) <= 1, 30);
-	}
-
-	if (task != NULL) {
-		dec_timer_task_ref(task);
+	timer_task_t *expire_task = thread_local_coroutine->expire_task;
+	if (expire_task != NULL) {
+		dec_timer_task_ref(expire_task);
 		thread_local_coroutine->expire_task = NULL;
 	}
 
@@ -146,6 +146,31 @@ cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 }
 
 static int
+cutex_wait(cutex_t *cutex, int expected_value, const struct timespec *abstime)
+{
+	int ret = cutex_check(cutex, expected_value, abstime);
+	if (ret == 0) {
+		ret = cutex_do_wait();
+	}
+
+	return (ret);
+}
+
+static inline void
+wakeup_coroutine_actively(uzfs_coroutine_t *coroutine)
+{
+	timer_task_t *expire_task = coroutine->expire_task;
+	// the timeout task is already running, wait for that
+	if (unlikely(expire_task != NULL &&
+	    !timer_thread_unschedule(expire_task))) {
+		// the timer func is quick, so use busyloop to wait
+		// for the completion
+		SPIN_UNTIL(atomic_load_32(&expire_task->refcount) <= 1, 30);
+	}
+	wakeup_coroutine(coroutine);
+}
+
+static int
 cutex_wake_one(cutex_t *cutex)
 {
 	VERIFY0(pthread_mutex_lock(&cutex->waiter_lock));
@@ -157,10 +182,7 @@ cutex_wake_one(cutex_t *cutex)
 	front->waiter_state = CUTEX_WAITER_READY;
 	VERIFY0(pthread_mutex_unlock(&cutex->waiter_lock));
 
-	if (front->expire_task != NULL) {
-		timer_thread_unschedule(front->expire_task);
-	}
-	wakeup_coroutine(front);
+	wakeup_coroutine_actively(front);
 
 	return (1);
 }
@@ -184,10 +206,7 @@ cutex_requeue(cutex_t *cutex1, cutex_t *cutex2)
 		return (0);
 	}
 
-	if (front->expire_task != NULL) {
-		timer_thread_unschedule(front->expire_task);
-	}
-	wakeup_coroutine(front);
+	wakeup_coroutine_actively(front);
 	return (1);
 }
 
@@ -568,6 +587,7 @@ co_cond_timedwait(co_cond_t *cv, co_mutex_t *mutex,
 		}
 	}
 
+	atomic_inc_32(&cv->refcount);
 	co_mutex_unlock(mutex);
 	// cutex_wait may never wait, which caused spurious wake-up,
 	// so the caller should
@@ -578,7 +598,12 @@ co_cond_timedwait(co_cond_t *cv, co_mutex_t *mutex,
 	// 	co_cond_wait(&cv, &mutex);
 	// }
 	// co_mutex_unlock(&mutex);
-	int ret = cutex_wait(&cv->seq, expected_seq, abstime);
+	int ret = cutex_check(&cv->seq, expected_seq, abstime);
+	atomic_dec_32(&cv->refcount);
+	if (ret == 0) {
+		ret = cutex_do_wait();
+	}
+
 	if (ret == EWOULDBLOCK) {
 		ret = 0;
 	}
