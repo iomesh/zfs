@@ -257,7 +257,8 @@ enum zio_stage {
 
 #define	ZIO_BLOCKING_STAGES			\
 	(ZIO_STAGE_DVA_ALLOCATE |		\
-	ZIO_STAGE_DVA_CLAIM)
+	ZIO_STAGE_DVA_CLAIM |			\
+	ZIO_STAGE_VDEV_IO_START)
 
 extern void zio_inject_init(void);
 extern void zio_inject_fini(void);
