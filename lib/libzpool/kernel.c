@@ -28,6 +28,7 @@
 #include "sys/stdtypes.h"
 #include <assert.h>
 #include <bits/types/struct_timespec.h>
+#include <bits/types/time_t.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <poll.h>
@@ -54,6 +55,7 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/zstd/zstd.h>
 #include <sys/zvol.h>
+#include <time.h>
 #include <zfs_fletcher.h>
 #include <zlib.h>
 
@@ -87,6 +89,8 @@ struct proc p0;
 static thread_create_func thread_create_fun = NULL;
 static thread_exit_func thread_exit_fun = NULL;
 static thread_join_func thread_join_fun = NULL;
+
+extern void (*do_backtrace)(void);
 
 void
 set_thread_funcs(thread_create_func create, thread_exit_func exit,
@@ -686,10 +690,15 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 
 	if (dprint) {
 		/* dprintf messages are printed immediately */
+		time_t now;
+		time(&now);
+		char buf[128];
+		struct tm ts = *localtime(&now);
+		strftime(buf, sizeof (buf), "%Y-%m-%d %H:%M:%S", &ts);
 
 		/* Print out just the function name if requested */
 		flockfile(stdout);
-		(void) printf("%s:%d:%s(): ", newfile, line, func);
+		(void) printf("[%s] %s:%d:%s(): ", buf, newfile, line, func);
 		va_start(adx, fmt);
 		(void) vprintf(fmt, adx);
 		va_end(adx);
@@ -731,6 +740,10 @@ vpanic(const char *fmt, va_list adx)
 	(void) fprintf(stderr, "error: ");
 	(void) vfprintf(stderr, fmt, adx);
 	(void) fprintf(stderr, "\n");
+
+	if (do_backtrace != NULL) {
+		do_backtrace();
+	}
 
 	abort();	/* think of it as a "user-level crash dump" */
 }
