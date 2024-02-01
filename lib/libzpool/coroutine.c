@@ -328,9 +328,10 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
 	if (likely(coroutine->foreground &&
-	    ++cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
+	    cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
 		coroutine->next_in_pool = coroutine_pool_head;
 		coroutine_pool_head = coroutine;
+		++cur_coroutine_pool_size;
 	} else {
 		int memsize = coroutine->stack_size + coroutine->guard_size;
 		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
