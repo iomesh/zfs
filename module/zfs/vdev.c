@@ -2592,7 +2592,9 @@ vdev_reopen(vdev_t *vd)
 	/* set the reopening flag unless we're taking the vdev offline */
 	vd->vdev_reopening = !vd->vdev_offline;
 	vdev_close(vd);
+	zfs_dbgmsg("vdev closed");
 	(void) vdev_open(vd);
+	zfs_dbgmsg("vdev opened");
 
 	/*
 	 * Call vdev_validate() here to make sure we have the same device.
@@ -2619,11 +2621,13 @@ vdev_reopen(vdev_t *vd)
 	} else {
 		(void) vdev_validate(vd);
 	}
+	zfs_dbgmsg("vdev validated");
 
 	/*
 	 * Reassess parent vdev's health.
 	 */
 	vdev_propagate_state(vd);
+	zfs_dbgmsg("vdev propagated");
 }
 
 int
@@ -3936,6 +3940,7 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 
 	spa_vdev_state_enter(spa, SCL_NONE);
 
+	zfs_dbgmsg("expanding %s..", spa->spa_name);
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
 		return (spa_vdev_state_exit(spa, NULL, SET_ERROR(ENODEV)));
 
@@ -3960,6 +3965,7 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	}
 
 	vdev_reopen(tvd);
+	zfs_dbgmsg("spa %s reopened", spa->spa_name);
 	vd->vdev_checkremove = vd->vdev_forcefault = B_FALSE;
 
 	if (!vd->vdev_aux) {
@@ -3991,6 +3997,7 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 		(void) vdev_initialize(vd);
 	}
 	mutex_exit(&vd->vdev_initialize_lock);
+	zfs_dbgmsg("spa %s initialized", spa->spa_name);
 
 	/*
 	 * Restart trimming if necessary. We do not restart trimming for cache
@@ -4006,6 +4013,7 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 		    vd->vdev_trim_secure);
 	}
 	mutex_exit(&vd->vdev_trim_lock);
+	zfs_dbgmsg("spa %s trim started", spa->spa_name);
 
 	if (wasoffline ||
 	    (oldstate < VDEV_STATE_DEGRADED &&

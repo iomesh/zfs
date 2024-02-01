@@ -4,6 +4,7 @@
 #include "sys/list.h"
 #include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
+#include "sys/zfs_debug.h"
 #include "umem.h"
 #include <asm-generic/errno-base.h>
 #include <asm-generic/errno.h>
@@ -12,6 +13,7 @@
 #include <libintl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <time.h>
@@ -27,6 +29,9 @@ static uint32_t cur_key_idx = 0;
 #define	MAX_COROUTINE_POOL_SIZE	100
 static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
 static __thread int cur_coroutine_pool_size = 0;
+
+static uint32_t allocated_coroutines = 0;
+static uint32_t deallocated_coroutines = 0;
 
 #define	DEFAULT_STACK_SIZE	(1<<20)
 #define	DEFAULT_GUARD_SIZE	getpagesize()
@@ -287,6 +292,10 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 		// use fixed stack size and guard to reuse stack
 		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
 		    DEFAULT_GUARD_SIZE);
+		uint32_t num_coroutines = atomic_inc_32_nv(&allocated_coroutines);
+		if (num_coroutines > 0 && num_coroutines % 1000 == 0) {
+			zfs_dbgmsg("allocated %u coroutines", num_coroutines);
+		}
 	} else {
 		coroutine = coroutine_pool_head;
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
@@ -335,6 +344,10 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 	} else {
 		int memsize = coroutine->stack_size + coroutine->guard_size;
 		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
+		uint32_t num_destroyed = atomic_inc_32_nv(&deallocated_coroutines);
+		if (num_destroyed % 1000 == 0 && num_destroyed > 0) {
+			zfs_dbgmsg("destroyed %u coroutines", num_destroyed);
+		}
 		umem_free(coroutine, sizeof (uzfs_coroutine_t));
 	}
 }

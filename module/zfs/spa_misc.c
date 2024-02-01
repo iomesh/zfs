@@ -58,6 +58,7 @@
 #include <sys/arc.h>
 #include <sys/ddt.h>
 #include <sys/kstat.h>
+#include "sys/zfs_debug.h"
 #include "zfs_prop.h"
 #include <sys/btree.h>
 #include <sys/zfeature.h>
@@ -1362,6 +1363,7 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 
 	if (vd != NULL || error == 0)
 		vdev_dtl_reassess(vdev_top, 0, 0, B_FALSE, B_FALSE);
+	zfs_dbgmsg("%s reassessed", spa->spa_name);
 
 	if (vd != NULL) {
 		if (vd != spa->spa_root_vdev)
@@ -1373,9 +1375,11 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 
 	if (spa_is_root(spa))
 		vdev_rele(spa->spa_root_vdev);
+	zfs_dbgmsg("%s reled", spa->spa_name);
 
 	ASSERT3U(spa->spa_vdev_locks, >=, SCL_STATE_ALL);
 	spa_config_exit(spa, spa->spa_vdev_locks, spa);
+	zfs_dbgmsg("%s config exited", spa->spa_name);
 
 	/*
 	 * If anything changed, wait for it to sync.  This ensures that,
@@ -1385,6 +1389,7 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 	 */
 	if (vd != NULL)
 		txg_wait_synced(spa->spa_dsl_pool, 0);
+	zfs_dbgmsg("%s synced", spa->spa_name);
 
 	/*
 	 * If the config changed, update the config cache.
@@ -1394,6 +1399,7 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 		spa_write_cachefile(spa, B_FALSE, B_TRUE);
 		mutex_exit(&spa_namespace_lock);
 	}
+	zfs_dbgmsg("%s spa_write_cachefile", spa->spa_name);
 
 	return (error);
 }

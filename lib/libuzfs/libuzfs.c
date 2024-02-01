@@ -781,6 +781,7 @@ libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp)
 {
 	spa_t *spa = dhp->os->os_spa;
 	vdev_t *root_vdev = spa->spa_root_vdev;
+	hrtime_t before = gethrtime();
 	for (int i = 0; i < root_vdev->vdev_children; ++i) {
 		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
 		vdev_state_t newstate;
@@ -788,9 +789,14 @@ libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp)
 		int err = vdev_online(spa, leaf_vdev->vdev_guid,
 		    ZFS_ONLINE_EXPAND, &newstate);
 		if (err != 0) {
+			zfs_dbgmsg("children: %lu, expand cost %llds, err: %d",
+			    root_vdev->vdev_children, (gethrtime() - before) / NANOSEC, err);
 			return (err);
 		}
 	}
+
+	zfs_dbgmsg("children: %lu, expand cost %llds",
+	    root_vdev->vdev_children, (gethrtime() - before) / NANOSEC);
 
 	return (0);
 }
