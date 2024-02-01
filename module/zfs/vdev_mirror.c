@@ -27,6 +27,8 @@
  * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
  */
 
+#include "sys/zfs_debug.h"
+#include <bits/stdint-uintn.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
@@ -666,6 +668,7 @@ vdev_mirror_io_start(zio_t *zio)
 				    vdev_mirror_scrub_done, mc));
 			}
 			zio_execute(zio);
+			zfs_dbgmsg("mirror %p started, task_id: %lu", zio, (uint64_t) curthread);
 			return;
 		}
 		/*
@@ -707,6 +710,7 @@ vdev_mirror_io_start(zio_t *zio)
 	}
 
 	zio_execute(zio);
+	zfs_dbgmsg("mirror %p started, task_id: %lu", zio, (uint64_t) curthread);
 }
 
 static int

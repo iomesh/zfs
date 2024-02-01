@@ -1489,6 +1489,7 @@ zio_vdev_child_io(zio_t *pio, blkptr_t *bp, vdev_t *vd, uint64_t offset,
 	if (vd->vdev_ops->vdev_op_leaf && zio->io_logical != NULL)
 		zio->io_logical->io_phys_children++;
 
+	zfs_dbgmsg("czio: %p, pzio: %p, task_id: %lu", zio, pio, (uint64_t)curthread);
 	return (zio);
 }
 
