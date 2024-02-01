@@ -1218,8 +1218,9 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			libuzfs_wait_synced(dhp);
 			goto do_claim;
 		} else if (err == 0) {
+			zfs_dbgmsg("object %lu already created, type: %d",
+			    obj, dn->dn_type);
 			dnode_rele(dn, FTAG);
-			zfs_dbgmsg("object %lu already created", obj);
 		}
 		return (err);
 	} else if (err != 0) {

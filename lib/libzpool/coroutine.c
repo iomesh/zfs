@@ -4,6 +4,7 @@
 #include "sys/list.h"
 #include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
+#include "sys/zfs_debug.h"
 #include "umem.h"
 #include <asm-generic/errno-base.h>
 #include <asm-generic/errno.h>
@@ -27,6 +28,8 @@ static uint32_t cur_key_idx = 0;
 #define	MAX_COROUTINE_POOL_SIZE	100
 static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
 static __thread int cur_coroutine_pool_size = 0;
+
+static uint32_t allocated_coroutines = 0;
 
 #define	DEFAULT_STACK_SIZE	(1<<20)
 #define	DEFAULT_GUARD_SIZE	getpagesize()
@@ -287,6 +290,10 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 		// use fixed stack size and guard to reuse stack
 		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
 		    DEFAULT_GUARD_SIZE);
+		uint32_t cur_coroutines = atomic_inc_32_nv(&allocated_coroutines);
+		if (cur_coroutines > 0 && cur_coroutines % 1000 == 0) {
+			zfs_dbgmsg("already allocated %u coroutines", cur_coroutines);
+		}
 	} else {
 		coroutine = coroutine_pool_head;
 		coroutine_pool_head = coroutine_pool_head->next_in_pool;
