@@ -24,12 +24,71 @@ static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
 static uint32_t cur_key_idx = 0;
 
-#define	MAX_COROUTINE_POOL_SIZE	100
-static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
-static __thread int cur_coroutine_pool_size = 0;
+typedef struct coroutine_pool {
+	uzfs_coroutine_t *pool_head;
+	int pool_size;
+	int capacity;
+} coroutine_pool_t;
 
-#define	DEFAULT_STACK_SIZE	(1<<20)
+static __thread coroutine_pool_t tls_coroutine_pool = {NULL, 0, 100};
+
+static pthread_mutex_t global_pool_lock = PTHREAD_MUTEX_INITIALIZER;
+static coroutine_pool_t global_coroutine_pool = {NULL, 0, 1000};
+
 #define	DEFAULT_GUARD_SIZE	getpagesize()
+#define	DEFAULT_STACK_SIZE	((1<<20) - DEFAULT_GUARD_SIZE)
+
+static inline uzfs_coroutine_t *
+coroutine_pool_pop(coroutine_pool_t *pool)
+{
+	if (pool->pool_head == NULL) {
+		return (NULL);
+	}
+
+	uzfs_coroutine_t *coroutine = pool->pool_head;
+	pool->pool_head = coroutine->next_in_pool;
+	coroutine->next_in_pool = NULL;
+	--pool->pool_size;
+	return (coroutine);
+}
+
+static inline boolean_t
+coroutine_pool_push(coroutine_pool_t *pool, uzfs_coroutine_t *coroutine)
+{
+	if (pool->pool_size >= pool->capacity) {
+		return (B_FALSE);
+	}
+
+	++pool->pool_size;
+	coroutine->next_in_pool = pool->pool_head;
+	pool->pool_head = coroutine;
+	return (B_TRUE);
+}
+
+static inline uzfs_coroutine_t *
+fetch_coroutine(void)
+{
+	uzfs_coroutine_t *coroutine = coroutine_pool_pop(&tls_coroutine_pool);
+	if (coroutine == NULL) {
+		VERIFY0(pthread_mutex_lock(&global_pool_lock));
+		coroutine = coroutine_pool_pop(&global_coroutine_pool);
+		VERIFY0(pthread_mutex_unlock(&global_pool_lock));
+	}
+	return (coroutine);
+}
+
+static inline boolean_t
+return_coroutine(uzfs_coroutine_t *coroutine)
+{
+	boolean_t ret = coroutine_pool_push(&tls_coroutine_pool, coroutine);
+	if (!ret) {
+		VERIFY0(pthread_mutex_lock(&global_pool_lock));
+		ret = coroutine_pool_push(&global_coroutine_pool, coroutine);
+		VERIFY0(pthread_mutex_unlock(&global_pool_lock));
+	}
+
+	return (ret);
+}
 
 static inline void
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
@@ -260,13 +319,13 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 	ASSERT((stack_size & (page_size - 1)) == 0);
 	ASSERT((guard_size & (page_size - 1)) == 0);
 	const int memsize = stack_size + guard_size;
-	void* const mem = mmap(NULL, memsize, (PROT_READ | PROT_WRITE),
-	    (MAP_PRIVATE | MAP_ANONYMOUS), -1, 0);
+	void* const mem = umem_alloc_aligned(memsize,
+	    page_size, UMEM_NOFAIL);
 	VERIFY3P(mem, !=, MAP_FAILED);
 
 	VERIFY3U(((intptr_t)mem & (page_size - 1)), ==, 0);
 	if (mprotect(mem, guard_size, PROT_NONE) < 0) {
-		cmn_err(CE_WARN, "Failed to call mprotect during alloc "
+		cmn_err(CE_PANIC, "Failed to call mprotect during alloc "
 		    "coroutine stack. mem: %p, guard_size: %d, err: %d, "
 		    "try to increase /proc/sys/vm/max_map_count",
 		    mem, guard_size, errno);
@@ -281,16 +340,12 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
     boolean_t foreground, void (*record_backtrace)(uint64_t))
 {
 	uzfs_coroutine_t *coroutine = NULL;
-	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
+	if (unlikely(!foreground || (coroutine = fetch_coroutine()) == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
 		// use fixed stack size and guard to reuse stack
 		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
 		    DEFAULT_GUARD_SIZE);
-	} else {
-		coroutine = coroutine_pool_head;
-		coroutine_pool_head = coroutine_pool_head->next_in_pool;
-		--cur_coroutine_pool_size;
 	}
 
 	coroutine->co_state = COROUTINE_RUNNABLE;
@@ -327,14 +382,16 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
-	if (likely(coroutine->foreground &&
-	    cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
-		coroutine->next_in_pool = coroutine_pool_head;
-		coroutine_pool_head = coroutine;
-		++cur_coroutine_pool_size;
-	} else {
+
+	if (unlikely(!coroutine->foreground || !return_coroutine(coroutine))) {
 		int memsize = coroutine->stack_size + coroutine->guard_size;
-		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
+		void *const mem = coroutine->stack_bottom - memsize;
+		if (mprotect(mem, coroutine->guard_size,
+		    PROT_READ | PROT_WRITE) < 0) {
+			cmn_err(CE_PANIC, "Failed to call mprotect during free "
+			    "coroutine stack, err: %d, ", errno);
+		}
+		umem_free(mem, memsize);
 		umem_free(coroutine, sizeof (uzfs_coroutine_t));
 	}
 }
