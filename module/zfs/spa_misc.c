@@ -499,6 +499,8 @@ spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 	return (1);
 }
 
+extern void (*do_backtrace)(void);
+
 void
 spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 {
@@ -529,6 +531,12 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 		}
 		(void) zfs_refcount_add(&scl->scl_count, tag);
 		mutex_exit(&scl->scl_lock);
+
+		if (i == 1 || i == 4) {
+			zfs_dbgmsg("locks: %d, lock: %d, rw: %d, tag: %p\n",
+			    locks, i, rw, tag);
+			do_backtrace();
+		}
 	}
 	ASSERT3U(wlocks_held, <=, locks);
 }
@@ -550,6 +558,10 @@ spa_config_exit(spa_t *spa, int locks, const void *tag)
 			cv_broadcast(&scl->scl_cv);
 		}
 		mutex_exit(&scl->scl_lock);
+		if (i == 1 || i == 4) {
+			zfs_dbgmsg("locks: %d, unlock: %d, tag: %p\n",
+			    locks, i, tag);
+		}
 	}
 }
 

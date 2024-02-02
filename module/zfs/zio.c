@@ -3758,8 +3758,11 @@ zio_vdev_io_start(zio_t *zio)
 	ASSERT(zio->io_child_error[ZIO_CHILD_VDEV] == 0);
 
 	if (vd == NULL) {
-		if (!(zio->io_flags & ZIO_FLAG_CONFIG_WRITER))
+		if (!(zio->io_flags & ZIO_FLAG_CONFIG_WRITER)) {
 			spa_config_enter(spa, SCL_ZIO, zio, RW_READER);
+			zfs_dbgmsg("lock zio: %p, offset: %lu, size: %lu, type: %x",
+			    zio, zio->io_offset, zio->io_size, zio->io_type);
+		}
 
 		/*
 		 * The mirror_ops handle multiple DVAs in a single BP.
@@ -4008,8 +4011,10 @@ zio_vdev_io_assess(zio_t *zio)
 		return (NULL);
 	}
 
-	if (vd == NULL && !(zio->io_flags & ZIO_FLAG_CONFIG_WRITER))
+	if (vd == NULL && !(zio->io_flags & ZIO_FLAG_CONFIG_WRITER)) {
 		spa_config_exit(zio->io_spa, SCL_ZIO, zio);
+		zfs_dbgmsg("unlock zio: %p", zio);
+	}
 
 	if (zio->io_vsd != NULL) {
 		zio->io_vsd_ops->vsd_free(zio);

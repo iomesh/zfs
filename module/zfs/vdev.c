@@ -31,6 +31,7 @@
  * Copyright [2021] Hewlett Packard Enterprise Development LP
  */
 
+#include "sys/time.h"
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
 #include <sys/spa.h>
@@ -3938,9 +3939,16 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	boolean_t wasoffline;
 	vdev_state_t oldstate;
 
+	hrtime_t before = gethrtime();
+	if (flags & ZFS_ONLINE_EXPAND) {
+		zfs_dbgmsg("expanding %s.., threadid: %p",
+		    spa->spa_name, curthread);
+	}
 	spa_vdev_state_enter(spa, SCL_NONE);
-
-	zfs_dbgmsg("expanding %s..", spa->spa_name);
+	if (flags & ZFS_ONLINE_EXPAND) {
+		zfs_dbgmsg("%s.., lock cost: %llds",
+		    spa->spa_name, (gethrtime() - before) / NANOSEC);
+	}
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
 		return (spa_vdev_state_exit(spa, NULL, SET_ERROR(ENODEV)));
 

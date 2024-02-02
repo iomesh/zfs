@@ -26,15 +26,74 @@ static __thread uzfs_coroutine_t *thread_local_coroutine = NULL;
 static timer_thread_t timer_thread;
 static uint32_t cur_key_idx = 0;
 
-#define	MAX_COROUTINE_POOL_SIZE	100
-static __thread uzfs_coroutine_t *coroutine_pool_head = NULL;
-static __thread int cur_coroutine_pool_size = 0;
+typedef struct coroutine_pool {
+	uzfs_coroutine_t *pool_head;
+	int pool_size;
+	int capacity;
+} coroutine_pool_t;
+
+static __thread coroutine_pool_t tls_coroutine_pool = {NULL, 0, 100};
+
+static pthread_mutex_t global_pool_lock = PTHREAD_MUTEX_INITIALIZER;
+static coroutine_pool_t global_coroutine_pool = {NULL, 0, 1000};
 
 static uint32_t allocated_coroutines = 0;
+static uint32_t allocated_bg_coroutines = 0;
 static uint32_t deallocated_coroutines = 0;
 
 #define	DEFAULT_STACK_SIZE	(1<<20)
 #define	DEFAULT_GUARD_SIZE	getpagesize()
+
+static inline uzfs_coroutine_t *
+coroutine_pool_pop(coroutine_pool_t *pool)
+{
+	if (pool->pool_head == NULL) {
+		return (NULL);
+	}
+
+	uzfs_coroutine_t *coroutine = pool->pool_head;
+	pool->pool_head = coroutine->next_in_pool;
+	--pool->pool_size;
+	return (coroutine);
+}
+
+static inline boolean_t
+coroutine_pool_push(coroutine_pool_t *pool, uzfs_coroutine_t *coroutine)
+{
+	if (pool->pool_size >= pool->capacity) {
+		return (B_FALSE);
+	}
+
+	++pool->pool_size;
+	coroutine->next_in_pool = pool->pool_head;
+	pool->pool_head = coroutine;
+	return (B_TRUE);
+}
+
+static inline uzfs_coroutine_t *
+fetch_coroutine(void)
+{
+	uzfs_coroutine_t *coroutine = coroutine_pool_pop(&tls_coroutine_pool);
+	if (coroutine == NULL) {
+		VERIFY0(pthread_mutex_lock(&global_pool_lock));
+		coroutine = coroutine_pool_pop(&global_coroutine_pool);
+		VERIFY0(pthread_mutex_unlock(&global_pool_lock));
+	}
+	return (coroutine);
+}
+
+static inline boolean_t
+return_coroutine(uzfs_coroutine_t *coroutine)
+{
+	boolean_t ret = coroutine_pool_push(&tls_coroutine_pool, coroutine);
+	if (!ret) {
+		VERIFY0(pthread_mutex_lock(&global_pool_lock));
+		ret = coroutine_pool_push(&global_coroutine_pool, coroutine);
+		VERIFY0(pthread_mutex_unlock(&global_pool_lock));
+	}
+
+	return (ret);
+}
 
 static inline void
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
@@ -286,20 +345,18 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
     boolean_t foreground, void (*record_backtrace)(uint64_t))
 {
 	uzfs_coroutine_t *coroutine = NULL;
-	if (unlikely(!foreground || coroutine_pool_head == NULL)) {
+	if (unlikely(!foreground || (coroutine = fetch_coroutine()) == NULL)) {
 		coroutine = umem_zalloc(sizeof (uzfs_coroutine_t),
 		    UMEM_NOFAIL);
 		// use fixed stack size and guard to reuse stack
 		allocate_stack_storage(coroutine, DEFAULT_STACK_SIZE,
 		    DEFAULT_GUARD_SIZE);
 		uint32_t num_coroutines = atomic_inc_32_nv(&allocated_coroutines);
+		uint32_t bg_coroutines = atomic_inc_32_nv(&allocated_bg_coroutines);
 		if (num_coroutines > 0 && num_coroutines % 1000 == 0) {
-			zfs_dbgmsg("allocated %u coroutines", num_coroutines);
+			zfs_dbgmsg("allocated %u coroutines, bg: %u",
+			    num_coroutines, bg_coroutines);
 		}
-	} else {
-		coroutine = coroutine_pool_head;
-		coroutine_pool_head = coroutine_pool_head->next_in_pool;
-		--cur_coroutine_pool_size;
 	}
 
 	coroutine->co_state = COROUTINE_RUNNABLE;
@@ -336,12 +393,8 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		cur = next;
 	}
 	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
-	if (likely(coroutine->foreground &&
-	    cur_coroutine_pool_size < MAX_COROUTINE_POOL_SIZE)) {
-		coroutine->next_in_pool = coroutine_pool_head;
-		coroutine_pool_head = coroutine;
-		++cur_coroutine_pool_size;
-	} else {
+
+	if (unlikely(!coroutine->foreground || !return_coroutine(coroutine))) {
 		int memsize = coroutine->stack_size + coroutine->guard_size;
 		VERIFY0(munmap(coroutine->stack_bottom - memsize, memsize));
 		uint32_t num_destroyed = atomic_inc_32_nv(&deallocated_coroutines);
