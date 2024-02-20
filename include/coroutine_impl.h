@@ -49,6 +49,7 @@ struct uzfs_coroutine {
 	void (*fn)(void *);
 	void *arg;
 	boolean_t pending; // only accessed by its coroutine
+	boolean_t yielded;
 	void (*wake) (void *);
 	void (*record_backtrace) (uint64_t);
 	void *wake_arg;

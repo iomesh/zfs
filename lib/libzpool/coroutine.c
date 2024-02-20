@@ -282,10 +282,11 @@ libuzfs_coroutine_yield(void)
 }
 
 void
-coroutine_wake_and_yield(void)
+coroutine_sched_yield(void)
 {
-	thread_local_coroutine->wake(thread_local_coroutine->wake_arg);
-	libuzfs_coroutine_yield();
+	thread_local_coroutine->yielded = B_TRUE;
+	jump_fcontext(&thread_local_coroutine->my_ctx,
+	    thread_local_coroutine->main_ctx, 0, B_TRUE);
 }
 
 void
@@ -354,6 +355,7 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 	coroutine->fn = fn;
 	coroutine->arg = arg;
 	coroutine->pending = B_FALSE;
+	coroutine->yielded = B_FALSE;
 	coroutine->wake = NULL;
 	coroutine->wake_arg = NULL;
 	coroutine->record_backtrace = record_backtrace;
@@ -402,7 +404,7 @@ current_pc(void)
 	return (__builtin_return_address(0));
 }
 
-boolean_t
+run_state_t
 libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
     void (*wake)(void *), void *wake_arg)
 {
@@ -410,7 +412,8 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 
 	switch (atomic_load_32(&coroutine->co_state)) {
 	case COROUTINE_RUNNABLE:
-		coroutine->pending = 0;
+		coroutine->pending = B_FALSE;
+		coroutine->yielded = B_FALSE;
 		thread_local_coroutine = coroutine;
 		coroutine->wake = wake;
 		coroutine->wake_arg = wake_arg;
@@ -431,18 +434,25 @@ libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
 		jump_fcontext(&coroutine->main_ctx,
 		    coroutine->my_ctx, 0, B_TRUE);
 		thread_local_coroutine = NULL;
+		ASSERT(!(coroutine->yielded && coroutine->pending));
 		// if pending, state will be set already
-		if (!coroutine->pending) {
-			coroutine->co_state = COROUTINE_DONE;
+		if (coroutine->yielded) {
+			return (RUN_STATE_YIELDED);
 		}
-		break;
+
+		if (coroutine->pending) {
+			return (RUN_STATE_PENDING);
+		}
+
+		coroutine->co_state = COROUTINE_DONE;
+		return (RUN_STATE_DONE);
 	case COROUTINE_PENDING:
-		return (B_TRUE);
+		return (RUN_STATE_PENDING);
 	case COROUTINE_DONE:
-		return (B_FALSE);
+		return (RUN_STATE_DONE);
 	}
 
-	return (coroutine->pending);
+	panic("unexpected branch");
 }
 
 void
