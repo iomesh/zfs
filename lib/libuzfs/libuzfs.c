@@ -1212,7 +1212,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		dnode_t *dn;
 		err = dnode_hold(dhp->os, obj, FTAG, &dn);
 		if (err == ENOENT) {
-			VERIFY(type != INODE_DATA_OBJ);
+			ASSERT(type != INODE_DATA_OBJ);
 			zfs_dbgmsg("object %lu is being deleted, "
 			    "wait txg sync..", obj);
 			libuzfs_wait_synced(dhp);
@@ -1229,7 +1229,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 do_claim:
 	return (libuzfs_create_inode_with_type(dhp, &obj,
-	    TRUE, INODE_DATA_OBJ, NULL, gen));
+	    TRUE, type, NULL, gen));
 }
 
 uint64_t
