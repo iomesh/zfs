@@ -168,7 +168,7 @@ libuzfs_object_get_attr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_MTIME],
 		    NULL, &attr->mtime, sizeof (attr->mtime));
 		err = sa_bulk_lookup(up->sa_hdl, sa_attrs, cnt);
-		libuzfs_release_node(dhp, up);
+		libuzfs_release_node(up);
 	}
 	return (err);
 }
