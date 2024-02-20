@@ -14,7 +14,7 @@ extern void coroutine_key_create(uint32_t *idx);
 extern void* coroutine_getkey(uint32_t idx);
 extern int coroutine_setkey(uint32_t idx, void *local);
 extern uint64_t uzfs_coroutine_self(void);
-extern void coroutine_wake_and_yield(void);
+extern void coroutine_sched_yield(void);
 extern void coroutine_sleep(const struct timespec *sleep_time);
 
 typedef struct co_mutex co_mutex_t;

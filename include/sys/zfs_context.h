@@ -318,7 +318,7 @@ typedef pthread_cond_t		kcondvar_t;
  * Mutexes
  */
 typedef co_mutex_t kmutex_t;
-#define	cond_resched()		coroutine_wake_and_yield()
+#define	cond_resched()		coroutine_sched_yield()
 
 #define	MUTEX_HELD(mp)		co_mutex_held(mp)
 #define	MUTEX_NOT_HELD(mp)	!MUTEX_HELD(mp)
