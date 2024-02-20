@@ -57,6 +57,7 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/sa_impl.h>
 
+#include "atomic.h"
 #include "coroutine.h"
 #include "libuzfs.h"
 #include "libuzfs_impl.h"
@@ -69,9 +70,11 @@
 static boolean_t change_zpool_cache_path = B_FALSE;
 
 static void libuzfs_create_inode_with_type_impl(
-    libuzfs_dataset_handle_t *dhp, uint64_t *obj,
-    boolean_t claiming, libuzfs_inode_type_t type,
-    dmu_tx_t *tx, uint64_t gen);
+    libuzfs_dataset_handle_t *, uint64_t *, boolean_t,
+    libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
+
+static inline int libuzfs_object_write_impl(libuzfs_dataset_handle_t *,
+    uint64_t, uint64_t, uint64_t, const char *, boolean_t, uint64_t);
 
 typedef struct dir_emit_ctx {
 	char *buf;
@@ -356,83 +359,58 @@ libuzfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	zil_itx_assign(zilog, itx, tx);
 }
 
-static void
-libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx, int txtype,
-    uint64_t obj, offset_t off, ssize_t resid, boolean_t sync)
-{
-	zilog_t *zilog = dhp->zilog;
-	dmu_buf_t *db_fake;
-	dmu_buf_impl_t *db;
-	itx_wr_state_t write_state;
+static ssize_t libuzfs_immediate_write_sz = 32 << 10;
 
-	// TODO(hping): also return if obj is unlinked
+static void
+libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
+    libuzfs_node_t *up, offset_t off, ssize_t resid, boolean_t sync)
+{
+	// this log write covers at most 1 block
+	ASSERT3U(off / dhp->max_blksz, ==, (off + resid) / dhp->max_blksz);
+
+	zilog_t *zilog = dhp->zilog;
 	if (zil_replaying(zilog, tx)) {
 		return;
 	}
 
-	VERIFY0(dmu_bonus_hold(zilog->zl_os, obj, FTAG, &db_fake));
-	db = (dmu_buf_impl_t *)db_fake;
-
-	write_state = WR_COPIED;
-
-	while (resid) {
-		itx_t *itx;
-		lr_write_t *lr;
-		itx_wr_state_t wr_state = write_state;
-		ssize_t len = resid;
-
-		/*
-		 * A WR_COPIED record must fit entirely in one log block.
-		 * Large writes can use WR_NEED_COPY, which the ZIL will
-		 * split into multiple records across several log blocks
-		 * if necessary.
-		 */
-		if (wr_state == WR_COPIED && resid > zil_max_copied_data(zilog))
-			wr_state = WR_NEED_COPY;
-
-		itx = zil_itx_create(txtype, sizeof (*lr) +
-		    (wr_state == WR_COPIED ? len : 0));
-		lr = (lr_write_t *)&itx->itx_lr;
-
-		/*
-		 * For WR_COPIED records, copy the data into the lr_write_t.
-		 */
-		if (wr_state == WR_COPIED) {
-			int err;
-			DB_DNODE_ENTER(db);
-			err = dmu_read_by_dnode(DB_DNODE(db), off, len, lr + 1,
-			    DMU_READ_NO_PREFETCH);
-			if (err != 0) {
-				zil_itx_destroy(itx);
-				itx = zil_itx_create(txtype, sizeof (*lr));
-				lr = (lr_write_t *)&itx->itx_lr;
-				wr_state = WR_NEED_COPY;
-			}
-			DB_DNODE_EXIT(db);
+	itx_t *itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t) +
+	    (resid <= zil_max_copied_data(zilog) ? resid : 0));
+	lr_write_t *lr = (lr_write_t *)&itx->itx_lr;
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
+	if (resid <= zil_max_copied_data(zilog)) {
+		itx->itx_wr_state = WR_COPIED;
+		DB_DNODE_ENTER(db);
+		int err = dmu_read_by_dnode(DB_DNODE(db), off, resid,
+		    lr + 1, DMU_READ_NO_PREFETCH);
+		DB_DNODE_EXIT(db);
+		if (err == 0) {
+			goto set_lr;
 		}
 
-		itx->itx_wr_state = wr_state;
-		lr->lr_foid = obj;
-		lr->lr_offset = off;
-		lr->lr_length = len;
-		lr->lr_blkoff = 0;
-		BP_ZERO(&lr->lr_blkptr);
-
-		itx->itx_private = NULL;
-
-		if (!sync)
-			itx->itx_sync = B_FALSE;
-
-		itx->itx_callback = NULL;
-		itx->itx_callback_data = NULL;
-		itx->itx_private = dhp;
-		zil_itx_assign(zilog, itx, tx);
-
-		off += len;
-		resid -= len;
+		zil_itx_destroy(itx);
+		itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t));
+		lr = (lr_write_t *)&itx->itx_lr;
 	}
 
-	dmu_buf_rele(db_fake, FTAG);
+	if (resid <= libuzfs_immediate_write_sz) {
+		itx->itx_wr_state = WR_NEED_COPY;
+	} else {
+		itx->itx_wr_state = WR_INDIRECT;
+	}
+
+set_lr:
+	lr->lr_foid = up->u_obj;
+	lr->lr_offset = off;
+	lr->lr_length = resid;
+	lr->lr_blkoff = 0;
+	BP_ZERO(&lr->lr_blkptr);
+
+	itx->itx_sync = sync;
+	itx->itx_callback = NULL;
+	itx->itx_callback_data = NULL;
+	itx->itx_private = dhp;
+
+	zil_itx_assign(zilog, itx, tx);
 }
 
 static int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
@@ -502,7 +480,7 @@ libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 out:
 	zfs_rangelock_exit(lr);
-	libuzfs_release_node(dhp, up);
+	libuzfs_release_node(up);
 	return (err);
 }
 
@@ -537,12 +515,32 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	uint64_t obj = lr->lr_foid;
 	uint64_t offset = lr->lr_offset;
 	uint64_t length = lr->lr_length;
+	boolean_t indirect = lr->lr_common.lrc_reclen == sizeof (lr_write_t);
 
-	zfs_dbgmsg("replay write, obj: %ld, off: %ld, length: %ld",
-	    obj, offset, length);
+	zfs_dbgmsg("replaying write, obj: %ld, off: %ld, length: %ld,"
+	    " indirect: %d", obj, offset, length, indirect);
 
-	return (libuzfs_object_write((libuzfs_dataset_handle_t *)arg1,
-	    obj, offset, length, data, FALSE));
+	/*
+	 * This may be a write from a dmu_sync() for a whole block,
+	 * and may extend beyond the current end of the file.
+	 * We can't just replay what was written for this TX_WRITE as
+	 * a future TX_WRITE2 may extend the eof and the data for that
+	 * write needs to be there. So we write the whole block and
+	 * reduce the eof. This needs to be done within the single dmu
+	 * transaction created within libuzfs_write. So a possible
+	 * new end of file is passed through in replay_eof
+	 */
+	uint64_t replay_eof = offset + length;
+	if (indirect) {
+		uint64_t blocksize = BP_GET_LSIZE(&lr->lr_blkptr);
+		if (length < blocksize) {
+			offset -= offset % blocksize;
+			length = blocksize;
+		}
+	}
+
+	return (libuzfs_object_write_impl((libuzfs_dataset_handle_t *)arg1,
+	    obj, offset, length, data, FALSE, replay_eof));
 }
 
 static int
@@ -561,6 +559,43 @@ libuzfs_replay_kvattr_set(void *arg1, void *arg2, boolean_t byteswap)
 	    lr->lr_value_size, NULL, lr->option);
 
 	return (err);
+}
+
+static int
+libuzfs_replay_write2(void *arg1, void *arg2, boolean_t byteswap)
+{
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_write_t *lr = arg2;
+	libuzfs_node_t *up;
+	zfs_dbgmsg("replaying write2, obj: %ld, off: %ld, length: %ld,",
+	    lr->lr_foid, lr->lr_offset, lr->lr_length);
+	int error = libuzfs_acquire_node(dhp, lr->lr_foid, &up);
+	if (error != 0) {
+		return (error);
+	}
+
+	uint64_t end = lr->lr_offset + lr->lr_length;
+	if (end > up->u_size) {
+		up->u_size = end;
+		dmu_tx_t *tx = dmu_tx_create(dhp->os);
+		dmu_tx_hold_sa(tx, up->sa_hdl, B_FALSE);
+		error = dmu_tx_assign(tx, TXG_WAIT);
+		if (error != 0) {
+			dmu_tx_abort(tx);
+			goto out;
+		}
+
+		VERIFY0(sa_update(up->sa_hdl, dhp->uzfs_attr_table[UZFS_SIZE],
+		    &end, sizeof (end), tx));
+
+		/* Ensure the replayed seq is updated */
+		(void) zil_replaying(dhp->zilog, tx);
+		dmu_tx_commit(tx);
+	}
+
+out:
+	libuzfs_release_node(up);
+	return (error);
 }
 
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
@@ -583,8 +618,21 @@ zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,				/* TX_MKDIR_ACL */
 	NULL,				/* TX_MKDIR_ATTR */
 	NULL,				/* TX_MKDIR_ACL_ATTR */
-	NULL,				/* TX_WRITE2 */
+	libuzfs_replay_write2,				/* TX_WRITE2 */
 };
+
+static void
+libuzfs_get_done(zgd_t *zgd, int error)
+{
+	libuzfs_node_t *up = zgd->zgd_private;
+	if (zgd->zgd_db) {
+		dmu_buf_rele(zgd->zgd_db, zgd);
+	}
+
+	zfs_rangelock_exit(zgd->zgd_lr);
+	libuzfs_release_node(up);
+	kmem_free(zgd, sizeof (zgd_t));
+}
 
 static int
 libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
@@ -594,21 +642,72 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	uint64_t object = lr->lr_foid;
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;
-	int error = 0;
+	libuzfs_node_t *up;
+	int error = libuzfs_acquire_node(dhp, object, &up);
+	if (error != 0) {
+		return (error);
+	}
 
 	ASSERT3P(lwb, !=, NULL);
 	ASSERT3P(zio, !=, NULL);
 	ASSERT3U(size, !=, 0);
 
+	zgd_t *zgd = (zgd_t *)kmem_zalloc(sizeof (zgd_t), KM_SLEEP);
+	zgd->zgd_private = up;
+
+	objset_t *os = dhp->os;
+	zgd->zgd_lr = zfs_rangelock_enter(&up->rl, offset, size, RL_READER);
 	if (buf != NULL) {	/* immediate write */
-		int rc = libuzfs_object_read(dhp, object, offset, size, buf);
-		if (rc < 0) {
-			error = -rc;
-		}
+		error = dmu_read(os, object, offset, size,
+		    lr + 1, DMU_READ_NO_PREFETCH);
 	} else {
-		/* TODO(hping): support indirect write */
-		ASSERT(0);
+		if (!ISP2(up->u_blksz)) {
+			ASSERT3U(offset + size, <, up->u_blksz);
+			offset = 0;
+		} else {
+			offset -= P2PHASE(offset, up->u_blksz);
+		}
+
+		if (lr->lr_offset >= up->u_size) {
+			error = SET_ERROR(ENOENT);
+		}
+
+		dmu_buf_t *db;
+		if (error == 0) {
+			error = dmu_buf_hold(os, object, offset, zgd,
+			    &db, DMU_READ_NO_PREFETCH);
+		}
+
+		if (error == 0) {
+			blkptr_t *bp = &lr->lr_blkptr;
+			zgd->zgd_db = db;
+			zgd->zgd_bp = bp;
+			ASSERT3U(db->db_offset, ==, offset);
+			ASSERT3U(db->db_size, ==, up->u_blksz);
+			error = dmu_sync(zio, lr->lr_common.lrc_txg,
+			    libuzfs_get_done, zgd);
+			ASSERT(error || lr->lr_length <= up->u_blksz);
+
+			if (error == 0) {
+				return (0);
+			}
+
+			if (error == EALREADY) {
+				lr->lr_common.lrc_txtype = TX_WRITE2;
+				/*
+				 * TX_WRITE2 relies on the data previously
+				 * written by the TX_WRITE that caused
+				 * EALREADY.  We zero out the BP because
+				 * it is the old, currently-on-disk BP.
+				 */
+				zgd->zgd_bp = NULL;
+				BP_ZERO(bp);
+				error = 0;
+			}
+		}
 	}
+
+	libuzfs_get_done(zgd, error);
 
 	return (error);
 }
@@ -1301,6 +1400,7 @@ libuzfs_node_alloc(libuzfs_dataset_handle_t *dhp,
 	up->u_maxblksz = dhp->max_blksz;
 	up->u_obj = obj;
 	up->ref_count = 1;
+	up->dhp = dhp;
 
 	return (0);
 }
@@ -1336,10 +1436,10 @@ libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
 }
 
 void
-libuzfs_release_node(libuzfs_dataset_handle_t *dhp, libuzfs_node_t *up)
+libuzfs_release_node(libuzfs_node_t *up)
 {
 	uint64_t idx = up->u_obj % NUM_NODE_BUCKETS;
-	hash_bucket_t *bucket = &dhp->nodes_buckets[idx];
+	hash_bucket_t *bucket = &up->dhp->nodes_buckets[idx];
 	mutex_enter(&bucket->mutex);
 	if (--up->ref_count == 0) {
 		avl_remove(&bucket->tree, up);
@@ -1349,21 +1449,17 @@ libuzfs_release_node(libuzfs_dataset_handle_t *dhp, libuzfs_node_t *up)
 	mutex_exit(&bucket->mutex);
 }
 
-int
-libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
+static inline int
+libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync,
+    uint64_t replay_eof)
 {
-	dnode_t *dn;
 	int err;
-	objset_t *os = dhp->os;
-	if ((err = dnode_hold(os, obj, FTAG, &dn)) != 0) {
-		return (err);
-	}
-
 	libuzfs_node_t *up;
 	if ((err = libuzfs_acquire_node(dhp, obj, &up)) != 0) {
-		goto out;
+		return (err);
 	}
+	dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(up->sa_hdl));
 
 	zfs_locked_range_t *lr = zfs_rangelock_enter(&up->rl,
 	    offset, size, RL_WRITER);
@@ -1380,6 +1476,7 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	    NULL, &up->u_size, sizeof (up->u_size));
 	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
 	    NULL, &mtime, sizeof (mtime));
+	objset_t *os = dhp->os;
 	while (size > 0) {
 		uint64_t nwrite = MIN(size,
 		    max_blksz - P2PHASE(offset, max_blksz));
@@ -1403,14 +1500,21 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
 
-		uint64_t up_size;
-		while ((up_size = up->u_size) < offset + nwrite) {
-			atomic_cas_64(&up->u_size, up_size, offset + nwrite);
+		if (replay_eof == 0) {
+			uint64_t up_size = 0;
+			uint64_t eod = offset + nwrite;
+			while ((up_size = atomic_load_64(&up->u_size)) < eod) {
+				atomic_cas_64(&up->u_size, up_size, eod);
+			}
+		} else {
+			// this is a replay write, use replay_eof as file size
+			up->u_size = replay_eof;
 		}
+
 		gethrestime(&mtime);
 		VERIFY0(sa_bulk_update(up->sa_hdl, bulk, 2, tx));
 
-		libuzfs_log_write(dhp, tx, TX_WRITE, obj, offset, nwrite, sync);
+		libuzfs_log_write(dhp, tx, up, offset, nwrite, sync);
 		dmu_tx_commit(tx);
 
 		size -= nwrite;
@@ -1419,15 +1523,22 @@ libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	}
 
 	zfs_rangelock_exit(lr);
-	libuzfs_release_node(dhp, up);
 
 	if (sync && err == 0) {
 		zil_commit(dhp->zilog, obj);
 	}
 
-out:
-	dnode_rele(dn, FTAG);
+	libuzfs_release_node(up);
+
 	return (err);
+}
+
+int
+libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
+{
+	return (libuzfs_object_write_impl(dhp, obj, offset,
+	    size, buf, sync, 0));
 }
 
 int
@@ -1459,7 +1570,7 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 out:
 	zfs_rangelock_exit(lr);
-	libuzfs_release_node(dhp, up);
+	libuzfs_release_node(up);
 	return (rc);
 }
 

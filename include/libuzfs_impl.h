@@ -69,6 +69,7 @@ typedef struct libuzfs_node {
 	uint64_t u_maxblksz;
 	uint64_t u_obj;
 	uint64_t ref_count;
+	libuzfs_dataset_handle_t *dhp;
 } libuzfs_node_t;
 
 #define	NUM_NODE_BUCKETS 997
@@ -118,8 +119,7 @@ extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t *xattr_zap_obj);
 extern int libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, libuzfs_node_t **upp);
-extern void libuzfs_release_node(libuzfs_dataset_handle_t *dhp,
-    libuzfs_node_t *up);
+extern void libuzfs_release_node(libuzfs_node_t *up);
 
 #ifdef	__cplusplus
 }
