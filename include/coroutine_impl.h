@@ -10,6 +10,10 @@
 #include <pthread.h>
 #include <sched.h>
 
+#ifdef ENABLE_MINITRACE_C
+#include <minitrace_c/minitrace_c.h>
+#endif
+
 // TODO(sundengyu): use object pool to manage cutex
 typedef struct cutex {
 	uint32_t value;
@@ -17,6 +21,9 @@ typedef struct cutex {
 	pthread_mutex_t waiter_lock;
 	// TODO(sundnegyu): use a smaller list
 	list_t waiter_list;
+#ifdef ENABLE_MINITRACE_C
+	mtr_span *current_parent_span;
+#endif
 } cutex_t;
 
 typedef enum cutex_waiter_state {

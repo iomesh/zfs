@@ -151,7 +151,7 @@ extern int libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, char *buf);
 
 extern int libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf, boolean_t sync);
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync, const void *ctx);
 
 extern int libuzfs_object_get_attr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uzfs_object_attr_t *attr);

@@ -28,6 +28,8 @@
  * Copyright (c) 2019, Allan Jude
  */
 
+#include "coroutine.h"
+#include <minitrace_c/minitrace_c.h>
 #include <sys/zfs_context.h>
 #include <sys/arc.h>
 #include <sys/dmu.h>
@@ -330,6 +332,13 @@ dbuf_hash(void *os, uint64_t obj, uint8_t lvl, uint64_t blkid)
 dmu_buf_impl_t *
 dbuf_find(objset_t *os, uint64_t obj, uint8_t level, uint64_t blkid)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dbuf_find", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	dbuf_hash_table_t *h = &dbuf_hash_table;
 	uint64_t hv;
 	uint64_t idx;
@@ -344,12 +353,24 @@ dbuf_find(objset_t *os, uint64_t obj, uint8_t level, uint64_t blkid)
 			mutex_enter(&db->db_mtx);
 			if (db->db_state != DB_EVICTING) {
 				rw_exit(DBUF_HASH_RWLOCK(h, idx));
+#ifdef ENABLE_MINITRACE_C
+				if (par) {
+					set_current_parent_span(par);
+					mtr_destroy_span(chd);
+				}
+#endif
 				return (db);
 			}
 			mutex_exit(&db->db_mtx);
 		}
 	}
 	rw_exit(DBUF_HASH_RWLOCK(h, idx));
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (NULL);
 }
 
@@ -2902,6 +2923,13 @@ static inline int
 dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
     dmu_buf_impl_t **parentp, blkptr_t **bpp)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dbuf_findbp", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	*parentp = NULL;
 	*bpp = NULL;
 
@@ -2917,6 +2945,12 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		dbuf_add_ref(dn->dn_dbuf, NULL);
 		*parentp = dn->dn_dbuf;
 		mutex_exit(&dn->dn_mtx);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return (0);
 	}
 
@@ -2949,6 +2983,12 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 	    ((nlevels - level - 1) * epbs)) ||
 	    (fail_sparse &&
 	    blkid > (dn->dn_phys->dn_maxblkid >> (level * epbs)))) {
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		/* the buffer has no parent yet */
 		return (SET_ERROR(ENOENT));
 	} else if (level < nlevels-1) {
@@ -2958,13 +2998,26 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		err = dbuf_hold_impl(dn, level + 1,
 		    blkid >> epbs, fail_sparse, FALSE, NULL, parentp);
 
-		if (err)
+		if (err) {
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (err);
+		}
 		err = dbuf_read(*parentp, NULL,
 		    (DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH | DB_RF_CANFAIL));
 		if (err) {
 			dbuf_rele(*parentp, NULL);
 			*parentp = NULL;
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (err);
 		}
 		rw_enter(&(*parentp)->db_rwlock, RW_READER);
@@ -2973,6 +3026,12 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		if (blkid > (dn->dn_phys->dn_maxblkid >> (level * epbs)))
 			ASSERT(BP_IS_HOLE(*bpp));
 		rw_exit(&(*parentp)->db_rwlock);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return (0);
 	} else {
 		/* the block is referenced from the dnode */
@@ -2984,6 +3043,12 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 			*parentp = dn->dn_dbuf;
 		}
 		*bpp = &dn->dn_phys->dn_blkptr[blkid];
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return (0);
 	}
 }
@@ -3470,6 +3535,13 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
     boolean_t fail_sparse, boolean_t fail_uncached,
     void *tag, dmu_buf_impl_t **dbp)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dbuf_hold_impl", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	dmu_buf_impl_t *db, *parent = NULL;
 
 	/* If the pool has been created, verify the tx_sync_lock is not held */
@@ -3492,8 +3564,15 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 		blkptr_t *bp = NULL;
 		int err;
 
-		if (fail_uncached)
+		if (fail_uncached) {
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (SET_ERROR(ENOENT));
+		}
 
 		ASSERT3P(parent, ==, NULL);
 		err = dbuf_findbp(dn, level, blkid, fail_sparse, &parent, &bp);
@@ -3503,16 +3582,35 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 			if (err) {
 				if (parent)
 					dbuf_rele(parent, NULL);
+#ifdef ENABLE_MINITRACE_C
+				if (par) {
+					set_current_parent_span(par);
+					mtr_destroy_span(chd);
+				}
+#endif
 				return (err);
 			}
 		}
-		if (err && err != ENOENT)
+		if (err && err != ENOENT) {
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (err);
+		}
 		db = dbuf_create(dn, level, blkid, parent, bp);
 	}
 
 	if (fail_uncached && db->db_state != DB_CACHED) {
 		mutex_exit(&db->db_mtx);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return (SET_ERROR(ENOENT));
 	}
 
@@ -3569,6 +3667,12 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 	ASSERT3U(db->db_level, ==, level);
 	*dbp = db;
 
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (0);
 }
 

@@ -2287,6 +2287,13 @@ zio_wait(zio_t *zio)
 void
 zio_nowait(zio_t *zio)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (par) {
+		chd = mtr_create_child_span_enter("dmu_tx_assign", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	/*
 	 * See comment in zio_wait().
 	 */
@@ -2307,12 +2314,26 @@ zio_nowait(zio_t *zio)
 		spa_t *spa = zio->io_spa;
 		pio = spa->spa_async_zio_root[CPU_SEQID_UNSTABLE];
 
-		zio_add_child(pio, zio);
+#ifdef ENABLE_MINITRACE_C
+                if (par) {
+			pio->span = &chd;
+                }
+#endif
+                zio_add_child(pio, zio);
 	}
 
 	ASSERT0(zio->io_queued_timestamp);
 	zio->io_queued_timestamp = gethrtime();
 	__zio_execute(zio);
+
+	/* TODO: is it right to destroy span may still be used by some child zio?
+	 * If it may be, how to find the last leaf to destroy it? */
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 /*

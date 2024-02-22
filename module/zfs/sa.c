@@ -2101,12 +2101,25 @@ sa_bulk_lookup(sa_handle_t *hdl, sa_bulk_attr_t *attrs, int count)
 int
 sa_bulk_update(sa_handle_t *hdl, sa_bulk_attr_t *attrs, int count, dmu_tx_t *tx)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("sa_bulk_update", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	int error;
 
 	ASSERT(hdl);
 	mutex_enter(&hdl->sa_lock);
 	error = sa_bulk_update_impl(hdl, attrs, count, tx);
 	mutex_exit(&hdl->sa_lock);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (error);
 }
 

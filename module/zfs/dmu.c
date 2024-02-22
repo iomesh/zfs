@@ -345,6 +345,13 @@ dmu_rm_spill(objset_t *os, uint64_t object, dmu_tx_t *tx)
 int dmu_bonus_hold_by_dnode(dnode_t *dn, void *tag, dmu_buf_t **dbp,
     uint32_t flags)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_bonus_hold_by_dnode", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	dmu_buf_impl_t *db;
 	int error;
 	uint32_t db_flags = DB_RF_MUST_SUCCEED;
@@ -381,10 +388,22 @@ int dmu_bonus_hold_by_dnode(dnode_t *dn, void *tag, dmu_buf_t **dbp,
 		dnode_evict_bonus(dn);
 		dbuf_rele(db, tag);
 		*dbp = NULL;
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return (error);
 	}
 
 	*dbp = &db->db;
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (0);
 }
 
@@ -500,6 +519,13 @@ int
 dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
     boolean_t read, void *tag, int *numbufsp, dmu_buf_t ***dbpp, uint32_t flags)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_buf_hold_array_by_dnode", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	dmu_buf_t **dbp;
 	zstream_t *zs = NULL;
 	uint64_t blkid, nblks, i;
@@ -532,6 +558,12 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			    (longlong_t)dn->dn_object, dn->dn_datablksz,
 			    (longlong_t)offset, (longlong_t)length);
 			rw_exit(&dn->dn_struct_rwlock);
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (SET_ERROR(EIO));
 		}
 		nblks = 1;
@@ -561,6 +593,12 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			dmu_buf_rele_array(dbp, nblks, tag);
 			if (read)
 				zio_nowait(zio);
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (SET_ERROR(EIO));
 		}
 
@@ -592,6 +630,12 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 		err = zio_wait(zio);
 		if (err) {
 			dmu_buf_rele_array(dbp, nblks, tag);
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (err);
 		}
 
@@ -607,6 +651,12 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 			mutex_exit(&db->db_mtx);
 			if (err) {
 				dmu_buf_rele_array(dbp, nblks, tag);
+#ifdef ENABLE_MINITRACE_C
+				if (par) {
+					set_current_parent_span(par);
+					mtr_destroy_span(chd);
+				}
+#endif
 				return (err);
 			}
 		}
@@ -614,6 +664,12 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset, uint64_t length,
 
 	*numbufsp = nblks;
 	*dbpp = dbp;
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (0);
 }
 
@@ -657,11 +713,25 @@ dmu_buf_hold_array_by_bonus(dmu_buf_t *db_fake, uint64_t offset,
 void
 dmu_buf_rele_array(dmu_buf_t **dbp_fake, int numbufs, void *tag)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_buf_rele_array", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	int i;
 	dmu_buf_impl_t **dbp = (dmu_buf_impl_t **)dbp_fake;
 
-	if (numbufs == 0)
+	if (numbufs == 0) {
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
+	}
 
 	for (i = 0; i < numbufs; i++) {
 		if (dbp[i])
@@ -669,6 +739,12 @@ dmu_buf_rele_array(dmu_buf_t **dbp_fake, int numbufs, void *tag)
 	}
 
 	kmem_free(dbp, sizeof (dmu_buf_t *) * numbufs);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 /*
@@ -1079,6 +1155,13 @@ static void
 dmu_write_impl(dmu_buf_t **dbp, int numbufs, uint64_t offset, uint64_t size,
     const void *buf, dmu_tx_t *tx)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_write_impl", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	int i;
 
 	for (i = 0; i < numbufs; i++) {
@@ -1107,6 +1190,13 @@ dmu_write_impl(dmu_buf_t **dbp, int numbufs, uint64_t offset, uint64_t size,
 		size -= tocpy;
 		buf = (char *)buf + tocpy;
 	}
+
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 void
@@ -1132,16 +1222,36 @@ void
 dmu_write_by_dnode(dnode_t *dn, uint64_t offset, uint64_t size,
     const void *buf, dmu_tx_t *tx)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_write_by_dnode", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	dmu_buf_t **dbp;
 	int numbufs;
 
-	if (size == 0)
+	if (size == 0) {
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
+	}
 
 	VERIFY0(dmu_buf_hold_array_by_dnode(dn, offset, size,
 	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH));
 	dmu_write_impl(dbp, numbufs, offset, size, buf, tx);
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 void

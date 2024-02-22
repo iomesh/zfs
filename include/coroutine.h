@@ -50,4 +50,9 @@ extern void co_rw_lock_exit(co_rw_lock_t *rwlock);
 // TODO(sundengyu): implement read lock upgrade
 // extern int co_rw_lock_tryupgrade(co_rw_lock_t *rwlock);
 
+#ifdef ENABLE_MINITRACE_C
+extern mtr_span *get_current_parent_span(void);
+extern void set_current_parent_span(mtr_span *ctx);
+#endif
+
 #endif

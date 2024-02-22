@@ -2140,6 +2140,13 @@ zil_get_commit_list(zilog_t *zilog)
 void
 zil_async_to_sync(zilog_t *zilog, uint64_t foid)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("zil_async_to_sync", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	uint64_t otxg, txg;
 	itx_async_node_t *ian;
 	avl_tree_t *t;
@@ -2188,6 +2195,12 @@ zil_async_to_sync(zilog_t *zilog, uint64_t foid)
 		}
 		mutex_exit(&itxg->itxg_lock);
 	}
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 /*
@@ -2491,6 +2504,13 @@ zil_process_commit_list(zilog_t *zilog)
 static void
 zil_commit_writer(zilog_t *zilog, zil_commit_waiter_t *zcw)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("zil_commit_writer", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	ASSERT(!MUTEX_HELD(&zilog->zl_lock));
 	ASSERT(spa_writeable(zilog->zl_spa));
 
@@ -2524,6 +2544,12 @@ zil_commit_writer(zilog_t *zilog, zil_commit_waiter_t *zcw)
 
 out:
 	mutex_exit(&zilog->zl_issuer_lock);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 static void
@@ -2679,6 +2705,13 @@ out:
 static void
 zil_commit_waiter(zilog_t *zilog, zil_commit_waiter_t *zcw)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("zil_commit_waiter", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	ASSERT(!MUTEX_HELD(&zilog->zl_lock));
 	ASSERT(!MUTEX_HELD(&zilog->zl_issuer_lock));
 	ASSERT(spa_writeable(zilog->zl_spa));
@@ -2775,6 +2808,12 @@ zil_commit_waiter(zilog_t *zilog, zil_commit_waiter_t *zcw)
 	}
 
 	mutex_exit(&zcw->zcw_lock);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 static zil_commit_waiter_t *
@@ -2949,6 +2988,13 @@ zil_commit(zilog_t *zilog, uint64_t foid)
 void
 zil_submit(zilog_t *zilog, uint64_t oid)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("zil_submit", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	/*
 	 * We should never attempt to call zil_commit on a snapshot for
 	 * a couple of reasons:
@@ -2964,8 +3010,15 @@ zil_submit(zilog_t *zilog, uint64_t oid)
 	 */
 	ASSERT3B(dmu_objset_is_snapshot(zilog->zl_os), ==, B_FALSE);
 
-	if (zilog->zl_sync == ZFS_SYNC_DISABLED)
+	if (zilog->zl_sync == ZFS_SYNC_DISABLED) {
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
+        }
 
 	if (!spa_writeable(zilog->zl_spa)) {
 		/*
@@ -2979,6 +3032,12 @@ zil_submit(zilog_t *zilog, uint64_t oid)
 		ASSERT3P(zilog->zl_last_lwb_opened, ==, NULL);
 		for (int i = 0; i < TXG_SIZE; i++)
 			ASSERT3P(zilog->zl_itxg[i].itxg_itxs, ==, NULL);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
 	}
 
@@ -2991,11 +3050,23 @@ zil_submit(zilog_t *zilog, uint64_t oid)
 	 */
 	if (zilog->zl_suspend > 0) {
 		txg_wait_synced(zilog->zl_dmu_pool, 0);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
 	}
 
 	ZIL_STAT_BUMP(zil_commit_count);
 	zil_async_to_sync(zilog, oid);
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 }
 
 void
@@ -3020,6 +3091,13 @@ zil_commit_impl(zilog_t *zilog, uint64_t foid)
 void
 zil_wait_commit(zilog_t *zilog)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("zil_wait_commit", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	/*
 	 * We allocate a new "waiter" structure which will initially be
 	 * linked to the commit itx using the itx's "itx_private" field.
@@ -3056,6 +3134,12 @@ zil_wait_commit(zilog_t *zilog)
 	}
 
 	zil_free_commit_waiter(zcw);
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 /*

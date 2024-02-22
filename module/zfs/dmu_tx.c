@@ -1033,6 +1033,13 @@ dmu_tx_unassign(dmu_tx_t *tx)
 int
 dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("dmu_tx_assign", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	int err;
 
 	ASSERT(tx->tx_txg == 0);
@@ -1048,14 +1055,27 @@ dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 	while ((err = dmu_tx_try_assign(tx, txg_how)) != 0) {
 		dmu_tx_unassign(tx);
 
-		if (err != ERESTART || !(txg_how & TXG_WAIT))
+		if (err != ERESTART || !(txg_how & TXG_WAIT)) {
+#ifdef ENABLE_MINITRACE_C
+			if (par) {
+				set_current_parent_span(par);
+				mtr_destroy_span(chd);
+			}
+#endif
 			return (err);
+                }
 
 		dmu_tx_wait(tx);
 	}
 
 	txg_rele_to_quiesce(&tx->tx_txgh);
 
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 	return (0);
 }
 

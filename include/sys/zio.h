@@ -522,6 +522,10 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+#ifdef ENABLE_MINITRACE_C
+	mtr_span	*span;
+#endif
 };
 
 enum blk_verify_flag {

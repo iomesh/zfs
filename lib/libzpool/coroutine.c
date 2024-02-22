@@ -888,3 +888,15 @@ co_rw_lock_write_held(co_rw_lock_t *rwlock)
 {
 	return (rwlock->owner == thread_local_coroutine);
 }
+
+#ifdef ENABLE_MINITRACE_C
+mtr_span *get_current_parent_span(void)
+{
+	return thread_local_coroutine->cutex->current_parent_span;
+}
+
+void set_current_parent_span(mtr_span *ctx)
+{
+	thread_local_coroutine->cutex->current_parent_span = ctx;
+}
+#endif

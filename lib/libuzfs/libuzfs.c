@@ -76,7 +76,7 @@ static void libuzfs_create_inode_with_type_impl(
     libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
 
 static inline int libuzfs_object_write_impl(libuzfs_dataset_handle_t *,
-    uint64_t, uint64_t, uint64_t, const char *, boolean_t, uint64_t);
+    uint64_t, uint64_t, uint64_t, const char *, boolean_t, uint64_t, const void *_ctx);
 
 typedef struct dir_emit_ctx {
 	char *buf;
@@ -367,11 +367,24 @@ static void
 libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
     libuzfs_node_t *up, offset_t off, ssize_t resid, boolean_t sync)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span chd, *par = get_current_parent_span();
+	if (!par) {
+		chd = mtr_create_child_span_enter("libuzfs_log_write", par);
+		set_current_parent_span(&chd);
+	}
+#endif
 	// this log write covers at most 1 block
 	ASSERT3U(off / dhp->max_blksz, ==, (off + resid - 1) / dhp->max_blksz);
 
 	zilog_t *zilog = dhp->zilog;
 	if (zil_replaying(zilog, tx)) {
+#ifdef ENABLE_MINITRACE_C
+		if (par) {
+			set_current_parent_span(par);
+			mtr_destroy_span(chd);
+		}
+#endif
 		return;
 	}
 
@@ -413,6 +426,13 @@ set_lr:
 	itx->itx_private = dhp;
 
 	zil_itx_assign(zilog, itx, tx);
+
+#ifdef ENABLE_MINITRACE_C
+	if (par) {
+		set_current_parent_span(par);
+		mtr_destroy_span(chd);
+	}
+#endif
 }
 
 static int libuzfs_object_claim(libuzfs_dataset_handle_t *dhp,
@@ -543,7 +563,7 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	}
 
 	return (libuzfs_object_write_impl((libuzfs_dataset_handle_t *)arg1,
-	    obj, offset, length, data, FALSE, replay_eof));
+	    obj, offset, length, data, FALSE, replay_eof, NULL));
 }
 
 static int
@@ -1455,11 +1475,23 @@ libuzfs_release_node(libuzfs_node_t *up)
 static inline int
 libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size, const char *buf, boolean_t sync,
-    uint64_t replay_eof)
+    uint64_t replay_eof, const void *_ctx)
 {
+#ifdef ENABLE_MINITRACE_C
+	mtr_span root;
+	const mtr_span_ctx *ctx = _ctx;
+	if (ctx) {
+		root = mtr_create_root_span("libuzfs_object_write_impl", *ctx);
+		set_current_parent_span(&root);
+	}
+#endif
 	int err;
 	libuzfs_node_t *up;
 	if ((err = libuzfs_acquire_node(dhp, obj, &up)) != 0) {
+#ifdef ENABLE_MINITRACE_C
+		if (get_current_parent_span())
+			mtr_destroy_span(root);
+#endif
 		return (err);
 	}
 	dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(up->sa_hdl));
@@ -1533,15 +1565,19 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	libuzfs_release_node(up);
 
+#ifdef ENABLE_MINITRACE_C
+	if (get_current_parent_span())
+		mtr_destroy_span(root);
+#endif
 	return (err);
 }
 
 int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
+    uint64_t offset, uint64_t size, const char *buf, boolean_t sync, const void *_ctx)
 {
 	return (libuzfs_object_write_impl(dhp, obj, offset,
-	    size, buf, sync, 0));
+	    size, buf, sync, 0, _ctx));
 }
 
 int
