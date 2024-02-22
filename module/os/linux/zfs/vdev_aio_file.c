@@ -65,6 +65,7 @@ typedef struct io_workers_ctx {
 	boolean_t	stop;		// whether reaper should stop
 	pthread_t	submitter;	// identifies the submitter
 	kthread_t	*reaper;	// identifies the reaper
+	taskq_t		*trim_workers;	// trim
 } io_workers_ctx_t;
 
 static io_workers_ctx_t workers_ctx;
@@ -225,10 +226,22 @@ submit_zio_task(zio_t *zio)
 }
 
 static void
+do_trim_work(void *arg)
+{
+	zio_t *zio = arg;
+	vdev_t *vd = zio->io_vd;
+	vdev_file_t *vf = vd->vdev_tsd;
+	uint64_t range[2] = {zio->io_offset, zio->io_size};
+	if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
+		zio->io_error = errno;
+	}
+	zio_interrupt(zio);
+}
+
+static void
 vdev_aio_file_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
-	vdev_file_t *vf = vd->vdev_tsd;
 
 	if (zio->io_type == ZIO_TYPE_IOCTL) {
 		/* XXPOLICY */
@@ -254,12 +267,8 @@ vdev_aio_file_io_start(zio_t *zio)
 		zio_execute(zio);
 		return;
 	} else if (zio->io_type == ZIO_TYPE_TRIM) {
-		// TODO(sundengyu): use a thread pool to process trim request
-		uint64_t range[2] = {zio->io_offset, zio->io_size};
-		if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
-			zio->io_error = errno;
-		}
-		zio_execute(zio);
+		VERIFY3U(taskq_dispatch(workers_ctx.trim_workers,
+		    do_trim_work, zio, TQ_SLEEP), !=, TASKQID_INVALID);
 		return;
 	}
 
@@ -416,6 +425,10 @@ vdev_aio_file_init(void)
 	pthread_setname_np((pthread_t)workers_ctx.submitter,
 	    "zio_task_submitter");
 
+	workers_ctx.trim_workers = taskq_create("trim_workers",
+	    MAX(boot_ncpus, 16), minclsyspri, boot_ncpus,
+	    INT_MAX, TASKQ_DYNAMIC | TASKQ_NEW_RUNTIME);
+
 	workers_ctx.reaper = thread_create(NULL, 0, zio_task_reaper,
 	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE | TS_NEW_RUNTIME,
 	    defclsyspri);
@@ -430,4 +443,5 @@ vdev_aio_file_fini(void)
 	pthread_join(workers_ctx.submitter, NULL);
 	VERIFY0(syscall(__NR_io_destroy, workers_ctx.io_ctx));
 	sem_destroy(&workers_ctx.submit_sem);
+	taskq_destroy(workers_ctx.trim_workers);
 }

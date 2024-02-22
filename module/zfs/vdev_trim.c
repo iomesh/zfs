@@ -1489,7 +1489,7 @@ vdev_autotrim(spa_t *spa)
 
 			tvd->vdev_autotrim_thread = thread_create(NULL, 0,
 			    vdev_autotrim_thread, tvd, 0, &p0,
-			    TS_RUN | TS_NEW_RUNTIME, maxclsyspri);
+			    TS_RUN, maxclsyspri);
 			ASSERT(tvd->vdev_autotrim_thread != NULL);
 		}
 		mutex_exit(&tvd->vdev_autotrim_lock);
