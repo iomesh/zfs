@@ -51,20 +51,11 @@
 
 #define	MAX_AIO_EVENTS	4096
 
-typedef struct zio_task {
-	zio_t *zio;
-	void *buf;
-	uint32_t state;
-	struct zio_task *next;
-} zio_task_t;
-
 typedef struct io_workers_ctx {
 	aio_context_t	io_ctx;		// io context for aio
-	zio_task_t	*head;		// current head of submit list
-	sem_t		submit_sem;	// semaphore to wake up the submitter
-	boolean_t	stop;		// whether reaper should stop
-	pthread_t	submitter;	// identifies the submitter
-	kthread_t	*reaper;	// identifies the reaper
+	kmutex_t	submit_lock;	// make sure only 1 submitter
+	zio_t		*submit_head;	// current head of submit list
+	volatile boolean_t	stop;	// whether reaper should stop
 	taskq_t		*trim_workers;	// trim
 } io_workers_ctx_t;
 
@@ -203,25 +194,117 @@ vdev_aio_file_close(vdev_t *vd)
 }
 
 static void
+prep_task(zio_t *zio, struct iocb *io_cb)
+{
+	memset(io_cb, 0, sizeof (*io_cb));
+	io_cb->aio_data = (uint64_t)zio;
+	io_cb->aio_fildes = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
+	io_cb->aio_nbytes = zio->io_size;
+	io_cb->aio_offset = zio->io_offset;
+	switch (zio->io_type) {
+	case ZIO_TYPE_IOCTL:
+		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
+		io_cb->aio_lio_opcode = IOCB_CMD_FSYNC;
+		break;
+	case ZIO_TYPE_READ:
+		zio->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
+		io_cb->aio_buf = (uint64_t)zio->buf;
+		io_cb->aio_lio_opcode = IOCB_CMD_PREAD;
+		break;
+	case ZIO_TYPE_WRITE:
+		zio->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
+		io_cb->aio_buf = (uint64_t)zio->buf;
+		io_cb->aio_lio_opcode = IOCB_CMD_PWRITE;
+		break;
+	default:
+		panic("zio type not expected: %d", zio->io_type);
+		break;
+	}
+}
+
+static void
+io_submit_and_reap(void *arg)
+{
+	mutex_enter(&workers_ctx.submit_lock);
+	zio_t *head = atomic_load_ptr(&workers_ctx.submit_head);
+	while (1) {
+		zio_t *cur_head = atomic_cas_ptr(&workers_ctx.submit_head,
+		    head, NULL);
+		if (cur_head == head) {
+			break;
+		}
+		head = cur_head;
+	}
+
+	int total_events = 0;
+	struct iocb iocb;
+	struct iocb *ptr = &iocb;
+	aio_context_t io_ctx = workers_ctx.io_ctx;
+	while (head != NULL) {
+		prep_task(head, ptr);
+		head = head->next;
+		++total_events;
+		VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
+		    io_ctx, 1, &ptr)), ==, 1);
+	}
+
+	while (total_events > 0) {
+#define	MAX_PROCESSED_EVENTS 64
+		struct io_event events[MAX_PROCESSED_EVENTS];
+		struct timespec interval = {1, 0};
+		int nevents = TEMP_FAILURE_RETRY(syscall(__NR_io_getevents, io_ctx,
+		    1, MAX_PROCESSED_EVENTS, events, &interval));
+		if (nevents < 0) {
+			cmn_err(CE_PANIC, "failed to call io genevents, error: %d", errno);
+		} else {
+			total_events -= nevents;
+		}
+		for (int i = 0; i < nevents; ++i) {
+			zio_t *zio = (zio_t *)events[i].data;
+			if (zio->io_type == ZIO_TYPE_READ) {
+				abd_return_buf_copy(zio->io_abd,
+				    zio->buf, zio->io_size);
+			} else if (zio->io_type == ZIO_TYPE_WRITE) {
+				abd_return_buf(zio->io_abd,
+				    zio->buf, zio->io_size);
+			}
+
+			ssize_t res = events[i].res;
+			if (res < 0) {
+				zio->io_error = -res;
+			} else if (res < zio->io_size) {
+				zfs_dbgmsg("partial io, type: %d, "
+				    "offset: %lu, size: %lu, actual"
+				    " iosize: %ld", zio->io_type,
+				    zio->io_offset, zio->io_size, res);
+				zio->io_error = SET_ERROR(ENOSPC);
+			}
+
+			zio_interrupt(zio);
+		}
+	}
+	mutex_exit(&workers_ctx.submit_lock);
+}
+
+static void
 submit_zio_task(zio_t *zio)
 {
-	zio_task_t *task = umem_alloc(sizeof (zio_task_t), UMEM_NOFAIL);
-	task->zio = zio;
-	task->next = atomic_load_ptr(&workers_ctx.head);
+	zio->next = atomic_load_ptr(&workers_ctx.submit_head);
 	boolean_t earlier = B_TRUE;
 	while (1) {
-		earlier = task->next == NULL;
-		zio_task_t *next = task->next;
-		zio_task_t *head = atomic_cas_ptr(&workers_ctx.head,
-		    task->next, task);
+		zio_t *next = zio->next;
+		earlier = next == NULL;
+		zio_t *head = atomic_cas_ptr(&workers_ctx.submit_head,
+		    next, zio);
 		if (head == next) {
 			break;
 		}
-		task->next = head;
+		zio->next = head;
 	}
 
 	if (earlier) {
-		VERIFY0(sem_post(&workers_ctx.submit_sem));
+		thread_create(NULL, 0, io_submit_and_reap,
+		    NULL, 0, NULL, TS_RUN, defclsyspri);
 	}
 }
 
@@ -308,140 +391,26 @@ vdev_ops_t vdev_aio_file_ops = {
 	.vdev_op_leaf = B_TRUE			/* leaf vdev */
 };
 
-static void
-prep_task(zio_task_t *task, struct iocb *io_cb)
-{
-	memset(io_cb, 0, sizeof (*io_cb));
-	io_cb->aio_data = (uint64_t)task;
-	zio_t *zio = task->zio;
-	io_cb->aio_fildes = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
-	io_cb->aio_nbytes = zio->io_size;
-	io_cb->aio_offset = zio->io_offset;
-	switch (zio->io_type) {
-	case ZIO_TYPE_IOCTL:
-		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
-		io_cb->aio_lio_opcode = IOCB_CMD_FSYNC;
-		break;
-	case ZIO_TYPE_READ:
-		task->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
-		io_cb->aio_buf = (uint64_t)task->buf;
-		io_cb->aio_lio_opcode = IOCB_CMD_PREAD;
-		break;
-	case ZIO_TYPE_WRITE:
-		task->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-		io_cb->aio_buf = (uint64_t)task->buf;
-		io_cb->aio_lio_opcode = IOCB_CMD_PWRITE;
-		break;
-	default:
-		panic("zio type not expected: %d", zio->io_type);
-		break;
-	}
-}
-
-static void*
-zio_task_submitter(void *args)
-{
-	io_workers_ctx_t *ctx = args;
-	while (likely(!ctx->stop)) {
-		sem_wait(&ctx->submit_sem);
-		// fetch current head
-		zio_task_t *head = atomic_load_ptr(&workers_ctx.head);
-		while (1) {
-			zio_task_t *cur_head = atomic_cas_ptr(&workers_ctx.head,
-			    head, NULL);
-			if (cur_head == head) {
-				break;
-			}
-			head = cur_head;
-		}
-
-		// TODO(sundengyu): submit tasks in a batch
-		struct iocb iocb;
-		struct iocb *ptr = &iocb;
-		while (head != NULL) {
-			prep_task(head, ptr);
-			head = head->next;
-			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
-			    ctx->io_ctx, 1, &ptr)), ==, 1);
-		}
-	}
-
-	return (NULL);
-}
-
-static void
-zio_task_reaper(void *args)
-{
-#define	MAX_PROCESSED_EVENTS 64
-	io_workers_ctx_t *ctx = args;
-	struct io_event events[MAX_PROCESSED_EVENTS];
-	struct timespec interval = {1, 0};
-
-	while (likely(!ctx->stop)) {
-		int nevents = syscall(__NR_io_getevents, ctx->io_ctx,
-		    1, MAX_PROCESSED_EVENTS, events, &interval);
-		for (int i = 0; i < nevents; ++i) {
-			zio_task_t *task = (zio_task_t *)events[i].data;
-
-			zio_t *zio = task->zio;
-			if (zio->io_type == ZIO_TYPE_READ) {
-				abd_return_buf_copy(zio->io_abd,
-				    task->buf, zio->io_size);
-			} else if (zio->io_type == ZIO_TYPE_WRITE) {
-				abd_return_buf(zio->io_abd,
-				    task->buf, zio->io_size);
-			}
-
-			ssize_t res = events[i].res;
-			if (res < 0) {
-				zio->io_error = -res;
-			} else if (res < zio->io_size) {
-				zfs_dbgmsg("partial io, type: %d, "
-				    "offset: %lu, size: %lu, actual"
-				    " iosize: %ld", zio->io_type,
-				    zio->io_offset, zio->io_size, res);
-				zio->io_error = SET_ERROR(ENOSPC);
-			}
-
-			umem_free(task, sizeof (zio_task_t));
-
-			zio_interrupt(zio);
-		}
-	}
-}
-
 void
 vdev_aio_file_init(void)
 {
 	memset(&workers_ctx, 0, sizeof (workers_ctx));
 	VERIFY0(syscall(__NR_io_setup, MAX_AIO_EVENTS, &workers_ctx.io_ctx));
 	workers_ctx.stop = B_FALSE;
-	workers_ctx.head = NULL;
+	workers_ctx.submit_head = NULL;
 
-	VERIFY0(sem_init(&workers_ctx.submit_sem, 0, 0));
-
-	pthread_create(&workers_ctx.submitter, NULL,
-	    zio_task_submitter, &workers_ctx);
-	pthread_setname_np((pthread_t)workers_ctx.submitter,
-	    "zio_task_submitter");
+	mutex_init(&workers_ctx.submit_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	workers_ctx.trim_workers = taskq_create("trim_workers",
 	    MAX(boot_ncpus, 16), minclsyspri, boot_ncpus,
 	    INT_MAX, TASKQ_DYNAMIC);
-
-	workers_ctx.reaper = thread_create(NULL, 0, zio_task_reaper,
-	    &workers_ctx, 0, NULL, TS_RUN | TS_JOINABLE | TS_NEW_RUNTIME,
-	    defclsyspri);
 }
 
 void
 vdev_aio_file_fini(void)
 {
 	workers_ctx.stop = B_TRUE;
-	thread_join(workers_ctx.reaper);
-	VERIFY0(sem_post(&workers_ctx.submit_sem));
-	pthread_join(workers_ctx.submitter, NULL);
 	VERIFY0(syscall(__NR_io_destroy, workers_ctx.io_ctx));
-	sem_destroy(&workers_ctx.submit_sem);
+	mutex_destroy(&workers_ctx.submit_lock);
 	taskq_destroy(workers_ctx.trim_workers);
 }
