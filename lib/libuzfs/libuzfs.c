@@ -76,8 +76,9 @@ static void libuzfs_create_inode_with_type_impl(
     libuzfs_dataset_handle_t *, uint64_t *, boolean_t,
     libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
 
-static inline int libuzfs_object_write_impl(libuzfs_dataset_handle_t *,
-    uint64_t, uint64_t, uint64_t, const char *, boolean_t, uint64_t);
+static inline int libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t offset, struct iovec *iovs, int iov_cnt,
+    boolean_t sync, uint64_t replay_eof);
 
 typedef struct dir_emit_ctx {
 	char *buf;
@@ -543,8 +544,12 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 		}
 	}
 
+	struct iovec iov;
+	iov.iov_base = data;
+	iov.iov_len = length;
+
 	return (libuzfs_object_write_impl((libuzfs_dataset_handle_t *)arg1,
-	    obj, offset, length, data, FALSE, replay_eof));
+	    obj, offset, &iov, 1, FALSE, replay_eof));
 }
 
 static int
@@ -1476,9 +1481,9 @@ libuzfs_release_node(libuzfs_node_t *up)
 }
 
 static inline int
-libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf, boolean_t sync,
-    uint64_t replay_eof)
+libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t offset, struct iovec *iovs,
+    int iov_cnt, boolean_t sync, uint64_t replay_eof)
 {
 	int err;
 	libuzfs_node_t *up;
@@ -1486,6 +1491,14 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		return (err);
 	}
 	dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(up->sa_hdl));
+	uint64_t size = 0;
+	for (int i = 0; i < iov_cnt; ++i) {
+		size += iovs[i].iov_len;
+	}
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, iovs, iov_cnt,
+	    offset, UIO_USERSPACE, size, 0);
 
 	zfs_locked_range_t *lr = zfs_rangelock_enter(&up->rl,
 	    offset, size, RL_WRITER);
@@ -1503,7 +1516,8 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
 	    NULL, &mtime, sizeof (mtime));
 	objset_t *os = dhp->os;
-	while (size > 0) {
+	while ((size = zfs_uio_resid(&uio)) > 0) {
+		offset = zfs_uio_offset(&uio);
 		uint64_t nwrite = MIN(size,
 		    max_blksz - P2PHASE(offset, max_blksz));
 		dmu_tx_t *tx = dmu_tx_create(os);
@@ -1524,7 +1538,7 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			zfs_rangelock_reduce(lr, offset, size);
 		}
 
-		dmu_write_by_dnode(dn, offset, nwrite, buf, tx);
+		VERIFY0(dmu_write_uio_dnode(dn, &uio, nwrite, tx));
 
 		if (replay_eof == 0) {
 			uint64_t up_size = 0;
@@ -1542,10 +1556,6 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 		libuzfs_log_write(dhp, tx, up, offset, nwrite, sync);
 		dmu_tx_commit(tx);
-
-		size -= nwrite;
-		offset += nwrite;
-		buf += nwrite;
 	}
 
 	zfs_rangelock_exit(lr);
@@ -1561,10 +1571,10 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 int
 libuzfs_object_write(libuzfs_dataset_handle_t *dhp, uint64_t obj,
-    uint64_t offset, uint64_t size, const char *buf, boolean_t sync)
+    uint64_t offset, struct iovec *iovs, int iov_cnt, boolean_t sync)
 {
 	return (libuzfs_object_write_impl(dhp, obj, offset,
-	    size, buf, sync, 0));
+	    iovs, iov_cnt, sync, 0));
 }
 
 int
