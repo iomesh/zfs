@@ -475,8 +475,16 @@ libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 		dmu_tx_abort(tx);
 	} else {
-		VERIFY0(sa_update(up->sa_hdl, dhp->uzfs_attr_table[UZFS_SIZE],
-		    &size, sizeof (size), tx));
+		sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
+		sa_bulk_attr_t bulk[2];
+		int count = 0;
+		struct timespec mtime;
+		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE],
+		    NULL, &up->u_size, sizeof (up->u_size));
+		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
+		    NULL, &mtime, sizeof (mtime));
+		gethrestime(&mtime);
+		VERIFY0(sa_bulk_update(up->sa_hdl, bulk, count, tx));
 		libuzfs_log_truncate(dhp->zilog, tx,
 		    TX_TRUNCATE, obj, offset, size);
 		dmu_tx_commit(tx);
