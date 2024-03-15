@@ -82,6 +82,7 @@ struct libuzfs_dataset_handle {
 	sa_attr_type_t	*uzfs_attr_table;
 	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
 	kmutex_t objs_lock[NUM_NODE_BUCKETS];
+	uint64_t dnodesize;
 };
 
 struct libuzfs_kvattr_iterator {
