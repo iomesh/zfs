@@ -976,8 +976,12 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1, &sa_obj, tx));
 
 	libuzfs_dataset_handle_t dhp;
+	memset(&dhp, 0, sizeof (dhp));
 	dhp.os = os;
 	dhp.dnodesize = 1024;
+	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
+		mutex_init(&dhp.objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
+	}
 	libuzfs_setup_dataset_sa(&dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_create_inode_with_type_impl(&dhp, &sb_obj,
