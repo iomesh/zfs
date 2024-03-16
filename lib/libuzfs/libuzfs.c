@@ -962,6 +962,39 @@ out:
 	return (err);
 }
 
+static int
+libuzfs_node_compare(const void *x1, const void *x2)
+{
+	const libuzfs_node_t *node1 = x1;
+	const libuzfs_node_t *node2 = x2;
+
+	if (node1->u_obj < node2->u_obj) {
+		return (-1);
+	}
+
+	if (node1->u_obj == node2->u_obj) {
+		return (0);
+	}
+
+	return (1);
+}
+
+static void
+libuzfs_dhp_init_locks(libuzfs_dataset_handle_t *dhp, objset_t *os,
+    uint64_t dnodesize)
+{
+	dhp->os = os;
+	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
+		hash_bucket_t *bucket = &dhp->nodes_buckets[i];
+		avl_create(&bucket->tree, libuzfs_node_compare,
+		    sizeof (libuzfs_node_t), offsetof(libuzfs_node_t, node));
+		mutex_init(&bucket->mutex, NULL, 0, NULL);
+
+		mutex_init(&dhp->objs_lock[i], NULL, 0, NULL);
+	}
+	dhp->dnodesize = dnodesize;
+}
+
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
@@ -976,8 +1009,7 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1, &sa_obj, tx));
 
 	libuzfs_dataset_handle_t dhp;
-	dhp.os = os;
-	dhp.dnodesize = 1024;
+	libuzfs_dhp_init_locks(&dhp, os, 1024);
 	libuzfs_setup_dataset_sa(&dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_create_inode_with_type_impl(&dhp, &sb_obj,
@@ -1032,28 +1064,10 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 	return (0);
 }
 
-static int
-libuzfs_node_compare(const void *x1, const void *x2)
-{
-	const libuzfs_node_t *node1 = x1;
-	const libuzfs_node_t *node2 = x2;
-
-	if (node1->u_obj < node2->u_obj) {
-		return (-1);
-	}
-
-	if (node1->u_obj == node2->u_obj) {
-		return (0);
-	}
-
-	return (1);
-}
-
 static void
 libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
     uint64_t dnodesize)
 {
-	dhp->os = os;
 	dmu_objset_name(os, dhp->name);
 
 	zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
@@ -1062,17 +1076,9 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 	libuzfs_setup_dataset_sa(dhp);
 
-	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		hash_bucket_t *bucket = &dhp->nodes_buckets[i];
-		avl_create(&bucket->tree, libuzfs_node_compare,
-		    sizeof (libuzfs_node_t), offsetof(libuzfs_node_t, node));
-		mutex_init(&bucket->mutex, NULL, 0, NULL);
-
-		mutex_init(&dhp->objs_lock[i], NULL, 0, NULL);
-	}
+	libuzfs_dhp_init_locks(dhp, os, dnodesize);
 
 	dhp->zilog = zil_open(os, libuzfs_get_data);
-	dhp->dnodesize = dnodesize;
 	zil_replay(os, dhp, libuzfs_replay_vector);
 }
 
