@@ -276,9 +276,15 @@ extern ssize_t libuzfs_next_kvattr_name(libuzfs_kvattr_iterator_t *iter,
     char *buf, int size);
 extern void libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter);
 
+typedef struct dataset_statistics {
+	uint64_t refed_bytes;
+	uint64_t avail_bytes;
+	uint64_t used_objs;
+	uint64_t avail_objs;
+	uint64_t total_bytes;
+} dataset_statistics_t;
 extern void libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp,
-    uint64_t *refdbytes, uint64_t *availbytes, uint64_t *usedobjs,
-    uint64_t *availobjs);
+    dataset_statistics_t *statistics);
 extern int libuzfs_object_next_hole(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);

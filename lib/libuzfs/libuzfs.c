@@ -244,30 +244,6 @@ make_vdev_root(const char *path, char *aux, const char *pool, size_t size,
 }
 
 static int
-libuzfs_dsl_prop_set_uint64(const char *osname, zfs_prop_t prop, uint64_t value,
-    boolean_t inherit)
-{
-	int err = 0;
-	char *setpoint = NULL;
-	uint64_t curval = 0;
-	const char *propname = zfs_prop_to_name(prop);
-
-	err = dsl_prop_set_int(osname, propname,
-	    (inherit ? ZPROP_SRC_NONE : ZPROP_SRC_LOCAL), value);
-
-	if (err == ENOSPC)
-		return (err);
-
-	ASSERT0(err);
-
-	setpoint = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
-	VERIFY0(dsl_prop_get_integer(osname, propname, &curval, setpoint));
-	umem_free(setpoint, MAXPATHLEN);
-
-	return (err);
-}
-
-static int
 libuzfs_spa_prop_set_uint64(spa_t *spa, zpool_prop_t prop, uint64_t value)
 {
 	int err = 0;
@@ -2455,11 +2431,19 @@ out:
 }
 
 void
-libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp, uint64_t *refdbytes,
-    uint64_t *availbytes, uint64_t *usedobjs, uint64_t *availobjs)
+libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp,
+    dataset_statistics_t *statistics)
 {
-	dmu_objset_space(dhp->os, refdbytes, availbytes,
-	    usedobjs, availobjs);
+	dmu_objset_space(dhp->os, &statistics->refed_bytes,
+	    &statistics->avail_bytes, &statistics->used_objs,
+	    &statistics->avail_objs);
+	spa_t *spa = dhp->os->os_spa;
+	vdev_t *root_vdev = spa->spa_root_vdev;
+	statistics->total_bytes = 0;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+		statistics->total_bytes += leaf_vdev->vdev_psize;
+	}
 }
 
 int
