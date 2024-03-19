@@ -394,6 +394,10 @@ zio_task_reaper(void *args)
 
 			ssize_t res = events[i].res;
 			if (res < 0) {
+				zfs_dbgmsg("io error, type: %d, "
+				    "offset: %lu, size: %lu, error: %ld",
+				    zio->io_type, zio->io_offset,
+				    zio->io_size, -res);
 				zio->io_error = -res;
 			} else if (res < zio->io_size) {
 				zfs_dbgmsg("partial io, type: %d, "
