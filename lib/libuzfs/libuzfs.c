@@ -1120,6 +1120,12 @@ libuzfs_dataset_open(const char *dsname, int *err,
 	}
 
 	libuzfs_dhp_init(dhp, os, dnodesize);
+	*err = libuzfs_dataset_expand(dhp);
+	if (*err) {
+		libuzfs_dataset_close(dhp);
+		dhp = NULL;
+	}
+
 	return (dhp);
 }
 
