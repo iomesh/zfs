@@ -65,8 +65,7 @@ typedef struct libuzfs_node {
 	zfs_rangelock_t rl;
 	sa_handle_t *sa_hdl;
 	uint64_t u_size;
-	uint64_t u_blksz;
-	uint64_t u_maxblksz;
+	uint32_t u_blksz;
 	uint64_t u_obj;
 	uint64_t ref_count;
 	libuzfs_dataset_handle_t *dhp;
@@ -78,11 +77,11 @@ struct libuzfs_dataset_handle {
 	objset_t *os;
 	zilog_t	*zilog;
 	uint64_t sb_ino;
-	uint64_t max_blksz;
+	uint32_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
 	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
 	kmutex_t objs_lock[NUM_NODE_BUCKETS];
-	uint64_t dnodesize;
+	uint32_t dnodesize;
 };
 
 struct libuzfs_kvattr_iterator {
@@ -99,7 +98,7 @@ struct libuzfs_zap_iterator {
 	zap_attribute_t za;
 };
 
-#define	UZFS_MAX_BLOCKSIZE		(1<<18)
+#define	UZFS_DEFAULT_BLOCKSIZE		(1<<16)
 
 // dnode layout(512): 192(dnode data) + 32(bonus header)
 // + 32(max reserve) + 256(max kv capacity)
