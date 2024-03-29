@@ -338,10 +338,16 @@ prep_task(zio_task_t *task, struct iocb *io_cb)
 	}
 }
 
+#define	MAX_BATCHED_EVENTS 256
+
 static void*
 zio_task_submitter(void *args)
 {
 	io_workers_ctx_t *ctx = args;
+	uint32_t batches = 0;
+	uint32_t total_reads = 0;
+	uint32_t total_writes = 0;
+	uint32_t total_syncs = 0;
 	while (likely(!ctx->stop)) {
 		sem_wait(&ctx->submit_sem);
 		// fetch current head
@@ -355,14 +361,49 @@ zio_task_submitter(void *args)
 			head = cur_head;
 		}
 
-		// TODO(sundengyu): submit tasks in a batch
-		struct iocb iocb;
-		struct iocb *ptr = &iocb;
+		struct iocb iocbs[MAX_BATCHED_EVENTS];
+		struct iocb *iocb_ptrs[MAX_BATCHED_EVENTS];
+		int niocbs = 0;
 		while (head != NULL) {
-			prep_task(head, ptr);
+			switch (head->zio->io_type) {
+			case ZIO_TYPE_READ:
+				++total_reads;
+				break;
+                        case ZIO_TYPE_WRITE:
+				++total_writes;
+				break;
+                        default:
+				++total_syncs;
+                        	break;
+                        }
+			iocb_ptrs[niocbs] = &iocbs[niocbs];
+			prep_task(head, iocb_ptrs[niocbs]);
 			head = head->next;
-			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
-			    ctx->io_ctx, 1, &ptr)), ==, 1);
+			++niocbs;
+                        if (head == NULL || niocbs >= MAX_BATCHED_EVENTS) {
+				int nsubmit = 0;
+				while (nsubmit < niocbs) {
+					int submit = TEMP_FAILURE_RETRY(
+					    syscall(__NR_io_submit,
+					    ctx->io_ctx, niocbs - nsubmit,
+					    iocb_ptrs + nsubmit));
+					if (submit < 0) {
+						cmn_err(CE_PANIC, "io submit got"
+						    " unrecoverable error: %u", errno);
+					}
+					nsubmit += submit;
+					++batches;
+				}
+				niocbs = 0;
+			}
+		}
+
+		if (batches >= 1024) {
+			zfs_dbgmsg("batches: %u, reads: %u, writes: %u, syncs: %u", batches, total_reads, total_writes, total_syncs);
+			batches = 0;
+			total_reads = 0;
+			total_writes = 0;
+			total_syncs = 0;
 		}
 	}
 
@@ -372,14 +413,13 @@ zio_task_submitter(void *args)
 static void
 zio_task_reaper(void *args)
 {
-#define	MAX_PROCESSED_EVENTS 64
 	io_workers_ctx_t *ctx = args;
-	struct io_event events[MAX_PROCESSED_EVENTS];
+	struct io_event events[MAX_BATCHED_EVENTS];
 	struct timespec interval = {1, 0};
 
 	while (likely(!ctx->stop)) {
 		int nevents = syscall(__NR_io_getevents, ctx->io_ctx,
-		    1, MAX_PROCESSED_EVENTS, events, &interval);
+		    1, MAX_BATCHED_EVENTS, events, &interval);
 		for (int i = 0; i < nevents; ++i) {
 			zio_task_t *task = (zio_task_t *)events[i].data;
 
