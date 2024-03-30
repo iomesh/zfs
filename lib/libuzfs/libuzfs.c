@@ -464,7 +464,7 @@ libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	objset_t *os = dhp->os;
 	if (size < up->u_size) {
-		err = dmu_free_long_range(os, obj, size, up->u_size);
+		err = dmu_free_long_range(os, obj, size, DMU_OBJECT_END);
 		if (err)
 			goto out;
 	}
