@@ -109,9 +109,9 @@ zk_thread_create(void (*func)(void *), void *arg, size_t stksize, int state)
 {
 	if (thread_create_fun) {
 		boolean_t joinable = (state & TS_JOINABLE) != 0;
-		boolean_t new_runtime = (state & TS_NEW_RUNTIME) != 0;
+		boolean_t blocking = (state & TS_BLOCKING) != 0;
 		return ((kthread_t *)thread_create_fun(func,
-		    arg, stksize, joinable, new_runtime));
+		    arg, stksize, joinable, blocking));
 	}
 
 	pthread_attr_t attr;

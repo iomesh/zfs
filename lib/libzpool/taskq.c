@@ -293,7 +293,7 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 
 	int state = TS_RUN;
 	if (flags & TASKQ_NEW_RUNTIME) {
-		state |= TS_NEW_RUNTIME;
+		state |= TS_BLOCKING;
 	}
 
 	for (t = 0; t < nthreads; t++)

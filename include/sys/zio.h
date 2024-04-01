@@ -522,6 +522,10 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+	// only used in vdev aio file
+	zio_t 		*next;
+	void		*buf;
 };
 
 enum blk_verify_flag {

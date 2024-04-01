@@ -227,13 +227,13 @@ typedef pthread_t	kthread_t;
 
 #define	TS_RUN		0x00000002
 #define	TS_JOINABLE	0x00000004
-#define	TS_NEW_RUNTIME	0x00000008
+#define	TS_BLOCKING	0x00000008
 
 #define	kpreempt(x)	yield()
 #define	getcomm()	"unknown"
 
 typedef uint64_t (*thread_create_func)(void (*thread_func)(void *), void *arg,
-    int stksize, boolean_t joinable, boolean_t new_runtime);
+    int stksize, boolean_t joinable, boolean_t blocking);
 typedef void (*thread_exit_func)(void);
 typedef void (*thread_join_func)(uint64_t);
 typedef void (*backtrace_func)(void);
