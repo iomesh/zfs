@@ -328,6 +328,8 @@ prep_task(zio_t *zio, struct iocb *io_cb)
 	}
 }
 
+#define	MAX_BATCHED_EVENTS 256
+
 static void*
 zio_task_submitter(void *args)
 {
@@ -345,14 +347,29 @@ zio_task_submitter(void *args)
 			head = cur_head;
 		}
 
-		// TODO(sundengyu): submit tasks in a batch
-		struct iocb iocb;
-		struct iocb *ptr = &iocb;
+		struct iocb iocbs[MAX_BATCHED_EVENTS];
+		struct iocb *iocb_ptrs[MAX_BATCHED_EVENTS];
+		int niocbs = 0;
 		while (head != NULL) {
-			prep_task(head, ptr);
+			iocb_ptrs[niocbs] = &iocbs[niocbs];
+			prep_task(head, iocb_ptrs[niocbs]);
 			head = head->next;
-			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
-			    ctx->io_ctx, 1, &ptr)), ==, 1);
+			++niocbs;
+			if (head == NULL || niocbs >= MAX_BATCHED_EVENTS) {
+				int nsubmit = 0;
+				while (nsubmit < niocbs) {
+					int submit = TEMP_FAILURE_RETRY(
+					    syscall(SYS_io_submit,
+			    		    ctx->io_ctx, niocbs - nsubmit,
+					    iocb_ptrs + nsubmit));
+					if (submit < 0) {
+						cmn_err(CE_PANIC, "iosubmit returns"
+						    " error: %d", errno);
+					}
+					nsubmit += submit;
+				}
+				niocbs = 0;
+			}
 		}
 	}
 
@@ -362,14 +379,13 @@ zio_task_submitter(void *args)
 static void
 zio_task_reaper(void *args)
 {
-#define	MAX_PROCESSED_EVENTS 64
 	io_workers_ctx_t *ctx = args;
-	struct io_event events[MAX_PROCESSED_EVENTS];
+	struct io_event events[MAX_BATCHED_EVENTS];
 	struct timespec interval = {1, 0};
 
 	while (likely(!ctx->stop)) {
-		int nevents = syscall(__NR_io_getevents, ctx->io_ctx,
-		    1, MAX_PROCESSED_EVENTS, events, &interval);
+		int nevents = syscall(SYS_io_getevents, ctx->io_ctx,
+		    1, MAX_BATCHED_EVENTS, events, &interval);
 		for (int i = 0; i < nevents; ++i) {
 			zio_t *zio = (zio_t *)events[i].data;
 			if (zio->io_type == ZIO_TYPE_READ) {
@@ -400,7 +416,7 @@ void
 vdev_aio_file_init(void)
 {
 	memset(&workers_ctx, 0, sizeof (workers_ctx));
-	VERIFY0(syscall(__NR_io_setup, MAX_AIO_EVENTS, &workers_ctx.io_ctx));
+	VERIFY0(syscall(SYS_io_setup, MAX_AIO_EVENTS, &workers_ctx.io_ctx));
 	workers_ctx.stop = B_FALSE;
 	workers_ctx.head = NULL;
 
@@ -427,7 +443,7 @@ vdev_aio_file_fini(void)
 	thread_join(workers_ctx.reaper);
 	VERIFY0(sem_post(&workers_ctx.submit_sem));
 	pthread_join(workers_ctx.submitter, NULL);
-	VERIFY0(syscall(__NR_io_destroy, workers_ctx.io_ctx));
+	VERIFY0(syscall(SYS_io_destroy, workers_ctx.io_ctx));
 	sem_destroy(&workers_ctx.submit_sem);
 	taskq_destroy(workers_ctx.trim_workers);
 }
