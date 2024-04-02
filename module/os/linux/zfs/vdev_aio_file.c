@@ -225,6 +225,8 @@ submit_zio_task(zio_t *zio)
 	}
 }
 
+#define	MIN_EXTENT_SIZE	(1<<18)
+
 static void
 do_trim_work(void *arg)
 {
@@ -234,6 +236,11 @@ do_trim_work(void *arg)
 	uint64_t range[2] = {zio->io_offset, zio->io_size};
 	if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
 		zio->io_error = errno;
+	}
+
+	if (zio->io_offset % MIN_EXTENT_SIZE != 0 || zio->io_offset % MIN_EXTENT_SIZE != 0) {
+		zfs_dbgmsg("trim not aligned! offset: %lu, size: %lu",
+		    zio->io_offset, zio->io_size);
 	}
 	zio_interrupt(zio);
 }

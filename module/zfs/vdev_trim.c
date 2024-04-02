@@ -82,7 +82,7 @@
  *
  * While the automatic TRIM process is highly effective it is more likely
  * than a manual TRIM to encounter tiny ranges.  Ranges less than or equal to
- * 'zfs_trim_extent_bytes_min' (32k) are considered too small to efficiently
+ * 'zfs_trim_extent_bytes_min' (256k) are considered too small to efficiently
  * TRIM and are skipped.  This means small amounts of freed space may not
  * be automatically trimmed.
  *
@@ -100,9 +100,9 @@
 unsigned int zfs_trim_extent_bytes_max = 128 * 1024 * 1024;
 
 /*
- * Minimum size of TRIM I/O, extents smaller than 32Kib will be skipped.
+ * Minimum size of TRIM I/O, extents smaller than 256Kib will be skipped.
  */
-unsigned int zfs_trim_extent_bytes_min = 32 * 1024;
+unsigned int zfs_trim_extent_bytes_min = 256 * 1024;
 
 /*
  * Skip uninitialized metaslabs during the TRIM process.  This option is
