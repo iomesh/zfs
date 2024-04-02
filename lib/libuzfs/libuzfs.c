@@ -681,9 +681,22 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 		error = dmu_read(os, object, offset, size,
 		    lr + 1, DMU_READ_NO_PREFETCH);
 	} else {	/* indirect write */
-		offset -= P2PHASE(offset, dhp->max_blksz);
-		zgd->zgd_lr = zfs_rangelock_enter(&up->rl, offset,
-		    dhp->max_blksz, RL_READER);
+		// considering that the blksz of this object may change, we need
+		// to try many times until the blksz is what we loaded
+		for (;;) {
+			size = up->u_blksz;
+			// not power of 2 means only one block
+			uint64_t blkoff = ISP2(size) ?
+			    P2PHASE(offset, size): offset;
+			offset -= blkoff;
+			zgd->zgd_lr = zfs_rangelock_enter(&up->rl, offset,
+			    size, RL_READER);
+			if (up->u_blksz == size) {
+				break;
+			}
+			offset += blkoff;
+			zfs_rangelock_exit(zgd->zgd_lr);
+		}
 
 		if (lr->lr_offset >= up->u_size) {
 			error = SET_ERROR(ENOENT);
@@ -700,7 +713,7 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 			zgd->zgd_db = db;
 			zgd->zgd_bp = bp;
 			ASSERT3U(db->db_offset, ==, offset);
-			ASSERT3U(db->db_size, ==, up->u_blksz);
+			ASSERT3U(db->db_size, ==, size);
 			error = dmu_sync(zio, lr->lr_common.lrc_txg,
 			    libuzfs_get_done, zgd);
 			ASSERT(error || lr->lr_length <= up->u_blksz);
