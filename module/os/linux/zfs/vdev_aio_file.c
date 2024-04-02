@@ -26,6 +26,7 @@
 #include "sys/fs/zfs.h"
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
+#include "sys/sysmacros.h"
 #include "sys/zfs_context.h"
 #include "umem.h"
 #include <asm/unistd_64.h>
@@ -225,15 +226,23 @@ submit_zio_task(zio_t *zio)
 	}
 }
 
+#define	MIN_EXTENT_SHIFT	18
+#define	MIN_EXTENT_LENGTH	(1 << MIN_EXTENT_SHIFT)
+
 static void
 do_trim_work(void *arg)
 {
 	zio_t *zio = arg;
 	vdev_t *vd = zio->io_vd;
 	vdev_file_t *vf = vd->vdev_tsd;
-	uint64_t range[2] = {zio->io_offset, zio->io_size};
-	if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
-		zio->io_error = errno;
+	uint64_t offset = P2ROUNDUP(zio->io_offset, MIN_EXTENT_LENGTH);
+	uint64_t end = (zio->io_size + zio->io_offset) >> MIN_EXTENT_SHIFT << MIN_EXTENT_SHIFT;
+	uint64_t size = end - offset;
+	if (size > 0) {
+		uint64_t range[2] = {offset, size};
+		if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
+			zio->io_error = errno;
+		}
 	}
 	zio_interrupt(zio);
 }
