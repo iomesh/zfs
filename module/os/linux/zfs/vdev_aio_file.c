@@ -245,11 +245,6 @@ do_trim_work(void *arg)
 	VERIFY(end <= zio->io_offset + zio->io_size);
 	VERIFY(size <= zio->io_size);
 
-	if (offset != zio->io_offset || size != zio->io_size) {
-		zfs_dbgmsg("trim not aligned!! request (%lx, %lx), actually (%lx, %lx)",
-		    zio->io_offset, zio->io_size, offset, size);
-	}
-
 	if (size > 0) {
 		uint64_t range[2] = {offset, size};
 		if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
