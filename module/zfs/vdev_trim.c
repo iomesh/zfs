@@ -95,14 +95,14 @@
  */
 
 /*
- * Maximum size of TRIM I/O, ranges will be chunked in to 128MiB lengths.
+ * Maximum size of TRIM I/O, ranges will be chunked in to 256MiB lengths.
  */
-unsigned int zfs_trim_extent_bytes_max = 128 * 1024 * 1024;
+unsigned int zfs_trim_extent_bytes_max = 256 * 1024 * 1024;
 
 /*
- * Minimum size of TRIM I/O, extents smaller than 32Kib will be skipped.
+ * Minimum size of TRIM I/O, extents smaller than 256Kib will be skipped.
  */
-unsigned int zfs_trim_extent_bytes_min = 32 * 1024;
+unsigned int zfs_trim_extent_bytes_min = 256 * 1024;
 
 /*
  * Skip uninitialized metaslabs during the TRIM process.  This option is
