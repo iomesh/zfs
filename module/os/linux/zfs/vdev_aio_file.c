@@ -225,16 +225,38 @@ submit_zio_task(zio_t *zio)
 	}
 }
 
+// not 256K aligned trim will be transformed into zero-out which wastes bandwidth
+// so we should only issue 256 aligned trim for now
+#define	MIN_TRIM_EXTENT_SHIFT	18
+#define	MIN_TRIM_EXTENT	(1<<MIN_TRIM_EXTENT_SHIFT)
+
 static void
 do_trim_work(void *arg)
 {
 	zio_t *zio = arg;
 	vdev_t *vd = zio->io_vd;
 	vdev_file_t *vf = vd->vdev_tsd;
-	uint64_t range[2] = {zio->io_offset, zio->io_size};
-	if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
-		zio->io_error = errno;
+	uint64_t offset = P2ROUNDUP(zio->io_offset, MIN_TRIM_EXTENT);
+	uint64_t end = (zio->io_offset + zio->io_size) >>
+	    MIN_TRIM_EXTENT_SHIFT << MIN_TRIM_EXTENT_SHIFT;
+	uint64_t size = end > offset ? end - offset : 0;
+
+	VERIFY(offset >= zio->io_offset);
+	VERIFY(end <= zio->io_offset + zio->io_size);
+	VERIFY(size <= zio->io_size);
+
+	if (offset != zio->io_offset || size != zio->io_size) {
+		zfs_dbgmsg("trim not aligned!! request (%lx, %lx), actually (%lx, %lx)",
+		    zio->io_offset, zio->io_size, offset, size);
 	}
+
+	if (size > 0) {
+		uint64_t range[2] = {offset, size};
+		if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
+			zio->io_error = errno;
+		}
+	}
+
 	zio_interrupt(zio);
 }
 
