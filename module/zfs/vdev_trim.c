@@ -896,6 +896,13 @@ vdev_trim_thread(void *arg)
 		ta.trim_extent_bytes_min = SPA_MINBLOCKSIZE;
 	}
 
+	for (uint64_t i = 0; i < vd->vdev_top->vdev_ms_count; i++) {
+		metaslab_t *msp = vd->vdev_top->vdev_ms[i];
+		if (msp->ms_sm != NULL) {
+			zfs_dbgmsg("ms id %lu initialized!!", msp->ms_id);
+		}
+	}
+
 	uint64_t ms_count = 0;
 	for (uint64_t i = 0; !vd->vdev_detached &&
 	    i < vd->vdev_top->vdev_ms_count; i++) {

@@ -3997,6 +3997,7 @@ metaslab_sync(metaslab_t *msp, uint64_t txg)
 		    spa_feature_is_enabled(spa, SPA_FEATURE_LOG_SPACEMAP) ?
 		    zfs_metaslab_sm_blksz_with_log :
 		    zfs_metaslab_sm_blksz_no_log, tx);
+		zfs_dbgmsg("ms id %lu initializing!!", msp->ms_id);
 		VERIFY3U(new_object, !=, 0);
 
 		dmu_write(mos, vd->vdev_ms_array, sizeof (uint64_t) *
@@ -4930,6 +4931,7 @@ metaslab_group_alloc_normal(metaslab_group_t *mg, zio_alloc_list_t *zal,
 			mutex_exit(&msp->ms_lock);
 			continue;
 		} else if (msp->ms_disabled > 0) {
+			zfs_dbgmsg("%lu disabled", msp->ms_id);
 			metaslab_trace_add(zal, mg, msp, asize, d,
 			    TRACE_DISABLED, allocator);
 			if (activated) {
