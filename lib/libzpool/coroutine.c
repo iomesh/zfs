@@ -90,7 +90,7 @@ return_coroutine(uzfs_coroutine_t *coroutine)
 	return (ret);
 }
 
-static inline void
+static void __attribute__ ((noinline))
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
 {
 	VERIFY3U(atomic_cas_32(&coroutine->co_state, COROUTINE_PENDING,
