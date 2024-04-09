@@ -225,8 +225,8 @@ submit_zio_task(zio_t *zio)
 	}
 }
 
-// not 256K aligned trim will be transformed into zero-out which wastes bandwidth
-// so we should only issue 256 aligned trim for now
+// not 256K aligned trim will be transformed into zero-out which
+// wastes bandwidth so we should only issue 256 aligned trim for now
 #define	MIN_TRIM_EXTENT_SHIFT	18
 #define	MIN_TRIM_EXTENT	(1<<MIN_TRIM_EXTENT_SHIFT)
 

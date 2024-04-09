@@ -91,7 +91,8 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 #define	UZFS_XATTR_MAXVALUELEN (8192)
 
 extern uzfs_coroutine_t *libuzfs_new_coroutine(void (*func)(void *), void *arg,
-    uint64_t task_id, boolean_t foreground, void (*record_backtrace)(uint64_t));
+    uint64_t task_id, boolean_t foreground, void (*record_backtrace)(uint64_t),
+    void (*wake)(void *), void *wake_arg);
 extern void libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine);
 
 typedef enum run_state {
@@ -100,8 +101,7 @@ typedef enum run_state {
 	RUN_STATE_DONE = 2,
 } run_state_t;
 
-extern run_state_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
-    void (*wake)(void *), void *arg);
+extern run_state_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine);
 extern void libuzfs_coroutine_yield(void);
 extern void *libuzfs_current_coroutine_arg(void);
 extern void libuzfs_coroutine_exit(void);
