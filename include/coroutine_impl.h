@@ -39,7 +39,6 @@ enum coroutine_state {
 
 #define	MAX_LOCAL	UINT32_MAX
 struct uzfs_coroutine {
-	uint32_t co_state;
 	list_node_t node;
 	fcontext_t main_ctx;
 	fcontext_t my_ctx;

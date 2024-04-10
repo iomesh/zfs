@@ -93,8 +93,6 @@ return_coroutine(uzfs_coroutine_t *coroutine)
 static inline void
 wakeup_coroutine(uzfs_coroutine_t *coroutine)
 {
-	VERIFY3U(atomic_cas_32(&coroutine->co_state, COROUTINE_PENDING,
-	    COROUTINE_RUNNABLE), ==, COROUTINE_PENDING);
 	coroutine->wake(coroutine->wake_arg);
 }
 
@@ -160,7 +158,6 @@ cutex_check(cutex_t *cutex, int expected_value, const struct timespec *abstime)
 	timer_task_t *task = NULL;
 	thread_local_coroutine->waiter_state = CUTEX_WAITER_NONE;
 	thread_local_coroutine->cutex = cutex;
-	thread_local_coroutine->co_state = COROUTINE_PENDING;
 	// add current coroutine to the wait list
 	// what if wake up happens after this insertion and before context swap?
 	// will lost-wakeup happens?
@@ -338,7 +335,8 @@ allocate_stack_storage(uzfs_coroutine_t *coroutine,
 
 uzfs_coroutine_t *
 libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
-    boolean_t foreground, void (*record_backtrace)(uint64_t))
+    boolean_t foreground, void (*record_backtrace)(uint64_t),
+    void (*wake)(void *), void *wake_arg)
 {
 	uzfs_coroutine_t *coroutine = NULL;
 	if (unlikely(!foreground || (coroutine = fetch_coroutine()) == NULL)) {
@@ -349,15 +347,14 @@ libuzfs_new_coroutine(void (*fn)(void *), void *arg, uint64_t task_id,
 		    DEFAULT_GUARD_SIZE);
 	}
 
-	coroutine->co_state = COROUTINE_RUNNABLE;
 	coroutine->my_ctx = make_fcontext(coroutine->stack_bottom,
 	    DEFAULT_STACK_SIZE, task_runner);
 	coroutine->fn = fn;
 	coroutine->arg = arg;
 	coroutine->pending = B_FALSE;
 	coroutine->yielded = B_FALSE;
-	coroutine->wake = NULL;
-	coroutine->wake_arg = NULL;
+	coroutine->wake = wake;
+	coroutine->wake_arg = wake_arg;
 	coroutine->record_backtrace = record_backtrace;
 	coroutine->cutex = NULL;
 	coroutine->task_id = task_id;
@@ -383,7 +380,6 @@ libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine)
 		umem_free(cur, sizeof (co_specific_t));
 		cur = next;
 	}
-	VERIFY3U(coroutine->co_state, ==, COROUTINE_DONE);
 
 	if (unlikely(!coroutine->foreground || !return_coroutine(coroutine))) {
 		int memsize = coroutine->stack_size + coroutine->guard_size;
@@ -405,54 +401,39 @@ current_pc(void)
 }
 
 run_state_t
-libuzfs_run_coroutine(uzfs_coroutine_t *coroutine,
-    void (*wake)(void *), void *wake_arg)
+libuzfs_run_coroutine(uzfs_coroutine_t *coroutine)
 {
-	ASSERT(thread_local_coroutine == NULL);
+	coroutine->pending = B_FALSE;
+	coroutine->yielded = B_FALSE;
+	thread_local_coroutine = coroutine;
 
-	switch (atomic_load_32(&coroutine->co_state)) {
-	case COROUTINE_RUNNABLE:
-		coroutine->pending = B_FALSE;
-		coroutine->yielded = B_FALSE;
-		thread_local_coroutine = coroutine;
-		coroutine->wake = wake;
-		coroutine->wake_arg = wake_arg;
+	// when the coroutine is first run, the data where the frame
+	// pointer to is the task_runner, so we cannot overwrite that
+	// data. after the first run, this address are used as frame
+	// pointer so we can just set the address
+	if (coroutine->bottom_fpp) {
+		*coroutine->bottom_fpp = __builtin_frame_address(0);
+	} else {
+		coroutine->saved_fp = __builtin_frame_address(0);
+	}
+	// TODO(sundengyu): use one instruction other that a function
+	// call this implementation may not be compatible with arm arch
+	*((void **)coroutine->stack_bottom - 1) = current_pc();
 
-		// when the coroutine is first run, the data where the frame
-		// pointer to is the task_runner, so we cannot overwrite that
-		// data. after the first run, this address are used as frame
-		// pointer so we can just set the address
-		if (coroutine->bottom_fpp) {
-			*coroutine->bottom_fpp = __builtin_frame_address(0);
-		} else {
-			coroutine->saved_fp = __builtin_frame_address(0);
-		}
-		// TODO(sundengyu): use one instruction other that a function
-		// call this implementation may not be compatible with arm arch
-		*((void **)coroutine->stack_bottom - 1) = current_pc();
+	jump_fcontext(&coroutine->main_ctx,
+	    coroutine->my_ctx, 0, B_TRUE);
+	thread_local_coroutine = NULL;
+	ASSERT(!(coroutine->yielded && coroutine->pending));
 
-		jump_fcontext(&coroutine->main_ctx,
-		    coroutine->my_ctx, 0, B_TRUE);
-		thread_local_coroutine = NULL;
-		ASSERT(!(coroutine->yielded && coroutine->pending));
-		// if pending, state will be set already
-		if (coroutine->yielded) {
-			return (RUN_STATE_YIELDED);
-		}
-
-		if (coroutine->pending) {
-			return (RUN_STATE_PENDING);
-		}
-
-		coroutine->co_state = COROUTINE_DONE;
-		return (RUN_STATE_DONE);
-	case COROUTINE_PENDING:
-		return (RUN_STATE_PENDING);
-	case COROUTINE_DONE:
-		return (RUN_STATE_DONE);
+	if (coroutine->yielded) {
+		return (RUN_STATE_YIELDED);
 	}
 
-	panic("unexpected branch");
+	if (coroutine->pending) {
+		return (RUN_STATE_PENDING);
+	}
+
+	return (RUN_STATE_DONE);
 }
 
 void
@@ -535,7 +516,6 @@ coroutine_sleep(const struct timespec *sleep_time)
 	clock_gettime(CLOCK_REALTIME, &now);
 	now.tv_sec += sleep_time->tv_sec;
 	now.tv_nsec += sleep_time->tv_nsec;
-	thread_local_coroutine->co_state = COROUTINE_PENDING;
 
 	timer_task_t *task = timer_thread_schedule(&timer_thread,
 	    timed_wakeup, thread_local_coroutine, &now);
