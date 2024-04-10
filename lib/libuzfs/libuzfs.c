@@ -66,7 +66,6 @@
 #include "sys/stdtypes.h"
 #include "sys/sysmacros.h"
 #include "sys/txg.h"
-#include "sys/vdev_trim.h"
 #include "sys/zfs_refcount.h"
 #include "sys/zfs_rlock.h"
 
@@ -530,7 +529,7 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	boolean_t indirect = lr->lr_common.lrc_reclen == sizeof (lr_write_t);
 
 	zfs_dbgmsg("replaying write, obj: %ld, off: %ld, length: %ld,"
-	    " indirect: %d", obj, offset, length, indirect);
+	    " indirect: %d, first bytes: %d", obj, offset, length, indirect, *(uint8_t *)data);
 
 	/*
 	 * This may be a write from a dmu_sync() for a whole block,
@@ -842,8 +841,6 @@ refresh_config(void *unused, nvlist_t *tryconfig)
 	return (res);
 }
 
-extern kmutex_t spa_namespace_lock;
-
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
@@ -888,26 +885,6 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	int err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
 	if (err == ENOENT) {
 		err = EINVAL;
-	}
-
-	if (err == 0) {
-		mutex_enter(&spa_namespace_lock);
-		spa_t *spa = spa_lookup(pool_name);
-		VERIFY(spa != NULL);
-		mutex_exit(&spa_namespace_lock);
-
-		vdev_t *root_vdev = spa->spa_root_vdev;
-		for (int i = 0; i < root_vdev->vdev_children; ++i) {
-			vdev_t *leaf_vdev = root_vdev->vdev_child[i];
-			mutex_enter(&leaf_vdev->vdev_trim_lock);
-			// spa import may restart trim, so
-			// leaf_vdev->vdev_trim_thread might not be NULL
-			if (leaf_vdev->vdev_trim_thread == NULL) {
-				vdev_trim(leaf_vdev, UINT64_MAX,
-				    B_TRUE, B_FALSE);
-			}
-			mutex_exit(&leaf_vdev->vdev_trim_lock);
-		}
 	}
 
 	nvlist_free(pools);
