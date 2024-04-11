@@ -389,15 +389,14 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
 		DB_DNODE_ENTER(db);
 		int err = dmu_read_by_dnode(DB_DNODE(db), off, resid,
 		    lr + 1, DMU_READ_NO_PREFETCH);
+		DB_DNODE_EXIT(db);
 		if (err == 0) {
-			DB_DNODE_EXIT(db);
 			goto set_lr;
 		}
 
 		zil_itx_destroy(itx);
 		itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t));
 		lr = (lr_write_t *)&itx->itx_lr;
-		DB_DNODE_EXIT(db);
 	}
 
 	if (resid <= libuzfs_immediate_write_sz) {
@@ -1502,7 +1501,6 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
 	if ((err = libuzfs_acquire_node(dhp, obj, &up)) != 0) {
 		return (err);
 	}
-	dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(up->sa_hdl));
 	uint64_t size = 0;
 	for (int i = 0; i < iov_cnt; ++i) {
 		size += iovs[i].iov_len;
@@ -1534,7 +1532,10 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
 		    max_blksz - P2PHASE(offset, max_blksz));
 		dmu_tx_t *tx = dmu_tx_create(os);
 		dmu_tx_hold_sa(tx, up->sa_hdl, FALSE);
-		dmu_tx_hold_write_by_dnode(tx, dn, offset, nwrite);
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
+		DB_DNODE_ENTER(db);
+		dmu_tx_hold_write_by_dnode(tx, DB_DNODE(db), offset, nwrite);
+		DB_DNODE_EXIT(db);
 		if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 			dmu_tx_abort(tx);
 			break;
@@ -1552,18 +1553,20 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
 				new_blksz = MIN(max_blksz, end_size);
 			}
 
-			int err = dnode_set_blksz(dn, new_blksz, 0, tx);
+			int err = dnode_set_blksz(DB_DNODE(db),
+			    new_blksz, 0, tx);
 			if (err != 0) {
 				ASSERT(err == ENOTSUP);
 				zfs_dbgmsg("failed to update to new"
 				    " blocksize %u from %u, err: %d",
 				    new_blksz, up->u_blksz, err);
 			}
-			up->u_blksz = dn->dn_datablksz;
+			up->u_blksz = DB_DNODE(db)->dn_datablksz;
 			zfs_rangelock_reduce(lr, offset, size);
 		}
 
-		VERIFY0(dmu_write_uio_dnode(dn, &uio, nwrite, tx));
+		VERIFY0(dmu_write_uio_dbuf(sa_get_db(up->sa_hdl),
+		    &uio, nwrite, tx));
 
 		if (replay_eof == 0) {
 			uint64_t up_size = 0;
@@ -1621,8 +1624,12 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 	int read_size = MIN(up->u_size - offset, size);
 
-	int err = dmu_read(dhp->os, obj, offset,
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dnode_t *dn = DB_DNODE(db);
+	int err = dmu_read_by_dnode(dn, offset,
 	    read_size, buf, DMU_READ_NO_PREFETCH);
+	DB_DNODE_EXIT(db);
 	if (err != 0) {
 		rc = -err;
 	} else {
