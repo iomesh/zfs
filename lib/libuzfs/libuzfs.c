@@ -63,9 +63,11 @@
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
 #include "sys/nvpair.h"
+#include "sys/sa.h"
 #include "sys/stdtypes.h"
 #include "sys/sysmacros.h"
 #include "sys/txg.h"
+#include "sys/zfs_debug.h"
 #include "sys/zfs_refcount.h"
 #include "sys/zfs_rlock.h"
 
@@ -376,23 +378,26 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
 		return;
 	}
 
+	boolean_t wr_copied = resid <= zil_max_copied_data(zilog) &&
+	    resid <= libuzfs_immediate_write_sz && sync;
 	itx_t *itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t) +
-	    (resid <= zil_max_copied_data(zilog) ? resid : 0));
+	    (wr_copied ? resid : 0));
 	lr_write_t *lr = (lr_write_t *)&itx->itx_lr;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
-	if (resid <= zil_max_copied_data(zilog)) {
+	if (wr_copied) {
 		itx->itx_wr_state = WR_COPIED;
 		DB_DNODE_ENTER(db);
 		int err = dmu_read_by_dnode(DB_DNODE(db), off, resid,
 		    lr + 1, DMU_READ_NO_PREFETCH);
-		DB_DNODE_EXIT(db);
 		if (err == 0) {
+			DB_DNODE_EXIT(db);
 			goto set_lr;
 		}
 
 		zil_itx_destroy(itx);
 		itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t));
 		lr = (lr_write_t *)&itx->itx_lr;
+		DB_DNODE_EXIT(db);
 	}
 
 	if (resid <= libuzfs_immediate_write_sz) {
@@ -412,6 +417,8 @@ set_lr:
 	itx->itx_callback = NULL;
 	itx->itx_callback_data = NULL;
 	itx->itx_private = dhp;
+	VERIFY0(sa_lookup(up->sa_hdl, dhp->uzfs_attr_table[UZFS_GEN],
+	    &itx->itx_gen, sizeof (uint64_t)));
 
 	zil_itx_assign(zilog, itx, tx);
 }
@@ -529,7 +536,8 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	boolean_t indirect = lr->lr_common.lrc_reclen == sizeof (lr_write_t);
 
 	zfs_dbgmsg("replaying write, obj: %ld, off: %ld, length: %ld,"
-	    " indirect: %d, first bytes: %d", obj, offset, length, indirect, *(uint8_t *)data);
+	    " indirect: %d, first bytes: %d", obj, offset,
+	    length, indirect, *(uint8_t *)data);
 
 	/*
 	 * This may be a write from a dmu_sync() for a whole block,
@@ -652,7 +660,7 @@ libuzfs_get_done(zgd_t *zgd, int error)
 }
 
 static int
-libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
+libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
     struct lwb *lwb, zio_t *zio)
 {
 	libuzfs_dataset_handle_t *dhp = arg;
@@ -663,6 +671,17 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	int error = libuzfs_acquire_node(dhp, object, &up);
 	if (error != 0) {
 		return (error);
+	}
+
+	uint64_t obj_gen;
+	int err = sa_lookup(up->sa_hdl, dhp->uzfs_attr_table[UZFS_GEN],
+	    &obj_gen, sizeof (uint64_t));
+	if (err == 0 && obj_gen != gen) {
+		err = ENOENT;
+	}
+	if (err != 0) {
+		libuzfs_release_node(up);
+		return (err);
 	}
 
 	ASSERT3P(lwb, !=, NULL);
