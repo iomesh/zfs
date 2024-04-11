@@ -66,6 +66,7 @@
 #include "sys/stdtypes.h"
 #include "sys/sysmacros.h"
 #include "sys/txg.h"
+#include "sys/zfs_debug.h"
 #include "sys/zfs_refcount.h"
 #include "sys/zfs_rlock.h"
 
@@ -362,7 +363,8 @@ libuzfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	zil_itx_assign(zilog, itx, tx);
 }
 
-static ssize_t libuzfs_immediate_write_sz = 32 << 10;
+static ssize_t max_copied_write_sz = 8 << 10;
+static ssize_t max_need_copied_write_sz = 32 << 10;
 
 static void
 libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
@@ -377,14 +379,17 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
 	}
 
 	itx_t *itx = zil_itx_create(TX_WRITE, sizeof (lr_write_t) +
-	    (resid <= zil_max_copied_data(zilog) ? resid : 0));
+	    (resid <= max_copied_write_sz ? resid : 0));
 	lr_write_t *lr = (lr_write_t *)&itx->itx_lr;
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
-	if (resid <= zil_max_copied_data(zilog)) {
+	VERIFY(max_copied_write_sz <= zil_max_copied_data(zilog));
+	if (resid <= max_copied_write_sz) {
 		itx->itx_wr_state = WR_COPIED;
 		DB_DNODE_ENTER(db);
 		int err = dmu_read_by_dnode(DB_DNODE(db), off, resid,
 		    lr + 1, DMU_READ_NO_PREFETCH);
+		zfs_dbgmsg("copied log, offset: %lld, size: %ld, first bytes: %u",
+		    off, resid, *(uint8_t *)(lr + 1));
 		DB_DNODE_EXIT(db);
 		if (err == 0) {
 			goto set_lr;
@@ -395,7 +400,7 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
 		lr = (lr_write_t *)&itx->itx_lr;
 	}
 
-	if (resid <= libuzfs_immediate_write_sz) {
+	if (resid <= max_need_copied_write_sz) {
 		itx->itx_wr_state = WR_NEED_COPY;
 	} else {
 		itx->itx_wr_state = WR_INDIRECT;
@@ -679,6 +684,9 @@ libuzfs_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 		    offset, size, RL_READER);
 		error = dmu_read(os, object, offset, size,
 		    lr + 1, DMU_READ_NO_PREFETCH);
+		char *buf = (char *)(lr + 1);
+		zfs_dbgmsg("offset: %lu, size: %lu, first byte: %d",
+		    offset, size, buf[0]);
 	} else {	/* indirect write */
 		// considering that the blksz of this object may change, we need
 		// to try many times until the blksz is what we loaded
