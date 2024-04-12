@@ -388,7 +388,7 @@ libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
 		itx->itx_wr_state = WR_COPIED;
 		DB_DNODE_ENTER(db);
 		int err = dmu_read_by_dnode(DB_DNODE(db), off, resid,
-		    lr + 1, DMU_READ_NO_PREFETCH);
+		    lr + 1, DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
 		DB_DNODE_EXIT(db);
 		if (err == 0) {
 			goto set_lr;
@@ -695,8 +695,9 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	if (buf != NULL) {	/* immediate write */
 		zgd->zgd_lr = zfs_rangelock_enter(&up->rl,
 		    offset, size, RL_READER);
-		error = dmu_read(os, object, offset, size,
-		    lr + 1, DMU_READ_NO_PREFETCH);
+		dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(up->sa_hdl));
+		error = dmu_read_by_dnode(dn, offset, size, lr + 1,
+		    DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
 	} else {	/* indirect write */
 		// considering that the blksz of this object may change, we need
 		// to try many times until the blksz is what we loaded
@@ -1627,8 +1628,8 @@ libuzfs_object_read(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(up->sa_hdl);
 	DB_DNODE_ENTER(db);
 	dnode_t *dn = DB_DNODE(db);
-	int err = dmu_read_by_dnode(dn, offset,
-	    read_size, buf, DMU_READ_NO_PREFETCH);
+	int err = dmu_read_by_dnode(dn, offset, read_size, buf,
+	    DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
 	DB_DNODE_EXIT(db);
 	if (err != 0) {
 		rc = -err;

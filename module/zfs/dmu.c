@@ -1011,7 +1011,7 @@ dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
 	 * block.  If we ever do the tail block optimization, we will need to
 	 * handle that here as well.
 	 */
-	if (dn->dn_maxblkid == 0) {
+	if (dn->dn_maxblkid == 0 && !(flags & DMU_READ_NO_SKIP)) {
 		uint64_t newsz = offset > dn->dn_datablksz ? 0 :
 		    MIN(size, dn->dn_datablksz - offset);
 		bzero((char *)buf + newsz, size - newsz);
