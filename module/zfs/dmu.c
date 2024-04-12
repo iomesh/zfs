@@ -1291,6 +1291,8 @@ dmu_read_uio(objset_t *os, uint64_t object, zfs_uio_t *uio, uint64_t size)
 int
 dmu_write_uio_dnode(dnode_t *dn, zfs_uio_t *uio, uint64_t size, dmu_tx_t *tx)
 {
+	zfs_dbgmsg("offset: %lld, size: %lu, me: %lu", zfs_uio_offset(uio),
+	    size, (uint64_t)curthread);
 	dmu_buf_t **dbp;
 	int numbufs;
 	int err = 0;

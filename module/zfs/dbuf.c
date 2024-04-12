@@ -2313,6 +2313,9 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 		    dn->dn_maxblkid >= db->db_blkid);
 		dnode_new_blkid(dn, db->db_blkid, tx,
 		    drop_struct_rwlock, B_FALSE);
+		if (dn->dn_type == DMU_OT_PLAIN_FILE_CONTENTS) {
+			zfs_dbgmsg("set maxblkid: %lu, me: %lu", db->db_blkid, (uint64_t)(curthread));
+		}
 		ASSERT(dn->dn_maxblkid >= db->db_blkid);
 	}
 
@@ -2502,6 +2505,10 @@ dmu_buf_will_dirty_impl(dmu_buf_t *db_fake, int flags, dmu_tx_t *tx)
 			/* This dbuf is already dirty and cached. */
 			dbuf_redirty(dr);
 			mutex_exit(&db->db_mtx);
+			if (DB_DNODE(db)->dn_type == DMU_OT_PLAIN_FILE_CONTENTS) {
+				zfs_dbgmsg("me: %lu, maxblkid: %lu", (uint64_t)curthread,
+				    DB_DNODE(db)->dn_maxblkid);
+			}
 			return;
 		}
 	}
