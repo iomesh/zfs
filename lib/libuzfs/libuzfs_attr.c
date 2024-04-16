@@ -441,7 +441,7 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 				    name, value, size, option);
 				dmu_tx_commit(tx);
 			}
-			goto out_handle;
+			goto out_free_sa_data;
 		}
 	}
 
