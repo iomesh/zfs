@@ -666,13 +666,15 @@ dprintf_setup(int *argc, char **argv)
 		zfs_flags |= ZFS_DEBUG_DPRINTF;
 }
 
+kmutex_t print_lock;
+
 /*
  * =========================================================================
  * debug printfs
  * =========================================================================
  */
 void
-__dprintf(boolean_t dprint, const char *file, const char *func,
+__dprintf(boolean_t new_line, const char *file, const char *func,
     int line, const char *fmt, ...)
 {
 	const char *newfile;
@@ -688,42 +690,26 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 		newfile = file;
 	}
 
-	if (dprint) {
-		/* dprintf messages are printed immediately */
-		time_t now;
-		time(&now);
-		char buf[128];
-		struct tm ts = *localtime(&now);
-		strftime(buf, sizeof (buf), "%Y-%m-%d %H:%M:%S", &ts);
+	/* dprintf messages are printed immediately */
+	time_t now;
+	time(&now);
+	const int max_len = 1024;
+	char buf[max_len];
+	struct tm ts = *localtime(&now);
+	char ts_str[64];
+	strftime(ts_str, sizeof(ts_str), "%Y-%m-%d %H:%M:%S", &ts);
+	int len = snprintf(buf, max_len, "[%s] %s:%d:%s(): ", ts_str, newfile, line, func);
+	va_start(adx, fmt);
+	vsnprintf(buf + len, max_len - len, fmt, adx);
+	va_end(adx);
 
-		/* Print out just the function name if requested */
-		flockfile(stdout);
-		(void) printf("[%s] %s:%d:%s(): ", buf, newfile, line, func);
-		va_start(adx, fmt);
-		(void) vprintf(fmt, adx);
-		va_end(adx);
-		printf("\n");
-		funlockfile(stdout);
+	mutex_enter(&print_lock);
+	if (likely(new_line)) {
+		printf("%s\n", buf);
 	} else {
-		/* zfs_dbgmsg is logged for dumping later */
-		size_t size;
-		char *buf;
-		int i;
-
-		size = 1024;
-		buf = umem_alloc(size, UMEM_NOFAIL);
-		i = snprintf(buf, size, "%s:%d:%s(): ", newfile, line, func);
-
-		if (i < size) {
-			va_start(adx, fmt);
-			(void) vsnprintf(buf + i, size - i, fmt, adx);
-			va_end(adx);
-		}
-
-		__zfs_dbgmsg(buf);
-
-		umem_free(buf, size);
+		printf("%s", buf);
 	}
+	mutex_exit(&print_lock);
 }
 
 /*
@@ -921,6 +907,7 @@ umem_out_of_memory(void)
 void
 kernel_init(int mode)
 {
+	mutex_init(&print_lock, NULL, MUTEX_DEFAULT, NULL);
 	extern uint_t rrw_tsd_key;
 
 	umem_nofail_callback(umem_out_of_memory);
@@ -973,6 +960,7 @@ kernel_fini(void)
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);
 	tsd_destroy(&zfs_allow_log_key);
+	mutex_destroy(&print_lock);
 }
 
 uid_t

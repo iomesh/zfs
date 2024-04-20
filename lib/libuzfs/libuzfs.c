@@ -914,7 +914,9 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 int
 libuzfs_zpool_export(const char *pool_name)
 {
+	zfs_dbgmsg("exporting zpool %s", pool_name);
 	int err = spa_export(pool_name, NULL, B_TRUE, B_FALSE);
+	zfs_dbgmsg("exported zpool %s", pool_name);
 
 	if (err == ENOENT) {
 		err = 0;
