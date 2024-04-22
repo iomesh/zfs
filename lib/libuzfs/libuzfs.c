@@ -1289,6 +1289,20 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	return (0);
 }
 
+extern int zfs_flags;
+
+extern void
+libuzfs_enable_debug_msg(void)
+{
+	zfs_flags |= ZFS_DEBUG_DPRINTF;
+}
+
+extern void
+libuzfs_disable_debug_msg(void)
+{
+	zfs_flags ^= ZFS_DEBUG_DPRINTF;
+}
+
 /*
  * object creation is always SYNC, recorded in zil
  */
@@ -1362,7 +1376,7 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			libuzfs_wait_synced(dhp);
 			goto do_claim;
 		} else if (err == 0) {
-			zfs_dbgmsg("object %lu already created, type: %d",
+			dprintf("object %lu already created, type: %d",
 			    obj, dn->dn_type);
 			dnode_rele(dn, FTAG);
 		}
@@ -1560,7 +1574,7 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
 			    new_blksz, 0, tx);
 			if (err != 0) {
 				ASSERT(err == ENOTSUP);
-				zfs_dbgmsg("failed to update to new"
+				dprintf("failed to update to new"
 				    " blocksize %u from %u, err: %d",
 				    new_blksz, up->u_blksz, err);
 			}
