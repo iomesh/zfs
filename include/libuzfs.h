@@ -106,6 +106,10 @@ extern void libuzfs_coroutine_yield(void);
 extern void *libuzfs_current_coroutine_arg(void);
 extern void libuzfs_coroutine_exit(void);
 
+// only have effect when in debug binary
+extern void libuzfs_enable_debug_msg(void);
+extern void libuzfs_disable_debug_msg(void);
+
 extern void libuzfs_init(thread_create_func create, thread_exit_func exit,
     thread_join_func join, backtrace_func bt_func);
 extern void libuzfs_fini(void);

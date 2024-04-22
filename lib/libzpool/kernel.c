@@ -26,6 +26,7 @@
 
 #include "coroutine.h"
 #include "sys/stdtypes.h"
+#include "sys/zfs_debug.h"
 #include <assert.h>
 #include <bits/types/struct_timespec.h>
 #include <bits/types/time_t.h>
@@ -666,8 +667,6 @@ dprintf_setup(int *argc, char **argv)
 		zfs_flags |= ZFS_DEBUG_DPRINTF;
 }
 
-kmutex_t print_lock;
-
 /*
  * =========================================================================
  * debug printfs
@@ -703,13 +702,13 @@ __dprintf(boolean_t new_line, const char *file, const char *func,
 	vsnprintf(buf + len, max_len - len, fmt, adx);
 	va_end(adx);
 
-	mutex_enter(&print_lock);
+	flockfile(stdout);
 	if (likely(new_line)) {
 		printf("%s\n", buf);
 	} else {
 		printf("%s", buf);
 	}
-	mutex_exit(&print_lock);
+	funlockfile(stdout);
 }
 
 /*
@@ -907,14 +906,13 @@ umem_out_of_memory(void)
 void
 kernel_init(int mode)
 {
-	mutex_init(&print_lock, NULL, MUTEX_DEFAULT, NULL);
 	extern uint_t rrw_tsd_key;
 
 	umem_nofail_callback(umem_out_of_memory);
 
 	physmem = sysconf(_SC_PHYS_PAGES);
 
-	dprintf("physmem = %llu pages (%.2f GB)\n", (u_longlong_t)physmem,
+	zfs_dbgmsg("physmem = %llu pages (%.2f GB)\n", (u_longlong_t)physmem,
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
 	(void) snprintf(hw_serial, sizeof (hw_serial), "%ld",
@@ -960,7 +958,6 @@ kernel_fini(void)
 	tsd_destroy(&zfs_fsyncer_key);
 	tsd_destroy(&rrw_tsd_key);
 	tsd_destroy(&zfs_allow_log_key);
-	mutex_destroy(&print_lock);
 }
 
 uid_t
