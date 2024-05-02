@@ -26,6 +26,10 @@
  * Copyright 2017 Nexenta Systems, Inc.
  */
 
+#include "atomic.h"
+#include "sys/time.h"
+#include <stdint.h>
+#include <stdio.h>
 #include <sys/zio.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
@@ -700,7 +704,7 @@ mzap_create_impl(dnode_t *dn, int normflags, zap_flags_t flags, dmu_tx_t *tx)
 {
 	dmu_buf_t *db;
 
-	VERIFY0(dmu_buf_hold_by_dnode(dn, 0, FTAG, &db, DMU_READ_NO_PREFETCH));
+	VERIFY0(dmu_buf_hold_by_dnode_abc(dn, 0, FTAG, &db, DMU_READ_NO_PREFETCH));
 
 	dmu_buf_will_dirty(db, tx);
 	mzap_phys_t *zp = db->db_data;

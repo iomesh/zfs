@@ -1221,16 +1221,17 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	int dnodesize = dhp->dnodesize;
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
 	hrtime_t before = gethrtime();
+	dnode_t *dn = NULL;
 	if (type == INODE_FILE || type == INODE_DATA_OBJ) {
 		if (claiming) {
 			ASSERT(*obj != 0);
 			VERIFY0(dmu_object_claim_dnsize(os, *obj,
 			    DMU_OT_PLAIN_FILE_CONTENTS,
 			    0, DMU_OT_SA, bonuslen, dnodesize, tx));
+			VERIFY0(dnode_hold(os, *obj, FTAG, &dn));
 		} else {
-			*obj = dmu_object_alloc_dnsize(os,
-			    DMU_OT_PLAIN_FILE_CONTENTS, 0,
-			    DMU_OT_SA, bonuslen, dnodesize, tx);
+			*obj = dmu_object_alloc_hold(os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
+			    0,DMU_OT_SA, bonuslen, dnodesize, &dn, FTAG, tx);
 		}
 		if (type == INODE_DATA_OBJ) {
 			VERIFY0(dmu_object_set_blocksize(os, *obj, 0, 0, tx));
@@ -1244,9 +1245,10 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 			VERIFY0(zap_create_claim_dnsize(os, *obj,
 			    DMU_OT_DIRECTORY_CONTENTS, DMU_OT_SA,
 			    bonuslen, dnodesize, tx));
+			VERIFY0(dnode_hold(os, *obj, FTAG, &dn));
 		} else {
-			*obj = zap_create_dnsize(os, DMU_OT_DIRECTORY_CONTENTS,
-			    DMU_OT_SA, bonuslen, dnodesize, tx);
+			*obj = zap_create_hold(os, 0, 0, DMU_OT_DIRECTORY_CONTENTS,
+			    0, 0, DMU_OT_SA, bonuslen, dnodesize, &dn, FTAG, tx);
 		}
 	} else {
 		VERIFY0(1);
@@ -1257,13 +1259,16 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		gen = tx->tx_txg;
 	}
 
+	dmu_buf_t *bonus = NULL;
+	VERIFY0(dmu_bonus_hold_by_dnode(dn, FTAG, &bonus, DMU_READ_NO_PREFETCH));
+	sa_handle_t *sa_hdl;
+	VERIFY0(sa_handle_get_from_db(os, bonus, NULL, SA_HDL_PRIVATE, &sa_hdl));
 	kmutex_t *mp = &dhp->objs_lock[(*obj) % NUM_NODE_BUCKETS];
 	mutex_enter(mp);
-	sa_handle_t *sa_hdl;
-	VERIFY0(sa_handle_get(os, *obj, NULL, SA_HDL_PRIVATE, &sa_hdl));
 	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type, gen);
-	sa_handle_destroy(sa_hdl);
 	mutex_exit(mp);
+	sa_handle_destroy(sa_hdl);
+	dnode_rele(dn, FTAG);
 	hrtime_t after = gethrtime();
 	atomic_add_64(&create_lat, middle - before);
 	atomic_add_64(&attr_lat, after - middle);
@@ -1271,7 +1276,6 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 
 static uint64_t total_hold_lat = 0;
 static uint64_t total_tx_assign_lat = 0;
-static uint64_t total_create_lat = 0;
 static uint64_t total_commit_lat = 0;
 static uint64_t total_txs = 0;
 

@@ -230,6 +230,42 @@ dmu_buf_hold_by_dnode(dnode_t *dn, uint64_t offset,
 	return (err);
 }
 
+static uint64_t mzap_ctimes = 0;
+static uint64_t hold_lat = 0;
+static uint64_t dirty_lat = 0;
+int
+dmu_buf_hold_by_dnode_abc(dnode_t *dn, uint64_t offset,
+    void *tag, dmu_buf_t **dbp, int flags)
+{
+	int err;
+	int db_flags = DB_RF_CANFAIL;
+
+	if (flags & DMU_READ_NO_PREFETCH)
+		db_flags |= DB_RF_NOPREFETCH;
+	if (flags & DMU_READ_NO_DECRYPT)
+		db_flags |= DB_RF_NO_DECRYPT;
+
+	hrtime_t before = gethrtime();
+	err = dmu_buf_hold_noread_by_dnode(dn, offset, tag, dbp);
+	if (err == 0) {
+		hrtime_t middle = gethrtime();
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)(*dbp);
+		err = dbuf_read(db, NULL, db_flags);
+		uint64_t ht = atomic_add_64_nv(&hold_lat, middle - before);
+		uint64_t dt = atomic_add_64_nv(&dirty_lat, gethrtime() - middle);
+		uint64_t ct = atomic_inc_64_nv(&mzap_ctimes);
+		if (ct > 0 && ct % 10000 == 0) {
+			printf("avg, noread: %luus, read: %luus\n", ht / ct / 1000, dt / ct / 1000);
+		}
+		if (err != 0) {
+			dbuf_rele(db, tag);
+			*dbp = NULL;
+		}
+	}
+
+	return (err);
+}
+
 int
 dmu_buf_hold(objset_t *os, uint64_t object, uint64_t offset,
     void *tag, dmu_buf_t **dbp, int flags)
