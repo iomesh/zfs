@@ -24,6 +24,11 @@
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  */
 
+#include "atomic.h"
+#include "sys/time.h"
+#include <asm-generic/errno.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <sys/dmu.h>
 #include <sys/dmu_impl.h>
 #include <sys/dbuf.h>
@@ -959,6 +964,121 @@ dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 	return (0);
 }
 
+static uint64_t restart_dirty = 0;
+static uint64_t restart_not_null = 0;
+static uint64_t restart_no_space = 0;
+
+static int
+dmu_tx_try_assign_abc(dmu_tx_t *tx, uint64_t txg_how)
+{
+	spa_t *spa = tx->tx_pool->dp_spa;
+
+	ASSERT0(tx->tx_txg);
+
+	if (tx->tx_err) {
+		DMU_TX_STAT_BUMP(dmu_tx_error);
+		return (tx->tx_err);
+	}
+
+	if (spa_suspended(spa)) {
+		DMU_TX_STAT_BUMP(dmu_tx_suspended);
+
+		/*
+		 * If the user has indicated a blocking failure mode
+		 * then return ERESTART which will block in dmu_tx_wait().
+		 * Otherwise, return EIO so that an error can get
+		 * propagated back to the VOP calls.
+		 *
+		 * Note that we always honor the txg_how flag regardless
+		 * of the failuremode setting.
+		 */
+		if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_CONTINUE &&
+		    !(txg_how & TXG_WAIT))
+			return (SET_ERROR(EIO));
+
+		return (SET_ERROR(ERESTART));
+	}
+
+	if (!tx->tx_dirty_delayed &&
+	    dsl_pool_need_dirty_delay(tx->tx_pool)) {
+		tx->tx_wait_dirty = B_TRUE;
+		DMU_TX_STAT_BUMP(dmu_tx_dirty_delay);
+		atomic_inc_64(&restart_dirty);
+		return (SET_ERROR(ERESTART));
+	}
+
+	tx->tx_txg = txg_hold_open(tx->tx_pool, &tx->tx_txgh);
+	tx->tx_needassign_txh = NULL;
+
+	/*
+	 * NB: No error returns are allowed after txg_hold_open, but
+	 * before processing the dnode holds, due to the
+	 * dmu_tx_unassign() logic.
+	 */
+
+	uint64_t towrite = 0;
+	uint64_t tohold = 0;
+	for (dmu_tx_hold_t *txh = list_head(&tx->tx_holds); txh != NULL;
+	    txh = list_next(&tx->tx_holds, txh)) {
+		dnode_t *dn = txh->txh_dnode;
+		if (dn != NULL) {
+			/*
+			 * This thread can't hold the dn_struct_rwlock
+			 * while assigning the tx, because this can lead to
+			 * deadlock. Specifically, if this dnode is already
+			 * assigned to an earlier txg, this thread may need
+			 * to wait for that txg to sync (the ERESTART case
+			 * below).  The other thread that has assigned this
+			 * dnode to an earlier txg prevents this txg from
+			 * syncing until its tx can complete (calling
+			 * dmu_tx_commit()), but it may need to acquire the
+			 * dn_struct_rwlock to do so (e.g. via
+			 * dmu_buf_hold*()).
+			 *
+			 * Note that this thread can't hold the lock for
+			 * read either, but the rwlock doesn't record
+			 * enough information to make that assertion.
+			 */
+			ASSERT(!RW_WRITE_HELD(&dn->dn_struct_rwlock));
+
+			mutex_enter(&dn->dn_mtx);
+			if (dn->dn_assigned_txg == tx->tx_txg - 1) {
+				mutex_exit(&dn->dn_mtx);
+				tx->tx_needassign_txh = txh;
+				DMU_TX_STAT_BUMP(dmu_tx_group);
+				atomic_inc_64(&restart_not_null);
+				return (SET_ERROR(ERESTART));
+			}
+			if (dn->dn_assigned_txg == 0)
+				dn->dn_assigned_txg = tx->tx_txg;
+			ASSERT3U(dn->dn_assigned_txg, ==, tx->tx_txg);
+			(void) zfs_refcount_add(&dn->dn_tx_holds, tx);
+			mutex_exit(&dn->dn_mtx);
+		}
+		towrite += zfs_refcount_count(&txh->txh_space_towrite);
+		tohold += zfs_refcount_count(&txh->txh_memory_tohold);
+	}
+
+	/* needed allocation: worst-case estimate of write space */
+	uint64_t asize = spa_get_worst_case_asize(tx->tx_pool->dp_spa, towrite);
+	/* calculate memory footprint estimate */
+	uint64_t memory = towrite + tohold;
+
+	if (tx->tx_dir != NULL && asize != 0) {
+		int err = dsl_dir_tempreserve_space(tx->tx_dir, memory,
+		    asize, tx->tx_netfree, &tx->tx_tempreserve_cookie, tx);
+		if (err == ERESTART) {
+			atomic_inc_64(&restart_no_space);
+		}
+		if (err != 0)
+			return (err);
+	}
+
+	DMU_TX_STAT_BUMP(dmu_tx_assigned);
+
+	return (0);
+}
+
 static void
 dmu_tx_unassign(dmu_tx_t *tx)
 {
@@ -1052,6 +1172,57 @@ dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 			return (err);
 
 		dmu_tx_wait(tx);
+	}
+	txg_rele_to_quiesce(&tx->tx_txgh);
+
+	return (0);
+}
+
+static uint64_t try_assign_lat = 0;
+static uint64_t wait_lat = 0;
+static uint64_t num_tries = 0;
+static uint64_t assign_times = 0;
+static uint64_t dirty = 0;
+int
+dmu_tx_assign_abc(dmu_tx_t *tx, uint64_t txg_how)
+{
+	int err;
+
+	ASSERT(tx->tx_txg == 0);
+	ASSERT0(txg_how & ~(TXG_WAIT | TXG_NOTHROTTLE));
+	ASSERT(!dsl_pool_sync_context(tx->tx_pool));
+
+	/* If we might wait, we must not hold the config lock. */
+	IMPLY((txg_how & TXG_WAIT), !dsl_pool_config_held(tx->tx_pool));
+
+	if ((txg_how & TXG_NOTHROTTLE))
+		tx->tx_dirty_delayed = B_TRUE;
+
+	uint64_t wl = 0;
+	uint64_t al = 0;
+	hrtime_t bbfore = gethrtime();
+	int ntries = 1;
+	while ((err = dmu_tx_try_assign_abc(tx, txg_how)) != 0) {
+		dmu_tx_unassign(tx);
+		ntries++;
+
+		if (err != ERESTART || !(txg_how & TXG_WAIT))
+			return (err);
+
+		hrtime_t before = gethrtime();
+		dmu_tx_wait(tx);
+		wl += gethrtime() - before;
+	}
+	al = gethrtime() - bbfore - wl;
+	uint64_t tal = atomic_add_64_nv(&try_assign_lat, al);
+	uint64_t twl = atomic_add_64_nv(&wait_lat, wl);
+	uint64_t nt = atomic_add_64_nv(&num_tries, ntries);
+	uint64_t times = atomic_inc_64_nv(&assign_times);
+	uint64_t d = atomic_add_64_nv(&dirty, tx->tx_pool->dp_dirty_total);
+
+	if (times > 0 && times % 10000 == 0) {
+		printf("avg, try lat: %luus, wait lat: %luus, tries: %lu, dirty/notnull/nospace: %lu/%lu/%lu, dirty: %lu\n",
+		    tal / times / 1000, twl / times / 1000, nt * 1000 / times, restart_dirty, restart_not_null, restart_no_space, d / times);
 	}
 
 	txg_rele_to_quiesce(&tx->tx_txgh);

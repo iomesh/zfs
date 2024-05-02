@@ -522,6 +522,9 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+	void *buf;
+	zio_t *next;
 };
 
 enum blk_verify_flag {

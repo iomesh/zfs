@@ -1208,6 +1208,9 @@ libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
 	txg_wait_synced(spa_get_dsl(dhp->os->os_spa), 0);
 }
 
+static uint64_t create_lat = 0;
+static uint64_t attr_lat = 0;
+
 static void
 libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t *obj, boolean_t claiming, libuzfs_inode_type_t type,
@@ -1217,6 +1220,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	objset_t *os = dhp->os;
 	int dnodesize = dhp->dnodesize;
 	int bonuslen = DN_BONUS_SIZE(dnodesize);
+	hrtime_t before = gethrtime();
 	if (type == INODE_FILE || type == INODE_DATA_OBJ) {
 		if (claiming) {
 			ASSERT(*obj != 0);
@@ -1247,6 +1251,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	} else {
 		VERIFY0(1);
 	}
+	hrtime_t middle = gethrtime();
 
 	if (!claiming) {
 		gen = tx->tx_txg;
@@ -1259,30 +1264,53 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	libuzfs_inode_attr_init(dhp, sa_hdl, tx, type, gen);
 	sa_handle_destroy(sa_hdl);
 	mutex_exit(mp);
+	hrtime_t after = gethrtime();
+	atomic_add_64(&create_lat, middle - before);
+	atomic_add_64(&attr_lat, after - middle);
 }
+
+static uint64_t total_hold_lat = 0;
+static uint64_t total_tx_assign_lat = 0;
+static uint64_t total_create_lat = 0;
+static uint64_t total_commit_lat = 0;
+static uint64_t total_txs = 0;
 
 static int
 libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
     boolean_t claiming, libuzfs_inode_type_t type, uint64_t *txg, uint64_t gen)
 {
 	objset_t *os = dhp->os;
+	hrtime_t before = gethrtime();
 	dmu_tx_t *tx = dmu_tx_create(os);
 	dmu_tx_hold_sa_create(tx, sizeof (uzfs_inode_attr_t));
 	if (type == INODE_DIR) {
 		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
 	}
-	int err = dmu_tx_assign(tx, TXG_WAIT);
+	hrtime_t middle_before = gethrtime();
+	int err = dmu_tx_assign_abc(tx, TXG_WAIT);
 	if (err != 0) {
 		dmu_tx_abort(tx);
 		return (err);
 	}
 
+	hrtime_t middle = gethrtime();
 	libuzfs_create_inode_with_type_impl(dhp, obj, claiming, type, tx, gen);
+	hrtime_t middle_end = gethrtime();
 
 	if (txg != NULL) {
 		*txg = tx->tx_txg;
 	}
 	dmu_tx_commit(tx);
+	hrtime_t end = gethrtime();
+	uint64_t txs = atomic_add_64_nv(&total_txs, 1);
+	uint64_t hold_lat = atomic_add_64_nv(&total_hold_lat, middle_before - before);
+	uint64_t assign_lat = atomic_add_64_nv(&total_tx_assign_lat, middle - middle_before);
+	uint64_t commit_lat = atomic_add_64_nv(&total_commit_lat, end - middle_end);
+
+	if (txs > 0 && txs % 10000 == 0) {
+		printf("avg delay, hold: %luus, assign: %luus, create: %luus, attr: %luus, commit: %luus\n",
+		    hold_lat / txs / 1000, assign_lat / txs / 1000, create_lat / txs / 1000, attr_lat / txs / 1000, commit_lat / txs / 1000);
+	}
 
 	return (0);
 }

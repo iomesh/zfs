@@ -51,16 +51,9 @@
 
 #define	MAX_AIO_EVENTS	4096
 
-typedef struct zio_task {
-	zio_t *zio;
-	void *buf;
-	uint32_t state;
-	struct zio_task *next;
-} zio_task_t;
-
 typedef struct io_workers_ctx {
 	aio_context_t	io_ctx;		// io context for aio
-	zio_task_t	*head;		// current head of submit list
+	zio_t		*head;		// current head of submit list
 	sem_t		submit_sem;	// semaphore to wake up the submitter
 	boolean_t	stop;		// whether reaper should stop
 	pthread_t	submitter;	// identifies the submitter
@@ -205,19 +198,17 @@ vdev_aio_file_close(vdev_t *vd)
 static void
 submit_zio_task(zio_t *zio)
 {
-	zio_task_t *task = umem_alloc(sizeof (zio_task_t), UMEM_NOFAIL);
-	task->zio = zio;
-	task->next = atomic_load_ptr(&workers_ctx.head);
+	zio->next = atomic_load_ptr(&workers_ctx.head);
 	boolean_t earlier = B_TRUE;
 	while (1) {
-		earlier = task->next == NULL;
-		zio_task_t *next = task->next;
-		zio_task_t *head = atomic_cas_ptr(&workers_ctx.head,
-		    task->next, task);
+		earlier = zio->next == NULL;
+		zio_t *next = zio->next;
+		zio_t *head = atomic_cas_ptr(&workers_ctx.head,
+		    zio->next, zio);
 		if (head == next) {
 			break;
 		}
-		task->next = head;
+		zio->next = head;
 	}
 
 	if (earlier) {
@@ -326,11 +317,10 @@ vdev_ops_t vdev_aio_file_ops = {
 };
 
 static void
-prep_task(zio_task_t *task, struct iocb *io_cb)
+prep_task(zio_t *zio, struct iocb *io_cb)
 {
 	memset(io_cb, 0, sizeof (*io_cb));
-	io_cb->aio_data = (uint64_t)task;
-	zio_t *zio = task->zio;
+	io_cb->aio_data = (uint64_t)zio;
 	io_cb->aio_fildes = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
 	io_cb->aio_nbytes = zio->io_size;
 	io_cb->aio_offset = zio->io_offset;
@@ -340,13 +330,13 @@ prep_task(zio_task_t *task, struct iocb *io_cb)
 		io_cb->aio_lio_opcode = IOCB_CMD_FSYNC;
 		break;
 	case ZIO_TYPE_READ:
-		task->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
-		io_cb->aio_buf = (uint64_t)task->buf;
+		zio->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
+		io_cb->aio_buf = (uint64_t)zio->buf;
 		io_cb->aio_lio_opcode = IOCB_CMD_PREAD;
 		break;
 	case ZIO_TYPE_WRITE:
-		task->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-		io_cb->aio_buf = (uint64_t)task->buf;
+		zio->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
+		io_cb->aio_buf = (uint64_t)zio->buf;
 		io_cb->aio_lio_opcode = IOCB_CMD_PWRITE;
 		break;
 	default:
@@ -362,9 +352,9 @@ zio_task_submitter(void *args)
 	while (likely(!ctx->stop)) {
 		sem_wait(&ctx->submit_sem);
 		// fetch current head
-		zio_task_t *head = atomic_load_ptr(&workers_ctx.head);
+		zio_t *head = atomic_load_ptr(&workers_ctx.head);
 		while (1) {
-			zio_task_t *cur_head = atomic_cas_ptr(&workers_ctx.head,
+			zio_t *cur_head = atomic_cas_ptr(&workers_ctx.head,
 			    head, NULL);
 			if (cur_head == head) {
 				break;
@@ -372,14 +362,25 @@ zio_task_submitter(void *args)
 			head = cur_head;
 		}
 
-		// TODO(sundengyu): submit tasks in a batch
-		struct iocb iocb;
-		struct iocb *ptr = &iocb;
+		const int batch = 256;
+		struct iocb iocbs[batch];
+		struct iocb *ptrs[batch];
+		int ncompleted = 0;
 		while (head != NULL) {
-			prep_task(head, ptr);
+			ptrs[ncompleted] = &iocbs[ncompleted];
+			prep_task(head, ptrs[ncompleted]);
 			head = head->next;
-			VERIFY3S(TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
-			    ctx->io_ctx, 1, &ptr)), ==, 1);
+			++ncompleted;
+			if (ncompleted >= batch || head == NULL) {
+				int nsubmitted = 0;
+				while (nsubmitted < ncompleted) {
+					int submit = TEMP_FAILURE_RETRY(syscall(__NR_io_submit,
+			    		    ctx->io_ctx, ncompleted - nsubmitted, ptrs + nsubmitted));
+					VERIFY3U(submit, >, 0);
+					nsubmitted += submit;
+				}
+				ncompleted = 0;
+			}
 		}
 	}
 
@@ -398,15 +399,13 @@ zio_task_reaper(void *args)
 		int nevents = syscall(__NR_io_getevents, ctx->io_ctx,
 		    1, MAX_PROCESSED_EVENTS, events, &interval);
 		for (int i = 0; i < nevents; ++i) {
-			zio_task_t *task = (zio_task_t *)events[i].data;
-
-			zio_t *zio = task->zio;
+			zio_t *zio = (zio_t *)events[i].data;
 			if (zio->io_type == ZIO_TYPE_READ) {
 				abd_return_buf_copy(zio->io_abd,
-				    task->buf, zio->io_size);
+				    zio->buf, zio->io_size);
 			} else if (zio->io_type == ZIO_TYPE_WRITE) {
 				abd_return_buf(zio->io_abd,
-				    task->buf, zio->io_size);
+				    zio->buf, zio->io_size);
 			}
 
 			ssize_t res = events[i].res;
@@ -419,8 +418,6 @@ zio_task_reaper(void *args)
 				    zio->io_offset, zio->io_size, res);
 				zio->io_error = SET_ERROR(ENOSPC);
 			}
-
-			umem_free(task, sizeof (zio_task_t));
 
 			zio_interrupt(zio);
 		}
