@@ -728,10 +728,6 @@ zio_handle_pool_delay(spa_t *spa, hrtime_t elapsed, zinject_type_t command)
 	rw_exit(&inject_lock);
 
 	if (delay) {
-		if (command == ZINJECT_DELAY_IMPORT) {
-			spa_import_progress_set_notes(spa, "injecting %llu "
-			    "sec delay", (u_longlong_t)NSEC2SEC(delay));
-		}
 		zfs_sleep_until(gethrtime() + delay);
 	}
 	if (id) {
