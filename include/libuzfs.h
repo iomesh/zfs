@@ -31,6 +31,7 @@
 #include "sys/time.h"
 #include <libnvpair.h>
 #include <sys/dmu.h>
+#include <time.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -266,6 +267,8 @@ extern int libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     uzfs_inode_attr_t *attr, char *reserved, int *size);
 extern int libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *reserved, uint32_t size, uint64_t *txg);
+extern int libuzfs_object_setmtime(libuzfs_dataset_handle_t *dhp,
+    uint64_t ino, const struct timespec *mtime, boolean_t sync);
 extern int libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     const char *name, const char *value, uint64_t size,
     uint64_t *txg, uint32_t option);

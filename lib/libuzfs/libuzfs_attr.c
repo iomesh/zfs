@@ -1,4 +1,7 @@
 #include "libuzfs.h"
+#include "sys/spa.h"
+#include "sys/stdtypes.h"
+#include "sys/zfs_context.h"
 #include "sys/zil.h"
 #include <bits/stdint-uintn.h>
 #include <sys/sa.h>
@@ -232,6 +235,55 @@ libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	dmu_tx_commit(tx);
 
 	return (0);
+}
+
+static void
+libuzfs_log_setmtime(zilog_t *zilog, uint64_t obj,
+    const struct timespec *mtime, dmu_tx_t *tx)
+{
+	if (zil_replaying(zilog, tx)) {
+		return;
+	}
+
+	itx_t *itx = zil_itx_create(TX_SETATTR,
+	    sizeof (lr_obj_mtime_set_t));
+	lr_obj_mtime_set_t *lr = (lr_obj_mtime_set_t *)&itx->itx_lr;
+	lr->lr_foid = obj;
+	lr->mtime[0] = mtime->tv_sec;
+	lr->mtime[1] = mtime->tv_nsec;
+	zil_itx_assign(zilog, itx, tx);
+}
+
+int
+libuzfs_object_setmtime(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    const struct timespec *mtime, boolean_t sync)
+{
+	libuzfs_node_t *up = NULL;
+	int err = libuzfs_acquire_node(dhp, obj, &up);
+	if (err != 0) {
+		return (err);
+	}
+
+	dmu_tx_t *tx = dmu_tx_create(dhp->os);
+	dmu_tx_hold_sa(tx, up->sa_hdl, FALSE);
+	if ((err = dmu_tx_assign(tx, TXG_WAIT)) == 0) {
+		VERIFY0(sa_update(up->sa_hdl, dhp->uzfs_attr_table[UZFS_MTIME],
+		    (void *)mtime, sizeof (struct timespec), tx));
+
+		libuzfs_log_setmtime(dhp->zilog, obj, mtime, tx);
+
+		dmu_tx_commit(tx);
+	} else {
+		dmu_tx_abort(tx);
+	}
+
+	libuzfs_release_node(up);
+
+	if (sync) {
+		zil_commit(dhp->zilog, obj);
+	}
+
+	return (err);
 }
 
 static int

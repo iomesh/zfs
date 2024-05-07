@@ -696,8 +696,9 @@ __dprintf(boolean_t new_line, const char *file, const char *func,
 	char buf[max_len];
 	struct tm ts = *localtime(&now);
 	char ts_str[64];
-	strftime(ts_str, sizeof(ts_str), "%Y-%m-%d %H:%M:%S", &ts);
-	int len = snprintf(buf, max_len, "[%s] %s:%d:%s(): ", ts_str, newfile, line, func);
+	strftime(ts_str, sizeof (ts_str), "%Y-%m-%d %H:%M:%S", &ts);
+	int len = snprintf(buf, max_len,
+	    "[%s] %s:%d:%s(): ", ts_str, newfile, line, func);
 	va_start(adx, fmt);
 	vsnprintf(buf + len, max_len - len, fmt, adx);
 	va_end(adx);
