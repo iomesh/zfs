@@ -361,6 +361,12 @@ typedef struct {
 	uint64_t	option;		/* option of kv set */
 } lr_kv_set_t;
 
+typedef struct {
+	lr_t		lr_common;	/* common portion of log record */
+	uint64_t	lr_foid;	/* obj id of file */
+	uint64_t	mtime[2];	/* mtime */
+} lr_obj_mtime_set_t;
+
 /*
  * ZIL structure definitions, interface function prototype and globals.
  */

@@ -44,6 +44,7 @@
 #include <sys/dsl_destroy.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 #include <umem.h>
 #include <ctype.h>
@@ -370,7 +371,7 @@ static void
 libuzfs_log_write(libuzfs_dataset_handle_t *dhp, dmu_tx_t *tx,
     libuzfs_node_t *up, offset_t off, ssize_t resid, boolean_t sync)
 {
-	// this log write covers at most 1 block
+	// FIXME(sundengyu): this may cover over 1 blocks when blksize changes
 	ASSERT3U(off / dhp->max_blksz, ==, (off + resid - 1) / dhp->max_blksz);
 
 	zilog_t *zilog = dhp->zilog;
@@ -589,6 +590,10 @@ libuzfs_replay_write2(void *arg1, void *arg2, boolean_t byteswap)
 {
 	libuzfs_dataset_handle_t *dhp = arg1;
 	lr_write_t *lr = arg2;
+	if (byteswap) {
+		byteswap_uint64_array(lr, sizeof (*lr));
+	}
+
 	libuzfs_node_t *up;
 	zfs_dbgmsg("replaying write2, obj: %ld, off: %ld, length: %ld,",
 	    lr->lr_foid, lr->lr_offset, lr->lr_length);
@@ -621,6 +626,20 @@ out:
 	return (error);
 }
 
+static int
+libuzfs_replay_setmtime(void *arg1, void *arg2, boolean_t byteswap)
+{
+	libuzfs_dataset_handle_t *dhp = arg1;
+	lr_obj_mtime_set_t *lr = arg2;
+	if (byteswap) {
+		byteswap_uint64_array(lr, sizeof (*lr));
+	}
+
+	zfs_dbgmsg("mtime: tv_sec: %lu, tv_nsec: %lu", lr->mtime[0], lr->mtime[1]);
+	return libuzfs_object_setmtime(dhp, lr->lr_foid,
+	    (const struct timespec *)lr->mtime, B_FALSE);
+}
+
 zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,				/* 0 no such transaction type */
 	libuzfs_replay_create,		/* TX_CREATE */
@@ -633,7 +652,7 @@ zil_replay_func_t *libuzfs_replay_vector[TX_MAX_TYPE] = {
 	NULL,				/* TX_RENAME */
 	libuzfs_replay_write,		/* TX_WRITE */
 	libuzfs_replay_truncate,	/* TX_TRUNCATE */
-	NULL,				/* TX_SETATTR */
+	libuzfs_replay_setmtime,	/* TX_SETATTR */
 	NULL,				/* TX_ACL_V0 */
 	NULL,				/* TX_ACL */
 	NULL,				/* TX_CREATE_ACL */
