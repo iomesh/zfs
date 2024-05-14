@@ -246,30 +246,6 @@ make_vdev_root(const char *path, char *aux, const char *pool, size_t size,
 }
 
 static int
-libuzfs_dsl_prop_set_uint64(const char *osname, zfs_prop_t prop, uint64_t value,
-    boolean_t inherit)
-{
-	int err = 0;
-	char *setpoint = NULL;
-	uint64_t curval = 0;
-	const char *propname = zfs_prop_to_name(prop);
-
-	err = dsl_prop_set_int(osname, propname,
-	    (inherit ? ZPROP_SRC_NONE : ZPROP_SRC_LOCAL), value);
-
-	if (err == ENOSPC)
-		return (err);
-
-	ASSERT0(err);
-
-	setpoint = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
-	VERIFY0(dsl_prop_get_integer(osname, propname, &curval, setpoint));
-	umem_free(setpoint, MAXPATHLEN);
-
-	return (err);
-}
-
-static int
 libuzfs_spa_prop_set_uint64(spa_t *spa, zpool_prop_t prop, uint64_t value)
 {
 	int err = 0;
@@ -635,7 +611,8 @@ libuzfs_replay_setmtime(void *arg1, void *arg2, boolean_t byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 	}
 
-	zfs_dbgmsg("mtime: tv_sec: %lu, tv_nsec: %lu", lr->mtime[0], lr->mtime[1]);
+	zfs_dbgmsg("mtime: tv_sec: %lu, tv_nsec: %lu",
+	    lr->mtime[0], lr->mtime[1]);
 	return libuzfs_object_setmtime(dhp, lr->lr_foid,
 	    (const struct timespec *)lr->mtime, B_FALSE);
 }
@@ -863,68 +840,68 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 	free(zhp);
 }
 
-static int
-pool_active(void *unused, const char *name, uint64_t guid,
-    boolean_t *isactive)
-{
-	*isactive = B_FALSE;
-	return (0);
-}
-
-static nvlist_t *
-refresh_config(void *unused, nvlist_t *tryconfig)
-{
-	nvlist_t *res;
-	nvlist_dup(tryconfig, &res, KM_SLEEP);
-	return (res);
-}
-
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
-	importargs_t args = { 0 };
-	args.path = (char **)&dev_path;
-	args.paths = 1;
-
-	pool_config_ops_t ops = {
-		.pco_refresh_config = refresh_config,
-		.pco_pool_active = pool_active,
-	};
-	nvlist_t *pools = zpool_search_import(NULL,
-	    &args, &ops);
-
-	if (pools == NULL) {
-		return (ENOMEM);
+	/*
+	 * Preferentially open using O_DIRECT to bypass the block device
+	 * cache which may be stale for multipath devices.  An EINVAL errno
+	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
+	 */
+	int fd = open(dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
+	if (fd < 0) {
+		zfs_dbgmsg("open dev_path %s failed, err: %d", dev_path, errno);
+		if (errno == ENOENT) {
+			return (ENODEV);
+		} else {
+			return (errno);
+		}
 	}
 
-	if (nvlist_empty(pools)) {
-		nvlist_free(pools);
-		return (ENOENT);
+	nvlist_t *leaf_config = NULL;
+	nvlist_t *pools = NULL;
+	int num_labels = 0;
+	int err = zpool_read_label_secure(fd, &leaf_config, &num_labels);
+	if (err != 0) {
+		VERIFY(err != ENOENT);
+		zfs_dbgmsg("read label error: %d", err);
+		goto out;
 	}
 
+	zfs_dbgmsg("got %d labels from %s", num_labels, dev_path);
+	if (num_labels == 0) {
+		err = ENOENT;
+		goto out;
+	}
+
+	pools = zpool_leaf_to_pools(leaf_config, num_labels, dev_path);
 	nvpair_t *elem = nvlist_next_nvpair(pools, NULL);
 	VERIFY3U(elem, !=, NULL);
 	VERIFY3U(nvlist_next_nvpair(pools, elem), ==, NULL);
 
-	nvlist_t *config = NULL;
-	VERIFY0(nvpair_value_nvlist(elem, &config));
+	nvlist_t *root_config = NULL;
+	VERIFY0(nvpair_value_nvlist(elem, &root_config));
+	flockfile(stdout);
+	nvlist_print(stdout, root_config);
+	funlockfile(stdout);
 
 	char *stored_pool_name;
-	VERIFY0(nvlist_lookup_string(config,
+	VERIFY0(nvlist_lookup_string(root_config,
 	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
 	int name_len = strlen(stored_pool_name);
 	if (name_len >= size) {
-		nvlist_free(pools);
-		return (ERANGE);
+		err = ERANGE;
+		goto out;
 	}
 	strncpy(pool_name, stored_pool_name, name_len);
 	pool_name[name_len] = '\0';
 
-	int err = spa_import(pool_name, config, NULL, ZFS_IMPORT_NORMAL);
-	if (err == ENOENT) {
-		err = EINVAL;
-	}
+	err = spa_import(pool_name, root_config, NULL, ZFS_IMPORT_NORMAL);
+	VERIFY(err != ENOENT);
 
+out:
+	close(fd);
+	nvlist_free(leaf_config);
 	nvlist_free(pools);
 
 	return (err);
@@ -1090,9 +1067,6 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 	dhp->os = os;
 	dmu_objset_name(os, dhp->name);
 
-	zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
-	    &dhp->sb_ino);
-
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 	libuzfs_setup_dataset_sa(dhp);
 
@@ -1108,6 +1082,9 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 	dhp->zilog = zil_open(os, libuzfs_get_data);
 	dhp->dnodesize = dnodesize;
 	zil_replay(os, dhp, libuzfs_replay_vector);
+
+	VERIFY0(zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
+	    &dhp->sb_ino));
 }
 
 static void
@@ -1141,6 +1118,7 @@ libuzfs_dataset_open(const char *dsname, int *err,
 	}
 
 	libuzfs_dhp_init(dhp, os, dnodesize);
+
 	return (dhp);
 }
 
@@ -1156,12 +1134,10 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 	free(dhp);
 }
 
-int
-libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
-    uint64_t *sb_ino)
+uint64_t
+libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp)
 {
-	*sb_ino = dhp->sb_ino;
-	return (0);
+	return (dhp->sb_ino);
 }
 
 int

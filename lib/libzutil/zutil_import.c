@@ -67,6 +67,8 @@
 #include <libzutil.h>
 #include <libnvpair.h>
 
+#include "sys/nvpair.h"
+#include "sys/stdtypes.h"
 #include "zutil_import.h"
 
 /*PRINTFLIKE2*/
@@ -877,6 +879,43 @@ error:
 	return (NULL);
 }
 
+static int
+pool_active(void *unused, const char *name, uint64_t guid,
+    boolean_t *isactive)
+{
+	*isactive = B_FALSE;
+	return (0);
+}
+
+static nvlist_t *
+refresh_config(void *unused, nvlist_t *tryconfig)
+{
+	nvlist_t *res;
+	nvlist_dup(tryconfig, &res, KM_SLEEP);
+	return (res);
+}
+
+nvlist_t *
+zpool_leaf_to_pools(nvlist_t *leaf_config, int num_labels, const char *dev_path)
+{
+	pool_config_ops_t ops = {
+		.pco_refresh_config = refresh_config,
+		.pco_pool_active = pool_active,
+	};
+	libpc_handle_t hdl = {0};
+	hdl.lpc_lib_handle = NULL;
+	hdl.lpc_ops = &ops;
+	hdl.lpc_printerr = B_TRUE;
+
+	pool_list_t pl = {0};
+	int ret = add_config(&hdl, &pl, dev_path,
+	    IMPORT_ORDER_DEFAULT, num_labels, leaf_config);
+	VERIFY(ret == 0);
+	nvlist_t *pools = get_configs(&hdl, &pl, B_FALSE, NULL);
+	VERIFY(pools != NULL && !nvlist_empty(pools));
+	return (pools);
+}
+
 /*
  * Return the offset of the given label.
  */
@@ -1045,6 +1084,100 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 		free(labels);
 		errno = saved_errno;
 		return (error);
+	}
+
+	for (l = 0; l < VDEV_LABELS; l++) {
+		uint64_t state, guid, txg;
+
+		if (aio_return(&aiocbs[l]) != sizeof (vdev_phys_t))
+			continue;
+
+		if (nvlist_unpack(labels[l].vp_nvlist,
+		    sizeof (labels[l].vp_nvlist), config, 0) != 0)
+			continue;
+
+		if (nvlist_lookup_uint64(*config, ZPOOL_CONFIG_GUID,
+		    &guid) != 0 || guid == 0) {
+			nvlist_free(*config);
+			continue;
+		}
+
+		if (nvlist_lookup_uint64(*config, ZPOOL_CONFIG_POOL_STATE,
+		    &state) != 0 || state > POOL_STATE_L2CACHE) {
+			nvlist_free(*config);
+			continue;
+		}
+
+		if (state != POOL_STATE_SPARE && state != POOL_STATE_L2CACHE &&
+		    (nvlist_lookup_uint64(*config, ZPOOL_CONFIG_POOL_TXG,
+		    &txg) != 0 || txg == 0)) {
+			nvlist_free(*config);
+			continue;
+		}
+
+		if (expected_guid) {
+			if (expected_guid == guid)
+				count++;
+
+			nvlist_free(*config);
+		} else {
+			expected_config = *config;
+			expected_guid = guid;
+			count++;
+		}
+	}
+
+	if (num_labels != NULL)
+		*num_labels = count;
+
+	free(labels);
+	*config = expected_config;
+
+	return (0);
+}
+
+/*
+ * Given a file descriptor, read the label information and return an nvlist
+ * describing the configuration, if there is one.  The number of valid
+ * labels found will be returned in num_labels when non-NULL.
+ * if any io error happens, this function will return with that error
+ */
+int
+zpool_read_label_secure(int fd, nvlist_t **config, int *num_labels)
+{
+	struct stat64 statbuf;
+	struct aiocb aiocbs[VDEV_LABELS];
+	struct aiocb *aiocbps[VDEV_LABELS];
+	vdev_phys_t *labels;
+	nvlist_t *expected_config = NULL;
+	uint64_t expected_guid = 0, size;
+	int error, l, count = 0;
+
+	*config = NULL;
+
+	if (fstat64_blk(fd, &statbuf) == -1)
+		return (errno);
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (vdev_label_t), uint64_t);
+
+	error = posix_memalign((void **)&labels, PAGESIZE,
+	    VDEV_LABELS * sizeof (*labels));
+	if (error)
+		return (error);
+
+	memset(aiocbs, 0, sizeof (aiocbs));
+	for (l = 0; l < VDEV_LABELS; l++) {
+		off_t offset = label_offset(size, l) + VDEV_SKIP_SIZE;
+
+		aiocbs[l].aio_fildes = fd;
+		aiocbs[l].aio_offset = offset;
+		aiocbs[l].aio_buf = &labels[l];
+		aiocbs[l].aio_nbytes = sizeof (vdev_phys_t);
+		aiocbs[l].aio_lio_opcode = LIO_READ;
+		aiocbps[l] = &aiocbs[l];
+	}
+
+	if (lio_listio(LIO_WAIT, aiocbps, VDEV_LABELS, NULL) != 0) {
+		return (errno);
 	}
 
 	for (l = 0; l < VDEV_LABELS; l++) {
