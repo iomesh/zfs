@@ -139,8 +139,8 @@ extern libuzfs_dataset_handle_t *libuzfs_dataset_open(const char *dsname,
     int *err, uint32_t dnodesize, uint32_t max_blksz);
 extern void libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp);
 
-extern int libuzfs_dataset_get_superblock_ino(libuzfs_dataset_handle_t *dhp,
-    uint64_t *sb_ino);
+extern uint64_t libuzfs_dataset_get_superblock_ino(
+    libuzfs_dataset_handle_t *dhp);
 
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
