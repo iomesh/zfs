@@ -425,9 +425,14 @@ libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
 	zfs_dbgmsg("replay remove, obj: %ld", lr->lr_doid);
+	libuzfs_dataset_handle_t *dhp = arg1;
+	int err = dmu_free_long_range(dhp->os, lr->lr_doid, 0, DMU_OBJECT_END);
+	if (err != 0) {
+		return (err);
+	}
 
-	return (libuzfs_inode_delete((libuzfs_dataset_handle_t *)arg1,
-	    lr->lr_doid, INODE_DATA_OBJ, NULL));
+	return (libuzfs_inode_delete(dhp, lr->lr_doid,
+	    INODE_DATA_OBJ, NULL));
 }
 
 static int
@@ -1344,7 +1349,18 @@ libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp)
 int
 libuzfs_object_delete(libuzfs_dataset_handle_t *dhp, uint64_t obj)
 {
-	int err = libuzfs_inode_delete(dhp, obj, INODE_DATA_OBJ, NULL);
+	// call dmu_free_long_range first to make dirty data in
+	// libuzfs_inode_delete tx as small as possible. if the
+	// object is too large, libuzfs_inode_delete may result
+	// in much dirty data, which will block the task forever,
+	// dmu_free_long_range will split this delete into many
+	// small transactions,
+	int err = dmu_free_long_range(dhp->os, obj, 0, DMU_OBJECT_END);
+	if (err != 0) {
+		return (err);
+	}
+
+	err = libuzfs_inode_delete(dhp, obj, INODE_DATA_OBJ, NULL);
 	if (err == 0) {
 		zil_submit(dhp->zilog, obj);
 	}
