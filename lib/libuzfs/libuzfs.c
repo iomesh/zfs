@@ -82,6 +82,10 @@ static inline int libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t obj, uint64_t offset, struct iovec *iovs, int iov_cnt,
     boolean_t sync, uint64_t replay_eof);
 
+#ifdef ZFS_DEBUG
+int fail_percent = 0;
+#endif
+
 typedef struct dir_emit_ctx {
 	char *buf;
 	char *cur;
@@ -845,6 +849,14 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 	free(zhp);
 }
 
+void
+libuzfs_set_fail_percent(int fp)
+{
+#ifdef ZFS_DEBUG
+	fail_percent = fp;
+#endif
+}
+
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
@@ -854,6 +866,13 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
 	 */
 	int fd = open(dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
+#ifdef ZFS_DEBUG
+	if (rand() % 100 < fail_percent) {
+		close(fd);
+		errno = EIO;
+		fd = -1;
+	}
+#endif
 	if (fd < 0) {
 		zfs_dbgmsg("open dev_path %s failed, err: %d", dev_path, errno);
 		if (errno == ENOENT) {
