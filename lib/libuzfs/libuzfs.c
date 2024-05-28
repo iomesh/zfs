@@ -45,6 +45,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "sys/vdev_trim.h"
 #include <unistd.h>
 #include <umem.h>
 #include <ctype.h>
@@ -903,6 +904,26 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 
 	err = spa_import(pool_name, root_config, NULL, ZFS_IMPORT_NORMAL);
 	VERIFY(err != ENOENT);
+
+	if (err == 0) {
+		mutex_enter(&spa_namespace_lock);
+		spa_t *spa = spa_lookup(pool_name);
+		VERIFY(spa != NULL);
+		mutex_exit(&spa_namespace_lock);
+
+		vdev_t *root_vdev = spa->spa_root_vdev;
+		for (int i = 0; i < root_vdev->vdev_children; ++i) {
+			vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+			mutex_enter(&leaf_vdev->vdev_trim_lock);
+			// spa import may restart trim, so
+			// leaf_vdev->vdev_trim_thread might not be NULL
+			if (leaf_vdev->vdev_trim_thread == NULL) {
+				vdev_trim(leaf_vdev, UINT64_MAX,
+				    B_TRUE, B_FALSE);
+			}
+			mutex_exit(&leaf_vdev->vdev_trim_lock);
+		}
+	}
 
 out:
 	close(fd);
