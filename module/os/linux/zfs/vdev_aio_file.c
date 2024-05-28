@@ -27,6 +27,7 @@
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
+#include "sys/zfs_debug.h"
 #include "umem.h"
 #include <asm/unistd_64.h>
 #include <bits/stdint-uintn.h>
@@ -235,6 +236,9 @@ do_trim_work(void *arg)
 	if (TEMP_FAILURE_RETRY(ioctl(vf->vf_fd, BLKDISCARD, range))) {
 		zio->io_error = errno;
 	}
+
+	zfs_dbgmsg("trim (%lu, %lu), err: %d",
+	    zio->io_offset, zio->io_size, zio->io_error);
 
 	zio_interrupt(zio);
 }
