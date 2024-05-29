@@ -386,6 +386,10 @@ zio_task_submitter(void *args)
 	return (NULL);
 }
 
+#ifdef ZFS_DEBUG
+int fail_percent = 0;
+#endif
+
 static void
 zio_task_reaper(void *args)
 {
@@ -408,6 +412,12 @@ zio_task_reaper(void *args)
 				abd_return_buf(zio->io_abd,
 				    task->buf, zio->io_size);
 			}
+
+#ifdef ZFS_DEBUG
+			if (rand() % 100 < fail_percent) {
+				events[i].res = -EIO;
+			}
+#endif
 
 			ssize_t res = events[i].res;
 			if (res < 0) {

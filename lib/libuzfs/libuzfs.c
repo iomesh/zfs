@@ -875,6 +875,18 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 	free(zhp);
 }
 
+#ifdef ZFS_DEBUG
+extern int fail_percent;
+#endif
+
+void
+libuzfs_set_fail_percent(int fp)
+{
+#ifdef ZFS_DEBUG
+	fail_percent = fp;
+#endif
+}
+
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
@@ -884,6 +896,13 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
 	 */
 	int fd = open(dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
+#ifdef ZFS_DEBUG
+	if (rand() % 100 < fail_percent) {
+		close(fd);
+		errno = EIO;
+		fd = -1;
+	}
+#endif
 	if (fd < 0) {
 		zfs_dbgmsg("open dev_path %s failed, err: %d", dev_path, errno);
 		if (errno == ENOENT) {

@@ -1136,6 +1136,10 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 	return (0);
 }
 
+#ifdef ZFS_DEBUG
+extern int fail_percent;
+#endif
+
 /*
  * Given a file descriptor, read the label information and return an nvlist
  * describing the configuration, if there is one.  The number of valid
@@ -1145,6 +1149,12 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 int
 zpool_read_label_secure(int fd, nvlist_t **config, int *num_labels)
 {
+#ifdef ZFS_DEBUG
+	if (rand() % 100 < fail_percent) {
+		return (EIO);
+	}
+#endif
+
 	struct stat64 statbuf;
 	struct aiocb aiocbs[VDEV_LABELS];
 	struct aiocb *aiocbps[VDEV_LABELS];
