@@ -295,6 +295,8 @@ extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_inode_check_valid(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t gen);
 
+extern void libuzfs_set_fail_percent(int fail_percent);
+
 #ifdef	__cplusplus
 }
 #endif
