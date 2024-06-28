@@ -210,11 +210,11 @@ zfs_rangelock_enter_writer(zfs_rangelock_t *rl, zfs_locked_range_t *new,
 wait:
 		if (nonblock)
 			return (B_FALSE);
-		if (!lr->lr_write_wanted) {
-			cv_init(&lr->lr_write_cv, NULL, CV_DEFAULT, NULL);
-			lr->lr_write_wanted = B_TRUE;
-		}
-		cv_wait(&lr->lr_write_cv, &rl->rl_lock);
+		zfs_range_waiter_t waiter;
+		cv_init(&waiter.cv, NULL, CV_DEFAULT, NULL);
+		list_insert_tail(&lr->waiting_writers, &waiter);
+		cv_wait(&waiter.cv, &rl->rl_lock);
+		cv_destroy(&waiter.cv);
 
 		/* reset to original */
 		new->lr_offset = orig_off;
@@ -236,8 +236,8 @@ zfs_rangelock_proxify(avl_tree_t *tree, zfs_locked_range_t *lr)
 		return (lr); /* already a proxy */
 
 	ASSERT3U(lr->lr_count, ==, 1);
-	ASSERT(lr->lr_write_wanted == B_FALSE);
-	ASSERT(lr->lr_read_wanted == B_FALSE);
+	ASSERT(list_is_empty(&lr->waiting_readers));
+	ASSERT(list_is_empty(&lr->waiting_writers));
 	avl_remove(tree, lr);
 	lr->lr_count = 0;
 
@@ -248,8 +248,10 @@ zfs_rangelock_proxify(avl_tree_t *tree, zfs_locked_range_t *lr)
 	proxy->lr_count = 1;
 	proxy->lr_type = RL_READER;
 	proxy->lr_proxy = B_TRUE;
-	proxy->lr_write_wanted = B_FALSE;
-	proxy->lr_read_wanted = B_FALSE;
+	list_create(&proxy->waiting_writers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
+	list_create(&proxy->waiting_readers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
 	avl_add(tree, proxy);
 
 	return (proxy);
@@ -267,8 +269,8 @@ zfs_rangelock_split(avl_tree_t *tree, zfs_locked_range_t *lr, uint64_t off)
 	ASSERT3U(lr->lr_length, >, 1);
 	ASSERT3U(off, >, lr->lr_offset);
 	ASSERT3U(off, <, lr->lr_offset + lr->lr_length);
-	ASSERT(lr->lr_write_wanted == B_FALSE);
-	ASSERT(lr->lr_read_wanted == B_FALSE);
+	ASSERT(list_is_empty(&lr->waiting_readers));
+	ASSERT(list_is_empty(&lr->waiting_writers));
 
 	/* create the rear proxy range lock */
 	rear = kmem_alloc(sizeof (zfs_locked_range_t), KM_SLEEP);
@@ -277,8 +279,10 @@ zfs_rangelock_split(avl_tree_t *tree, zfs_locked_range_t *lr, uint64_t off)
 	rear->lr_count = lr->lr_count;
 	rear->lr_type = RL_READER;
 	rear->lr_proxy = B_TRUE;
-	rear->lr_write_wanted = B_FALSE;
-	rear->lr_read_wanted = B_FALSE;
+	list_create(&rear->waiting_writers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
+	list_create(&rear->waiting_readers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
 
 	zfs_locked_range_t *front = zfs_rangelock_proxify(tree, lr);
 	front->lr_length = off - lr->lr_offset;
@@ -302,8 +306,10 @@ zfs_rangelock_new_proxy(avl_tree_t *tree, uint64_t off, uint64_t len)
 	lr->lr_count = 1;
 	lr->lr_type = RL_READER;
 	lr->lr_proxy = B_TRUE;
-	lr->lr_write_wanted = B_FALSE;
-	lr->lr_read_wanted = B_FALSE;
+	list_create(&lr->waiting_writers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
+	list_create(&lr->waiting_readers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
 	avl_add(tree, lr);
 }
 
@@ -420,15 +426,16 @@ retry:
 	 * Check the previous range for a writer lock overlap.
 	 */
 	if (prev && (off < prev->lr_offset + prev->lr_length)) {
-		if ((prev->lr_type == RL_WRITER) || (prev->lr_write_wanted)) {
+		if ((prev->lr_type == RL_WRITER) ||
+		    (!list_is_empty(&prev->waiting_writers))) {
 			if (nonblock)
 				return (B_FALSE);
-			if (!prev->lr_read_wanted) {
-				cv_init(&prev->lr_read_cv,
-				    NULL, CV_DEFAULT, NULL);
-				prev->lr_read_wanted = B_TRUE;
-			}
-			cv_wait(&prev->lr_read_cv, &rl->rl_lock);
+
+			zfs_range_waiter_t waiter;
+			cv_init(&waiter.cv, NULL, CV_DEFAULT, NULL);
+			list_insert_tail(&prev->waiting_readers, &waiter);
+			cv_wait(&waiter.cv, &rl->rl_lock);
+			cv_destroy(&waiter.cv);
 			goto retry;
 		}
 		if (off + len < prev->lr_offset + prev->lr_length)
@@ -446,15 +453,15 @@ retry:
 	for (; next != NULL; next = AVL_NEXT(tree, next)) {
 		if (off + len <= next->lr_offset)
 			goto got_lock;
-		if ((next->lr_type == RL_WRITER) || (next->lr_write_wanted)) {
+		if ((next->lr_type == RL_WRITER) ||
+		    (!list_is_empty(&next->waiting_writers))) {
 			if (nonblock)
 				return (B_FALSE);
-			if (!next->lr_read_wanted) {
-				cv_init(&next->lr_read_cv,
-				    NULL, CV_DEFAULT, NULL);
-				next->lr_read_wanted = B_TRUE;
-			}
-			cv_wait(&next->lr_read_cv, &rl->rl_lock);
+			zfs_range_waiter_t waiter;
+			cv_init(&waiter.cv, NULL, CV_DEFAULT, NULL);
+			list_insert_tail(&next->waiting_readers, &waiter);
+			cv_wait(&waiter.cv, &rl->rl_lock);
+			cv_destroy(&waiter.cv);
 			goto retry;
 		}
 		if (off + len <= next->lr_offset + next->lr_length)
@@ -495,8 +502,10 @@ zfs_rangelock_enter_impl(zfs_rangelock_t *rl, uint64_t off, uint64_t len,
 	new->lr_count = 1; /* assume it's going to be in the tree */
 	new->lr_type = type;
 	new->lr_proxy = B_FALSE;
-	new->lr_write_wanted = B_FALSE;
-	new->lr_read_wanted = B_FALSE;
+	list_create(&new->waiting_writers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
+	list_create(&new->waiting_readers, sizeof (zfs_range_waiter_t),
+	    offsetof(zfs_range_waiter_t, node));
 
 	mutex_enter(&rl->rl_lock);
 	if (type == RL_READER) {
@@ -537,11 +546,8 @@ zfs_rangelock_tryenter(zfs_rangelock_t *rl, uint64_t off, uint64_t len,
 static void
 zfs_rangelock_free(zfs_locked_range_t *lr)
 {
-	if (lr->lr_write_wanted)
-		cv_destroy(&lr->lr_write_cv);
-
-	if (lr->lr_read_wanted)
-		cv_destroy(&lr->lr_read_cv);
+	ASSERT(list_is_empty(&lr->waiting_readers));
+	ASSERT(list_is_empty(&lr->waiting_writers));
 
 	kmem_free(lr, sizeof (zfs_locked_range_t));
 }
@@ -565,15 +571,21 @@ zfs_rangelock_exit_reader(zfs_rangelock_t *rl, zfs_locked_range_t *remove,
 	 */
 	if (remove->lr_count == 1) {
 		avl_remove(tree, remove);
-		if (remove->lr_write_wanted)
-			cv_broadcast(&remove->lr_write_cv);
-		if (remove->lr_read_wanted)
-			cv_broadcast(&remove->lr_read_cv);
+
+		zfs_range_waiter_t *waiter = NULL;
+		while ((waiter = list_remove_head(
+		    &remove->waiting_writers)) != NULL) {
+			cv_signal(&waiter->cv);
+		}
+		while ((waiter = list_remove_head(
+		    &remove->waiting_readers)) != NULL) {
+			cv_signal(&waiter->cv);
+		}
 		list_insert_tail(free_list, remove);
 	} else {
 		ASSERT0(remove->lr_count);
-		ASSERT0(remove->lr_write_wanted);
-		ASSERT0(remove->lr_read_wanted);
+		ASSERT(list_is_empty(&remove->waiting_writers));
+		ASSERT(list_is_empty(&remove->waiting_readers));
 		/*
 		 * Find start proxy representing this reader lock,
 		 * then decrement ref count on all proxies
@@ -597,10 +609,15 @@ zfs_rangelock_exit_reader(zfs_rangelock_t *rl, zfs_locked_range_t *remove,
 			lr->lr_count--;
 			if (lr->lr_count == 0) {
 				avl_remove(tree, lr);
-				if (lr->lr_write_wanted)
-					cv_broadcast(&lr->lr_write_cv);
-				if (lr->lr_read_wanted)
-					cv_broadcast(&lr->lr_read_cv);
+				zfs_range_waiter_t *waiter = NULL;
+				while ((waiter = list_remove_head(
+				    &lr->waiting_writers)) != NULL) {
+					cv_signal(&waiter->cv);
+				}
+				while ((waiter = list_remove_head(
+				    &lr->waiting_readers)) != NULL) {
+					cv_signal(&waiter->cv);
+				}
 				list_insert_tail(free_list, lr);
 			}
 		}
@@ -633,10 +650,15 @@ zfs_rangelock_exit(zfs_locked_range_t *lr)
 	if (lr->lr_type == RL_WRITER) {
 		/* writer locks can't be shared or split */
 		avl_remove(&rl->rl_tree, lr);
-		if (lr->lr_write_wanted)
-			cv_broadcast(&lr->lr_write_cv);
-		if (lr->lr_read_wanted)
-			cv_broadcast(&lr->lr_read_cv);
+		zfs_range_waiter_t *waiter = NULL;
+		while ((waiter = list_remove_head(
+		    &lr->waiting_writers)) != NULL) {
+			cv_signal(&waiter->cv);
+		}
+		while ((waiter = list_remove_head(
+		    &lr->waiting_readers)) != NULL) {
+			cv_signal(&waiter->cv);
+		}
 		list_insert_tail(&free_list, lr);
 	} else {
 		/*
@@ -675,10 +697,13 @@ zfs_rangelock_reduce(zfs_locked_range_t *lr, uint64_t off, uint64_t len)
 	lr->lr_offset = off;
 	lr->lr_length = len;
 	mutex_exit(&rl->rl_lock);
-	if (lr->lr_write_wanted)
-		cv_broadcast(&lr->lr_write_cv);
-	if (lr->lr_read_wanted)
-		cv_broadcast(&lr->lr_read_cv);
+	zfs_range_waiter_t *waiter = NULL;
+	while ((waiter = list_remove_head(&lr->waiting_writers)) != NULL) {
+		cv_signal(&waiter->cv);
+	}
+	while ((waiter = list_remove_head(&lr->waiting_readers)) != NULL) {
+		cv_signal(&waiter->cv);
+	}
 }
 
 #if defined(_KERNEL)

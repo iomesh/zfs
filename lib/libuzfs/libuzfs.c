@@ -45,6 +45,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "sync_ops.h"
+#include "sys/vdev_trim.h"
 #include <unistd.h>
 #include <umem.h>
 #include <ctype.h>
@@ -59,7 +61,6 @@
 #include <sys/sa_impl.h>
 
 #include "atomic.h"
-#include "coroutine.h"
 #include "libuzfs.h"
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
@@ -131,6 +132,22 @@ fatal(int do_perror, char *message, ...)
 	dump_debug_buffer();
 
 	exit(3);
+}
+
+extern aio_ops_t aio_ops;
+
+void
+libuzfs_set_sync_ops(const coroutine_ops_t *co,
+    const co_mutex_ops_t *mo, const co_cond_ops_t *condo,
+    const co_rwlock_ops_t *ro, const aio_ops_t *ao,
+    const thread_ops_t *tho)
+{
+	co_ops = *co;
+	co_mutex_ops = *mo;
+	co_cond_ops = *condo;
+	co_rwlock_ops = *ro;
+	aio_ops = *ao;
+	thread_ops = *tho;
 }
 
 static uint64_t
@@ -761,15 +778,9 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	return (error);
 }
 
-extern void (*do_backtrace)(void);
-
 void
-libuzfs_init(thread_create_func create, thread_exit_func exit,
-    thread_join_func join, backtrace_func bt_func)
+libuzfs_init(void)
 {
-	do_backtrace = bt_func;
-	set_thread_funcs(create, exit, join);
-	coroutine_init();
 	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
 }
 
@@ -777,7 +788,6 @@ void
 libuzfs_fini(void)
 {
 	kernel_fini();
-	coroutine_destroy();
 	if (change_zpool_cache_path) {
 		free(spa_config_path);
 	}
@@ -845,6 +855,18 @@ libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 	free(zhp);
 }
 
+#ifdef ZFS_DEBUG
+extern int fail_percent;
+#endif
+
+void
+libuzfs_set_fail_percent(int fp)
+{
+#ifdef ZFS_DEBUG
+	fail_percent = fp;
+#endif
+}
+
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
@@ -854,6 +876,13 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
 	 */
 	int fd = open(dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
+#ifdef ZFS_DEBUG
+	if (rand() % 100 < fail_percent) {
+		close(fd);
+		errno = EIO;
+		fd = -1;
+	}
+#endif
 	if (fd < 0) {
 		zfs_dbgmsg("open dev_path %s failed, err: %d", dev_path, errno);
 		if (errno == ENOENT) {
@@ -903,6 +932,26 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 
 	err = spa_import(pool_name, root_config, NULL, ZFS_IMPORT_NORMAL);
 	VERIFY(err != ENOENT);
+
+	if (err == 0) {
+		mutex_enter(&spa_namespace_lock);
+		spa_t *spa = spa_lookup(pool_name);
+		VERIFY(spa != NULL);
+		mutex_exit(&spa_namespace_lock);
+
+		vdev_t *root_vdev = spa->spa_root_vdev;
+		for (int i = 0; i < root_vdev->vdev_children; ++i) {
+			vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+			mutex_enter(&leaf_vdev->vdev_trim_lock);
+			// spa import may restart trim, so
+			// leaf_vdev->vdev_trim_thread might not be NULL
+			if (leaf_vdev->vdev_trim_thread == NULL) {
+				vdev_trim(leaf_vdev, UINT64_MAX,
+				    B_TRUE, B_FALSE);
+			}
+			mutex_exit(&leaf_vdev->vdev_trim_lock);
+		}
+	}
 
 out:
 	close(fd);
@@ -987,18 +1036,20 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	    DMU_OT_NONE, 0, tx);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1, &sa_obj, tx));
 
-	libuzfs_dataset_handle_t dhp;
-	memset(&dhp, 0, sizeof (dhp));
-	dhp.os = os;
-	dhp.dnodesize = 1024;
+	libuzfs_dataset_handle_t *dhp = umem_zalloc(
+	    sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
+	dhp->os = os;
+	dhp->dnodesize = 1024;
 	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		mutex_init(&dhp.objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&dhp->objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
 	}
-	libuzfs_setup_dataset_sa(&dhp);
+	libuzfs_setup_dataset_sa(dhp);
 	uint64_t sb_obj = 0;
-	libuzfs_create_inode_with_type_impl(&dhp, &sb_obj,
+	libuzfs_create_inode_with_type_impl(dhp, &sb_obj,
 	    B_FALSE, INODE_DIR, tx, 0);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx));
+	sa_tear_down(dhp->os);
+	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 }
 
 int
@@ -1136,7 +1187,7 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 	}
 	dmu_objset_disown(dhp->os, B_TRUE, dhp);
 	libuzfs_dhp_fini(dhp);
-	free(dhp);
+	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 }
 
 uint64_t
