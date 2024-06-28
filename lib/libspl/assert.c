@@ -23,11 +23,12 @@
  * Use is subject to license terms.
  */
 
+#include "sync_ops.h"
 #include <assert.h>
 
 int aok = 0;
 
-void (*do_backtrace)(void) = NULL;
+extern thread_ops_t thread_ops;
 
 /* printf version of libspl_assert */
 void
@@ -45,9 +46,7 @@ libspl_assertf(const char *file, const char *func, int line,
 		return;
 	}
 
-	if (do_backtrace != NULL) {
-		do_backtrace();
-	}
+	thread_ops.backtrace();
 
 	abort();
 }
