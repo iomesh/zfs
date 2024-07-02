@@ -435,6 +435,31 @@ libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
 	    INODE_DATA_OBJ, NULL));
 }
 
+static void
+libuzfs_set_blocksize(libuzfs_node_t *up, uint32_t max_blksz,
+    uint64_t end_size, dmu_tx_t *tx)
+{
+	dnode_t *dn = DB_DNODE(((dmu_buf_impl_t *)sa_get_db(up->sa_hdl)));
+	uint32_t new_blksz = 0;
+	if (up->u_blksz >= max_blksz) {
+		ASSERT(!ISP2(up->u_blksz));
+		new_blksz = 1<<highbit64(up->u_blksz);
+		new_blksz = MIN(new_blksz, end_size);
+	} else {
+		new_blksz = MIN(max_blksz, end_size);
+	}
+
+	int err = dnode_set_blksz(dn, new_blksz, 0, tx);
+	if (err != 0) {
+		ASSERT(ISP2(up->u_blksz));
+		ASSERT(err == ENOTSUP);
+		dprintf("failed to update to new"
+		    " blocksize %u from %u, err: %d",
+		    new_blksz, up->u_blksz, err);
+	}
+	up->u_blksz = dn->dn_datablksz;
+}
+
 static int
 libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t offset, uint64_t size)
@@ -455,6 +480,7 @@ libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		if (err)
 			goto out;
 	}
+	boolean_t extend = up->u_size < size;
 	up->u_size = size;
 
 	dmu_tx_t *tx = dmu_tx_create(os);
@@ -471,6 +497,9 @@ libuzfs_object_truncate_impl(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
 		    NULL, &mtime, sizeof (mtime));
 		gethrestime(&mtime);
+		if (extend) {
+			libuzfs_set_blocksize(up, dhp->max_blksz, size, tx);
+		}
 		VERIFY0(sa_bulk_update(up->sa_hdl, bulk, count, tx));
 		libuzfs_log_truncate(dhp->zilog, tx,
 		    TX_TRUNCATE, obj, offset, size);
@@ -1571,25 +1600,8 @@ libuzfs_object_write_impl(libuzfs_dataset_handle_t *dhp,
 
 		// update max blocksize when current blksz too small
 		if (lr->lr_length == UINT64_MAX) {
-			uint32_t new_blksz = 0;
-			uint64_t end_size = MAX(up->u_size, size + offset);
-			if (up->u_blksz >= max_blksz) {
-				ASSERT(!ISP2(up->u_blksz));
-				new_blksz = 1<<highbit64(up->u_blksz);
-				new_blksz = MIN(new_blksz, end_size);
-			} else {
-				new_blksz = MIN(max_blksz, end_size);
-			}
-
-			int err = dnode_set_blksz(DB_DNODE(db),
-			    new_blksz, 0, tx);
-			if (err != 0) {
-				ASSERT(err == ENOTSUP);
-				dprintf("failed to update to new"
-				    " blocksize %u from %u, err: %d",
-				    new_blksz, up->u_blksz, err);
-			}
-			up->u_blksz = DB_DNODE(db)->dn_datablksz;
+			uint64_t end_size = MAX(up->u_size, offset + size);
+			libuzfs_set_blocksize(up, dhp->max_blksz, end_size, tx);
 			zfs_rangelock_reduce(lr, offset, size);
 		}
 
