@@ -166,6 +166,10 @@ int zap_create_claim_norm(objset_t *ds, uint64_t obj,
 int zap_create_claim_norm_dnsize(objset_t *ds, uint64_t obj,
     int normflags, dmu_object_type_t ot,
     dmu_object_type_t bonustype, int bonuslen, int dnodesize, dmu_tx_t *tx);
+uint64_t zap_create_impl(objset_t *os, int normflags, zap_flags_t flags,
+    dmu_object_type_t ot, int leaf_blockshift, int indirect_blockshift,
+    dmu_object_type_t bonustype, int bonuslen, int dnodesize,
+    dnode_t **allocated_dnode, void *tag, dmu_tx_t *tx);
 
 /*
  * The zapobj passed in must be a valid ZAP object for all of the
