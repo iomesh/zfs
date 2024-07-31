@@ -124,7 +124,7 @@ extern int libuzfs_zpool_prop_get(libuzfs_zpool_handle_t *zhp,
 extern int libuzfs_dataset_create(const char *dsname);
 extern void libuzfs_dataset_destroy(const char *dsname);
 extern libuzfs_dataset_handle_t *libuzfs_dataset_open(const char *dsname,
-    int *err, uint32_t dnodesize, uint32_t max_blksz);
+    int *err, uint32_t dnodesize, uint32_t max_blksz, boolean_t readonly);
 extern void libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp);
 
 extern uint64_t libuzfs_dataset_get_superblock_ino(
@@ -284,6 +284,10 @@ extern int libuzfs_inode_check_valid(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, uint64_t gen);
 
 extern void libuzfs_set_fail_percent(int fail_percent);
+extern int libuzfs_dataset_snapshot_create(const char *snapname);
+extern int libuzfs_dataset_snapshot_destroy(const char *snapname);
+extern int libuzfs_dataset_snapshot_rollback(libuzfs_dataset_handle_t *dhp,
+    const char *snapname);
 
 #ifdef	__cplusplus
 }

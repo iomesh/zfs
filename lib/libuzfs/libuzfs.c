@@ -1146,7 +1146,9 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 
 	dhp->zilog = zil_open(os, libuzfs_get_data);
 	dhp->dnodesize = dnodesize;
-	zil_replay(os, dhp, libuzfs_replay_vector);
+	if (spa_writeable(dmu_objset_spa(os))) {
+		zil_replay(os, dhp, libuzfs_replay_vector);
+	}
 
 	VERIFY0(zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
 	    &dhp->sb_ino));
@@ -1167,7 +1169,7 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 
 libuzfs_dataset_handle_t *
 libuzfs_dataset_open(const char *dsname, int *err,
-    uint32_t dnodesize, uint32_t max_blksz)
+    uint32_t dnodesize, uint32_t max_blksz, boolean_t readonly)
 {
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
@@ -1175,7 +1177,7 @@ libuzfs_dataset_open(const char *dsname, int *err,
 	dhp = umem_zalloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
 	dhp->max_blksz = max_blksz == 0 ? UZFS_DEFAULT_BLOCKSIZE : max_blksz;
 
-	*err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
+	*err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, readonly, B_TRUE,
 	    dhp, &os);
 	if (*err) {
 		umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
@@ -1197,6 +1199,84 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 	dmu_objset_disown(dhp->os, B_TRUE, dhp);
 	libuzfs_dhp_fini(dhp);
 	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
+}
+
+static void
+libuzfs_suspend(libuzfs_dataset_handle_t *dhp)
+{
+	if (dhp->os == NULL) {
+		return;
+	}
+
+	zil_close(dhp->zilog);
+	if (dhp->os->os_sa != NULL) {
+		sa_tear_down(dhp->os);
+	}
+	dmu_objset_disown(dhp->os, B_TRUE, dhp);
+	libuzfs_dhp_fini(dhp);
+
+	dhp->os = NULL;
+}
+
+static int
+libuzfs_resume(libuzfs_dataset_handle_t *dhp)
+{
+	VERIFY3U(dhp->os, ==, NULL);
+	objset_t *os;
+	int err = libuzfs_dmu_objset_own(dhp->name, DMU_OST_ZFS, B_FALSE, B_TRUE,
+	    dhp, &os);
+	if (err == 0) {
+		libuzfs_dhp_init(dhp, os, dhp->dnodesize);
+	}
+
+	return (err);
+}
+
+int
+libuzfs_dataset_snapshot_create(const char *snapname)
+{
+	nvlist_t *snaps = fnvlist_alloc();
+	nvlist_add_uint64(snaps, snapname, 123456);
+	int err = dsl_dataset_snapshot(snaps, NULL, NULL);
+	nvlist_free(snaps);
+	return (err);
+}
+
+int
+libuzfs_dataset_snapshot_destroy(const char *snapname)
+{
+	return (dsl_destroy_snapshot(snapname, B_FALSE));
+}
+
+int
+libuzfs_dataset_snapshot_rollback(libuzfs_dataset_handle_t *dhp,
+    const char *snapname)
+{
+	char snap[ZFS_MAX_DATASET_NAME_LEN];
+	size_t ncopy = snprintf(snap, ZFS_MAX_DATASET_NAME_LEN,
+	    "%s@%s", dhp->name, snapname);
+	if (ncopy >= ZFS_MAX_DATASET_NAME_LEN) {
+		return (EINVAL);
+	}
+
+	libuzfs_suspend(dhp);
+	nvlist_t *result = fnvlist_alloc();
+	int err = dsl_dataset_rollback(dhp->name, snap,
+		NULL, result);
+	nvlist_free(result);
+
+	int resume_err = libuzfs_resume(dhp);
+
+	if (err != 0 || resume_err != 0) {
+		zfs_dbgmsg("snapname: %s, rollback err: %d, resume err: %d",
+		    snap, err, resume_err);
+	}
+
+	if (err == 0) {
+		err = resume_err;
+	}
+
+	return (err);
 }
 
 uint64_t
