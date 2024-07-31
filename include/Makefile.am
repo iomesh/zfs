@@ -8,10 +8,7 @@ COMMON_H = \
 	zfs_fletcher.h \
 	zfs_namecheck.h \
 	zfs_prop.h \
-	coroutine.h \
-	timer_thread.h \
-	coroutine_impl.h \
-	libcontext.h
+	sync_ops.h
 
 USER_H = \
 	libnvpair.h \

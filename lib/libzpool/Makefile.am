@@ -32,10 +32,7 @@ lib_LTLIBRARIES = libzpool.la
 USER_C = \
 	kernel.c \
 	taskq.c \
-	util.c \
-	timer_thread.c \
-	coroutine.c \
-	libcontext.c
+	util.c
 
 KERNEL_C = \
 	zfeature_common.c \

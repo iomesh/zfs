@@ -847,7 +847,7 @@ dsl_pool_sync_context(dsl_pool_t *dp)
 {
 	return (curthread == dp->dp_tx.tx_sync_thread ||
 	    spa_is_initializing(dp->dp_spa) ||
-	    taskq_member(dp->dp_sync_taskq, curthread));
+	    taskq_of_curthread() == dp->dp_sync_taskq);
 }
 
 /*

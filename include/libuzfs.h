@@ -26,7 +26,7 @@
 #ifndef	_LIBUZFS_H
 #define	_LIBUZFS_H
 
-#include "coroutine.h"
+#include <sync_ops.h>
 #include "sys/stdtypes.h"
 #include "sys/time.h"
 #include <libnvpair.h>
@@ -91,28 +91,16 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
 #define	UZFS_XATTR_MAXVALUELEN (8192)
 
-extern uzfs_coroutine_t *libuzfs_new_coroutine(void (*func)(void *), void *arg,
-    uint64_t task_id, boolean_t foreground, void (*record_backtrace)(uint64_t),
-    void (*wake)(void *), void *wake_arg);
-extern void libuzfs_destroy_coroutine(uzfs_coroutine_t *coroutine);
-
-typedef enum run_state {
-	RUN_STATE_PENDING = 0,
-	RUN_STATE_YIELDED = 1,
-	RUN_STATE_DONE = 2,
-} run_state_t;
-
-extern run_state_t libuzfs_run_coroutine(uzfs_coroutine_t *coroutine);
-extern void libuzfs_coroutine_yield(void);
-extern void *libuzfs_current_coroutine_arg(void);
-extern void libuzfs_coroutine_exit(void);
+extern void libuzfs_set_sync_ops(const coroutine_ops_t *,
+    const co_mutex_ops_t *, const co_cond_ops_t *,
+    const co_rwlock_ops_t *, const aio_ops_t *,
+    const thread_ops_t *, const taskq_ops_t *);
 
 // only have effect when in debug binary
 extern void libuzfs_enable_debug_msg(void);
 extern void libuzfs_disable_debug_msg(void);
 
-extern void libuzfs_init(thread_create_func create, thread_exit_func exit,
-    thread_join_func join, backtrace_func bt_func);
+extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 
