@@ -70,21 +70,19 @@ libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp)
 }
 
 void
-libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type,
-    uint64_t gen)
+libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
 {
 	sa_bulk_attr_t sa_attrs[UZFS_END];
 	int cnt = 0;
 	uint64_t size = 0;
 	timespec_t mtime = {0, 0};
 
-	sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
+	sa_attr_type_t *attr_tbl = ihp->dhp->uzfs_attr_table;
 
 	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_GEN],
-	    NULL, &gen, sizeof (gen));
+	    NULL, &ihp->gen, sizeof (ihp->gen));
 
-	if (type == INODE_DATA_OBJ) {
+	if (ihp->is_data_inode) {
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_SIZE],
 		    NULL, &size, sizeof (size));
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_MTIME],
@@ -94,44 +92,33 @@ libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
 		    NULL, NULL, 0);
 	}
 
-	nvlist_t *nvl;
-	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+	VERIFY0(nvlist_alloc(&ihp->hp_kvattr_cache, NV_UNIQUE_NAME, KM_SLEEP));
 
 	uint64_t xattr_sa_size;
-	VERIFY0(nvlist_size(nvl, &xattr_sa_size, NV_ENCODE_XDR));
+	VERIFY0(nvlist_size(ihp->hp_kvattr_cache,
+	    &xattr_sa_size, NV_ENCODE_XDR));
 
 	char *xattr_sa_data = vmem_alloc(xattr_sa_size, KM_SLEEP);
-	VERIFY0(nvlist_pack(nvl, &xattr_sa_data, &xattr_sa_size,
-	    NV_ENCODE_XDR, KM_SLEEP));
+	VERIFY0(nvlist_pack(ihp->hp_kvattr_cache, &xattr_sa_data,
+	    &xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
 
 	// add high priority kv before normal kv to place it in bonous buffer
-	SA_ADD_BULK_ATTR(sa_attrs, cnt, dhp->uzfs_attr_table[UZFS_XATTR_HIGH],
+	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR_HIGH],
 	    NULL, xattr_sa_data, xattr_sa_size);
-	SA_ADD_BULK_ATTR(sa_attrs, cnt, dhp->uzfs_attr_table[UZFS_XATTR],
+	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR],
 	    NULL, xattr_sa_data, xattr_sa_size);
 
-	VERIFY0(sa_replace_all_by_template(sa_hdl, sa_attrs, cnt, tx));
+	VERIFY0(sa_replace_all_by_template(ihp->sa_hdl, sa_attrs, cnt, tx));
 
 	vmem_free(xattr_sa_data, xattr_sa_size);
-	nvlist_free(nvl);
 }
 
 int
-libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp, uint64_t ino,
-    uint64_t *xattr_zap_obj)
+libuzfs_get_xattr_zap_obj(libuzfs_inode_handle_t *ihp, uint64_t *xattr_zap_obj)
 {
-	objset_t *os = dhp->os;
-	sa_handle_t *sa_hdl = NULL;
-	int err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
-
-	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
-	err = sa_lookup(sa_hdl, sa_tbl[UZFS_ZXATTR], xattr_zap_obj,
-	    sizeof (*xattr_zap_obj));
-	sa_handle_destroy(sa_hdl);
-	return (err);
+	sa_attr_type_t *sa_tbl = ihp->dhp->uzfs_attr_table;
+	return (sa_lookup(ihp->sa_hdl, sa_tbl[UZFS_ZXATTR], xattr_zap_obj,
+	    sizeof (*xattr_zap_obj)));
 }
 
 static void
@@ -153,41 +140,29 @@ libuzfs_get_object_size(sa_handle_t *sa_hdl, sa_attr_type_t zxattr,
 }
 
 int
-libuzfs_object_get_attr(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+libuzfs_object_get_attr(libuzfs_inode_handle_t *ihp,
     uzfs_object_attr_t *attr)
 {
-	libuzfs_node_t *up;
-	int err = libuzfs_acquire_node(dhp, obj, &up);
-	if (err == 0) {
-		sa_bulk_attr_t sa_attrs[UZFS_END];
-		int cnt = 0;
-		sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
-		libuzfs_get_object_size(up->sa_hdl, attr_tbl[UZFS_ZXATTR],
-		    &attr->blocks, &attr->blksize);
-		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_GEN],
-		    NULL, &attr->gen, sizeof (attr->gen));
-		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_SIZE],
-		    NULL, &attr->size, sizeof (attr->size));
-		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_MTIME],
-		    NULL, &attr->mtime, sizeof (attr->mtime));
-		err = sa_bulk_lookup(up->sa_hdl, sa_attrs, cnt);
-		libuzfs_release_node(up);
-	}
-	return (err);
+	sa_bulk_attr_t sa_attrs[UZFS_END];
+	int cnt = 0;
+	sa_attr_type_t *attr_tbl = ihp->dhp->uzfs_attr_table;
+	libuzfs_get_object_size(ihp->sa_hdl, attr_tbl[UZFS_ZXATTR],
+	    &attr->blocks, &attr->blksize);
+	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_GEN],
+	    NULL, &attr->gen, sizeof (attr->gen));
+	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_SIZE],
+	    NULL, &attr->size, sizeof (attr->size));
+	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_MTIME],
+	    NULL, &attr->mtime, sizeof (attr->mtime));
+	return (sa_bulk_lookup(ihp->sa_hdl, sa_attrs, cnt));
 }
 
 int
-libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+libuzfs_inode_getattr(libuzfs_inode_handle_t *ihp,
     uzfs_inode_attr_t *attr, char *reserved, int *size)
 {
-	sa_handle_t *sa_hdl;
-	int err = sa_handle_get(dhp->os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
-
-	sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
-	err = sa_size(sa_hdl, attr_tbl[UZFS_RESERVED], size);
+	sa_attr_type_t *attr_tbl = ihp->dhp->uzfs_attr_table;
+	int err = sa_size(ihp->sa_hdl, attr_tbl[UZFS_RESERVED], size);
 	if (err == 0) {
 		sa_bulk_attr_t sa_attrs[UZFS_END];
 		int cnt = 0;
@@ -195,38 +170,31 @@ libuzfs_inode_getattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		    NULL, reserved, *size);
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_GEN],
 		    NULL, &attr->gen, sizeof (attr->gen));
-		sa_object_size(sa_hdl, &attr->blksize,
+		sa_object_size(ihp->sa_hdl, &attr->blksize,
 		    (u_longlong_t *)&attr->blocks);
-		err = sa_bulk_lookup(sa_hdl, sa_attrs, cnt);
+		err = sa_bulk_lookup(ihp->sa_hdl, sa_attrs, cnt);
 	}
 
-	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
 int
-libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+libuzfs_inode_setattr(libuzfs_inode_handle_t *ihp,
     const char *reserved, uint32_t size, uint64_t *txg)
 {
-	sa_handle_t *sa_hdl;
-	objset_t *os = dhp->os;
-	int err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
-
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
+	objset_t *os = ihp->dhp->os;
 	ASSERT3U(size, <=, libuzfs_get_max_reserved_len(sa_hdl));
 	dmu_tx_t *tx = dmu_tx_create(os);
 	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+	int err = 0;
 	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 		dmu_tx_abort(tx);
 		return (err);
 	}
 
-	VERIFY0(sa_update(sa_hdl, dhp->uzfs_attr_table[UZFS_RESERVED],
+	VERIFY0(sa_update(sa_hdl, ihp->dhp->uzfs_attr_table[UZFS_RESERVED],
 	    (void *)reserved, size, tx));
-
-	sa_handle_destroy(sa_hdl);
 
 	if (txg != NULL) {
 		*txg = tx->tx_txg;
@@ -255,38 +223,32 @@ libuzfs_log_setmtime(zilog_t *zilog, uint64_t obj,
 }
 
 int
-libuzfs_object_setmtime(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+libuzfs_object_setmtime(libuzfs_inode_handle_t *ihp,
     const struct timespec *mtime, boolean_t sync)
 {
-	libuzfs_node_t *up = NULL;
-	int err = libuzfs_acquire_node(dhp, obj, &up);
-	if (err != 0) {
-		return (err);
-	}
-
-	dmu_tx_t *tx = dmu_tx_create(dhp->os);
-	dmu_tx_hold_sa(tx, up->sa_hdl, FALSE);
-	if ((err = dmu_tx_assign(tx, TXG_WAIT)) == 0) {
-		VERIFY0(sa_update(up->sa_hdl, dhp->uzfs_attr_table[UZFS_MTIME],
+	dmu_tx_t *tx = dmu_tx_create(ihp->dhp->os);
+	dmu_tx_hold_sa(tx, ihp->sa_hdl, FALSE);
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	libuzfs_dataset_handle_t *dhp = ihp->dhp;
+	if (err == 0) {
+		VERIFY0(sa_update(ihp->sa_hdl, dhp->uzfs_attr_table[UZFS_MTIME],
 		    (void *)mtime, sizeof (struct timespec), tx));
 
-		libuzfs_log_setmtime(dhp->zilog, obj, mtime, tx);
+		libuzfs_log_setmtime(dhp->zilog, ihp->ino, mtime, tx);
 
 		dmu_tx_commit(tx);
 	} else {
 		dmu_tx_abort(tx);
 	}
 
-	libuzfs_release_node(up);
-
 	if (sync) {
-		zil_commit(dhp->zilog, obj);
+		zil_commit(dhp->zilog, ihp->ino);
 	}
 
 	return (err);
 }
 
-static int
+int
 libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
     nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr)
 {
@@ -408,7 +370,7 @@ libuzfs_log_kvattr_set(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj,
 // if normal sa space not enough, kv will be inserted into
 // an extra zap object
 int
-libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+libuzfs_inode_set_kvattr(libuzfs_inode_handle_t *ihp,
     const char *name, const char *value, uint64_t size,
     uint64_t *txg, uint32_t option)
 {
@@ -416,13 +378,9 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		return (EFBIG);
 	}
 
-	sa_handle_t *sa_hdl = NULL;
+	libuzfs_dataset_handle_t *dhp = ihp->dhp;
 	objset_t *os = dhp->os;
-	int err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
-
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
 	nvlist_t *nvl = NULL;
 	char *xattr_sa_data = NULL;
 	size_t xattr_sa_size = 0;
@@ -430,17 +388,11 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	char *hp_xattr_data = NULL;
 	size_t hp_xattr_data_size = 0;
 
+	int err = 0;
 	// try to insert this kv into high priority area
 	if (option & KVSET_HIGH_PRIORITY) {
-		nvlist_t *hp_nvl = NULL;
 		sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
-		err = libuzfs_get_nvlist_from_handle(sa_tbl,
-		    &hp_nvl, sa_hdl, UZFS_XATTR_HIGH);
-		if (err != 0) {
-			goto out_handle;
-		}
-
-		boolean_t existed = nvlist_exists(hp_nvl, name);
+		boolean_t existed = nvlist_exists(ihp->hp_kvattr_cache, name);
 		// old value not in hp area, we need to check
 		// whether it exists in normal area,
 		// if so, fall back to normal kvattr set
@@ -449,32 +401,31 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 			    sa_hdl, sa_tbl, name, &err);
 
 			if (err != 0) {
-				nvlist_free(hp_nvl);
-				goto out_handle;
+				return (err);
 			}
 
 			if (existed_in_lp) {
-				nvlist_free(hp_nvl);
 				goto set_normal;
 			}
 		}
 
-		// update hp nv list
-		err = libuzfs_kvattr_update_nvlist(hp_nvl,
+		// we need to acquire lock here prevent concurrency get hp cache
+		rw_enter(&ihp->hp_kvattr_cache_lock, RW_WRITER);
+		err = libuzfs_kvattr_update_nvlist(ihp->hp_kvattr_cache,
 		    name, value, size, &hp_xattr_data_size,
 		    libuzfs_get_max_hp_kvs_capacity(sa_hdl));
+		rw_exit(&ihp->hp_kvattr_cache_lock);
 		if (err != 0 && err != EFBIG) {
-			nvlist_free(hp_nvl);
-			goto out_handle;
+			return (err);
 		}
 
 		if (existed || err == 0) {
 			hp_xattr_data = umem_alloc(hp_xattr_data_size,
 			    UMEM_NOFAIL);
-			VERIFY0(nvlist_pack(hp_nvl, &hp_xattr_data,
-			    &hp_xattr_data_size, NV_ENCODE_XDR, KM_SLEEP));
+			VERIFY0(nvlist_pack(ihp->hp_kvattr_cache,
+			    &hp_xattr_data, &hp_xattr_data_size,
+			    NV_ENCODE_XDR, KM_SLEEP));
 		}
-		nvlist_free(hp_nvl);
 
 		// hp area has enough space, just put in hp area
 		if (err == 0) {
@@ -489,7 +440,7 @@ libuzfs_inode_set_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 				if (txg != NULL) {
 					*txg = tx->tx_txg;
 				}
-				libuzfs_log_kvattr_set(dhp->zilog, tx, ino,
+				libuzfs_log_kvattr_set(dhp->zilog, tx, ihp->ino,
 				    name, value, size, option);
 				dmu_tx_commit(tx);
 			}
@@ -606,7 +557,7 @@ set_normal:
 			    1, size, value, tx));
 		}
 
-		libuzfs_log_kvattr_set(dhp->zilog, tx, ino, name,
+		libuzfs_log_kvattr_set(dhp->zilog, tx, ihp->ino, name,
 		    value, size, option);
 
 		if (txg != NULL) {
@@ -627,8 +578,6 @@ out_free_sa_data:
 	if (nvl != NULL) {
 		nvlist_free(nvl);
 	}
-out_handle:
-	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
@@ -691,18 +640,26 @@ libuzfs_inode_get_kvattr_sa(sa_handle_t *sa_hdl, const sa_attr_type_t *sa_tbl,
 }
 
 ssize_t
-libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+libuzfs_inode_get_kvattr(libuzfs_inode_handle_t *ihp,
     const char *name, char *value, uint64_t size)
 {
-	sa_handle_t *sa_hdl = NULL;
-	int err = sa_handle_get(dhp->os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (-err);
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
+	libuzfs_dataset_handle_t *dhp = ihp->dhp;
+	uchar_t *nv_value;
+	uint_t nv_size = 0;
+	rw_enter(&ihp->hp_kvattr_cache_lock, RW_READER);
+	int rc = nvlist_lookup_byte_array(ihp->hp_kvattr_cache,
+	    name, &nv_value, &nv_size);
+	rw_exit(&ihp->hp_kvattr_cache_lock);
+	if (rc == 0) {
+		if (nv_size > size) {
+			return (-ERANGE);
+		}
+		memcpy(value, nv_value, nv_size);
+		return (nv_size);
 	}
 
-	ssize_t rc = libuzfs_inode_get_kvattr_sa(sa_hdl, dhp->uzfs_attr_table,
-	    name, value, size, UZFS_XATTR_HIGH);
-
+	rc = -rc;
 	if (rc == -ENOENT) {
 		rc = libuzfs_inode_get_kvattr_sa(sa_hdl, dhp->uzfs_attr_table,
 		    name, value, size, UZFS_XATTR);
@@ -712,18 +669,21 @@ libuzfs_inode_get_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 		}
 	}
 
-	sa_handle_destroy(sa_hdl);
 	return (rc);
 }
 
 static int
 libuzfs_inode_remove_kvattr_from_sa(sa_handle_t *sa_hdl, sa_attr_type_t *sa_tbl,
-    const char *name, uint64_t *txg, sa_attr_type_t xattr)
+    const char *name, uint64_t *txg, sa_attr_type_t xattr, nvlist_t *nvl)
 {
-	nvlist_t *nvl = NULL;
-	int err = libuzfs_get_nvlist_from_handle(sa_tbl, &nvl, sa_hdl, xattr);
-	if (err != 0) {
-		return (err);
+	boolean_t need_free = nvl == NULL;
+	int err = 0;
+	if (need_free) {
+		err = libuzfs_get_nvlist_from_handle(sa_tbl,
+		    &nvl, sa_hdl, xattr);
+		if (err != 0) {
+			return (err);
+		}
 	}
 
 	err = nvlist_remove(nvl, name, DATA_TYPE_BYTE_ARRAY);
@@ -763,7 +723,9 @@ libuzfs_inode_remove_kvattr_from_sa(sa_handle_t *sa_hdl, sa_attr_type_t *sa_tbl,
 out2:
 	vmem_free(xattr_sa_data, xattr_sa_size);
 out1:
-	nvlist_free(nvl);
+	if (need_free) {
+		nvlist_free(nvl);
+	}
 	return (err);
 }
 
@@ -820,45 +782,32 @@ libuzfs_inode_remove_kvattr_from_zap(sa_handle_t *sa_hdl,
 }
 
 int
-libuzfs_inode_remove_kvattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
+libuzfs_inode_remove_kvattr(libuzfs_inode_handle_t *ihp,
     const char *name, uint64_t *txg)
 {
-	sa_handle_t *sa_hdl = NULL;
-	objset_t *os = dhp->os;
-	int err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err != 0) {
-		return (err);
-	}
-
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
+	libuzfs_dataset_handle_t *dhp = ihp->dhp;
 	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
-	err = libuzfs_inode_remove_kvattr_from_sa(sa_hdl, sa_tbl, name,
-	    txg, UZFS_XATTR_HIGH);
+	int err = libuzfs_inode_remove_kvattr_from_sa(sa_hdl, sa_tbl, name,
+	    txg, UZFS_XATTR_HIGH, ihp->hp_kvattr_cache);
 
 	if (err == ENOENT) {
 		err = libuzfs_inode_remove_kvattr_from_sa(sa_hdl, sa_tbl, name,
-		    txg, UZFS_XATTR);
+		    txg, UZFS_XATTR, NULL);
 
 		if (err == ENOENT) {
 			err = libuzfs_inode_remove_kvattr_from_zap(sa_hdl,
 			    sa_tbl, name, txg);
 		}
 	}
-
-	sa_handle_destroy(sa_hdl);
 	return (err);
 }
 
 libuzfs_kvattr_iterator_t *
-libuzfs_new_kvattr_iterator(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, int *err)
+libuzfs_new_kvattr_iterator(libuzfs_inode_handle_t *ihp, int *err)
 {
-	sa_handle_t *sa_hdl = NULL;
-	objset_t *os = dhp->os;
-	*err = sa_handle_get(os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (*err != 0) {
-		return (NULL);
-	}
-
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
+	libuzfs_dataset_handle_t *dhp = ihp->dhp;
 	libuzfs_kvattr_iterator_t *iter =
 	    umem_zalloc(sizeof (libuzfs_kvattr_iterator_t), UMEM_NOFAIL);
 
@@ -889,7 +838,6 @@ libuzfs_new_kvattr_iterator(libuzfs_dataset_handle_t *dhp,
 	}
 	*err = 0;
 
-	sa_handle_destroy(sa_hdl);
 	return (iter);
 
 fail:
@@ -900,7 +848,6 @@ fail:
 		nvlist_free(iter->hp_kvattrs_in_sa);
 	}
 	umem_free(iter, sizeof (libuzfs_kvattr_iterator_t));
-	sa_handle_destroy(sa_hdl);
 	return (NULL);
 }
 
@@ -955,28 +902,4 @@ libuzfs_kvattr_iterator_fini(libuzfs_kvattr_iterator_t *iter)
 		zap_cursor_fini(&iter->zc);
 	}
 	umem_free(iter, sizeof (libuzfs_kvattr_iterator_t));
-}
-
-int
-libuzfs_inode_check_valid(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, uint64_t gen)
-{
-	kmutex_t *mp = &dhp->objs_lock[ino % NUM_NODE_BUCKETS];
-	mutex_enter(mp);
-
-	sa_handle_t *sa_hdl = NULL;
-	int err = sa_handle_get(dhp->os, ino, NULL, SA_HDL_PRIVATE, &sa_hdl);
-	if (err == 0) {
-		uint64_t stored_gen;
-		err = sa_lookup(sa_hdl, dhp->uzfs_attr_table[UZFS_GEN],
-		    &stored_gen, sizeof (stored_gen));
-		if (err == 0 && stored_gen != gen) {
-			err = ENOENT;
-		}
-		sa_handle_destroy(sa_hdl);
-	}
-
-	mutex_exit(mp);
-
-	return (err);
 }
