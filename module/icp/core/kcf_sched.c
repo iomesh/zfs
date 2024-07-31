@@ -29,6 +29,8 @@
  * layer, between the kernel API/ioctls and the SPI.
  */
 
+#include "sys/avl.h"
+#include "sys/list.h"
 #include <sys/zfs_context.h>
 #include <sys/crypto/common.h>
 #include <sys/crypto/impl.h>
@@ -581,7 +583,9 @@ static inline int EMPTY_TASKQ(taskq_t *tq)
 #ifdef _KERNEL
 	return (tq->tq_lowest_id == tq->tq_next_id);
 #else
-	return (tq->tq_task.tqent_next == &tq->tq_task || tq->tq_active == 0);
+	return (list_is_empty(&tq->task_list) &&
+	    list_is_empty(&tq->pend_list) &&
+	    list_is_empty(&tq->prio_list));
 #endif
 }
 
