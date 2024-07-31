@@ -29,6 +29,8 @@
  * layer, between the kernel API/ioctls and the SPI.
  */
 
+#include "sys/avl.h"
+#include "sys/list.h"
 #include <sys/zfs_context.h>
 #include <sys/crypto/common.h>
 #include <sys/crypto/impl.h>
@@ -581,7 +583,7 @@ static inline int EMPTY_TASKQ(taskq_t *tq)
 #ifdef _KERNEL
 	return (tq->tq_lowest_id == tq->tq_next_id);
 #else
-	return (tq->tq_task.tqent_next == &tq->tq_task || tq->tq_active == 0);
+	return (taskq_ops.taskq_is_empty(tq));
 #endif
 }
 
@@ -671,7 +673,7 @@ kcf_submit_request(kcf_provider_desc_t *pd, crypto_ctx_t *ctx,
 				 * the synchronous case, we wait for the taskq
 				 * to become empty.
 				 */
-				if (taskq->tq_nalloc >= crypto_taskq_maxalloc) {
+				if (taskq_ops.taskq_nalloc(taskq) >= crypto_taskq_maxalloc) {
 					taskq_wait(taskq);
 				}
 
@@ -764,7 +766,7 @@ kcf_submit_request(kcf_provider_desc_t *pd, crypto_ctx_t *ctx,
 			 * value if we exceeded maxalloc. Hence the check
 			 * here.
 			 */
-			if (taskq->tq_nalloc >= crypto_taskq_maxalloc) {
+			if (taskq_ops.taskq_nalloc(taskq) >= crypto_taskq_maxalloc) {
 				error = CRYPTO_BUSY;
 				KCF_AREQ_REFRELE(areq);
 				goto done;

@@ -28,348 +28,134 @@
  * Copyright (c) 2014 by Delphix. All rights reserved.
  */
 
+#include "atomic.h"
+#include "sync_ops.h"
+#include "sys/avl.h"
+#include "sys/kmem.h"
+#include "sys/list.h"
+#include "sys/stdtypes.h"
+#include "sys/time.h"
+#include "sys/zfs_debug.h"
+#include <stdint.h>
+#include <stdlib.h>
+#include <strings.h>
 #include <sys/zfs_context.h>
+#include <time.h>
 
-int taskq_now;
 taskq_t *system_taskq;
 taskq_t *system_delay_taskq;
 
-static uint32_t taskq_tsd;
+taskq_ops_t taskq_ops;
 
-#define	TASKQ_ACTIVE	0x00010000
-
-static taskq_ent_t *
-task_alloc(taskq_t *tq, int tqflags)
+taskq_t	*
+taskq_create(const char * tq_name, int _b, pri_t _c, int _d, int _e, uint_t _f)
 {
-	taskq_ent_t *t;
-	int rv;
+	return (taskq_ops.taskq_create(tq_name));
+}
 
-again:	if ((t = tq->tq_freelist) != NULL && tq->tq_nalloc >= tq->tq_minalloc) {
-		ASSERT(!(t->tqent_flags & TQENT_FLAG_PREALLOC));
-		tq->tq_freelist = t->tqent_next;
-	} else {
-		if (tq->tq_nalloc >= tq->tq_maxalloc) {
-			if (!(tqflags & KM_SLEEP))
-				return (NULL);
+taskqid_t
+taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t flag)
+{
+	return (taskq_ops.taskq_dispatch(tq, func, arg, flag));
+}
 
-			/*
-			 * We don't want to exceed tq_maxalloc, but we can't
-			 * wait for other tasks to complete (and thus free up
-			 * task structures) without risking deadlock with
-			 * the caller.  So, we just delay for one second
-			 * to throttle the allocation rate. If we have tasks
-			 * complete before one second timeout expires then
-			 * taskq_ent_free will signal us and we will
-			 * immediately retry the allocation.
-			 */
-			tq->tq_maxalloc_wait++;
-			rv = cv_timedwait(&tq->tq_maxalloc_cv,
-			    &tq->tq_lock, ddi_get_lbolt() + hz);
-			tq->tq_maxalloc_wait--;
-			if (rv > 0)
-				goto again;		/* signaled */
-		}
-		mutex_exit(&tq->tq_lock);
-
-		t = kmem_alloc(sizeof (taskq_ent_t), tqflags);
-
-		mutex_enter(&tq->tq_lock);
-		if (t != NULL) {
-			/* Make sure we start without any flags */
-			t->tqent_flags = 0;
-			tq->tq_nalloc++;
-		}
+taskqid_t
+taskq_dispatch_delay(taskq_t *tq, task_func_t func, void *arg, uint_t _,
+    clock_t expire_time)
+{
+	clock_t delta = expire_time - ddi_get_lbolt();
+	if (delta < 0) {
+		delta = 0;
 	}
-	return (t);
+	struct timespec ts;
+	ts.tv_sec = delta / hz;
+	ts.tv_nsec = delta % hz * NANOSEC / hz;
+	return (taskq_ops.taskq_delay_dispatch(tq, func, arg, &ts));
 }
 
 static void
-task_free(taskq_t *tq, taskq_ent_t *t)
+taskq_ent_func(void *arg)
 {
-	if (tq->tq_nalloc <= tq->tq_minalloc) {
-		t->tqent_next = tq->tq_freelist;
-		tq->tq_freelist = t;
-	} else {
-		tq->tq_nalloc--;
-		mutex_exit(&tq->tq_lock);
-		kmem_free(t, sizeof (taskq_ent_t));
-		mutex_enter(&tq->tq_lock);
-	}
-
-	if (tq->tq_maxalloc_wait)
-		cv_signal(&tq->tq_maxalloc_cv);
+	taskq_ent_t *task = arg;
+	task_func_t *func = task->func;
+	arg = task->arg;
+	task->func = NULL;
+	task->arg = NULL;
+	func(arg);
 }
 
-taskqid_t
-taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t tqflags)
+void
+taskq_dispatch_ent(taskq_t *tq, task_func_t func, void *arg, uint_t flag,
+    taskq_ent_t *task)
 {
-	taskq_ent_t *t;
-
-	if (taskq_now) {
-		func(arg);
-		return (1);
-	}
-
-	mutex_enter(&tq->tq_lock);
-	ASSERT(tq->tq_flags & TASKQ_ACTIVE);
-	if ((t = task_alloc(tq, tqflags)) == NULL) {
-		mutex_exit(&tq->tq_lock);
-		return (0);
-	}
-	if (tqflags & TQ_FRONT) {
-		t->tqent_next = tq->tq_task.tqent_next;
-		t->tqent_prev = &tq->tq_task;
-	} else {
-		t->tqent_next = &tq->tq_task;
-		t->tqent_prev = tq->tq_task.tqent_prev;
-	}
-	t->tqent_next->tqent_prev = t;
-	t->tqent_prev->tqent_next = t;
-	t->tqent_func = func;
-	t->tqent_arg = arg;
-	t->tqent_flags = 0;
-	cv_signal(&tq->tq_dispatch_cv);
-	mutex_exit(&tq->tq_lock);
-	return (1);
-}
-
-taskqid_t
-taskq_dispatch_delay(taskq_t *tq,  task_func_t func, void *arg, uint_t tqflags,
-    clock_t expire_time)
-{
-	return (0);
+	ASSERT(taskq_empty_ent(task));
+	task->func = func;
+	task->arg = arg;
+	taskq_ops.taskq_dispatch(tq, taskq_ent_func, task, flag);
 }
 
 int
-taskq_empty_ent(taskq_ent_t *t)
+taskq_empty_ent(taskq_ent_t *task)
 {
-	return (t->tqent_next == NULL);
+	return (task->func == NULL && task->arg == NULL);
 }
 
 void
-taskq_init_ent(taskq_ent_t *t)
+taskq_init_ent(taskq_ent_t *task)
 {
-	t->tqent_next = NULL;
-	t->tqent_prev = NULL;
-	t->tqent_func = NULL;
-	t->tqent_arg = NULL;
-	t->tqent_flags = 0;
-}
-
-void
-taskq_dispatch_ent(taskq_t *tq, task_func_t func, void *arg, uint_t flags,
-    taskq_ent_t *t)
-{
-	ASSERT(func != NULL);
-
-	/*
-	 * Mark it as a prealloc'd task.  This is important
-	 * to ensure that we don't free it later.
-	 */
-	t->tqent_flags |= TQENT_FLAG_PREALLOC;
-	/*
-	 * Enqueue the task to the underlying queue.
-	 */
-	mutex_enter(&tq->tq_lock);
-
-	if (flags & TQ_FRONT) {
-		t->tqent_next = tq->tq_task.tqent_next;
-		t->tqent_prev = &tq->tq_task;
-	} else {
-		t->tqent_next = &tq->tq_task;
-		t->tqent_prev = tq->tq_task.tqent_prev;
-	}
-	t->tqent_next->tqent_prev = t;
-	t->tqent_prev->tqent_next = t;
-	t->tqent_func = func;
-	t->tqent_arg = arg;
-	cv_signal(&tq->tq_dispatch_cv);
-	mutex_exit(&tq->tq_lock);
-}
-
-void
-taskq_wait(taskq_t *tq)
-{
-	mutex_enter(&tq->tq_lock);
-	while (tq->tq_task.tqent_next != &tq->tq_task || tq->tq_active != 0)
-		cv_wait(&tq->tq_wait_cv, &tq->tq_lock);
-	mutex_exit(&tq->tq_lock);
-}
-
-void
-taskq_wait_id(taskq_t *tq, taskqid_t id)
-{
-	taskq_wait(tq);
-}
-
-void
-taskq_wait_outstanding(taskq_t *tq, taskqid_t id)
-{
-	taskq_wait(tq);
-}
-
-static void
-taskq_thread(void *arg)
-{
-	taskq_t *tq = arg;
-	taskq_ent_t *t;
-	boolean_t prealloc;
-
-	VERIFY0(tsd_set(taskq_tsd, tq));
-
-	mutex_enter(&tq->tq_lock);
-	while (tq->tq_flags & TASKQ_ACTIVE) {
-		if ((t = tq->tq_task.tqent_next) == &tq->tq_task) {
-			if (--tq->tq_active == 0)
-				cv_broadcast(&tq->tq_wait_cv);
-			cv_wait(&tq->tq_dispatch_cv, &tq->tq_lock);
-			tq->tq_active++;
-			continue;
-		}
-		t->tqent_prev->tqent_next = t->tqent_next;
-		t->tqent_next->tqent_prev = t->tqent_prev;
-		t->tqent_next = NULL;
-		t->tqent_prev = NULL;
-		prealloc = t->tqent_flags & TQENT_FLAG_PREALLOC;
-		mutex_exit(&tq->tq_lock);
-
-		rw_enter(&tq->tq_threadlock, RW_READER);
-		t->tqent_func(t->tqent_arg);
-		rw_exit(&tq->tq_threadlock);
-
-		mutex_enter(&tq->tq_lock);
-		if (!prealloc)
-			task_free(tq, t);
-	}
-	tq->tq_nthreads--;
-	cv_broadcast(&tq->tq_wait_cv);
-	mutex_exit(&tq->tq_lock);
-	thread_exit();
-}
-
-/*ARGSUSED*/
-taskq_t *
-taskq_create(const char *name, int nthreads, pri_t pri,
-    int minalloc, int maxalloc, uint_t flags)
-{
-	taskq_t *tq = kmem_zalloc(sizeof (taskq_t), KM_SLEEP);
-	int t;
-
-	if (flags & TASKQ_THREADS_CPU_PCT) {
-		int pct;
-		ASSERT3S(nthreads, >=, 0);
-		ASSERT3S(nthreads, <=, 100);
-		pct = MIN(nthreads, 100);
-		pct = MAX(pct, 0);
-
-		nthreads = (sysconf(_SC_NPROCESSORS_ONLN) * pct) / 100;
-		nthreads = MAX(nthreads, 1);	/* need at least 1 thread */
-	} else {
-		ASSERT3S(nthreads, >=, 1);
-	}
-
-	rw_init(&tq->tq_threadlock, NULL, RW_DEFAULT, NULL);
-	mutex_init(&tq->tq_lock, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&tq->tq_dispatch_cv, NULL, CV_DEFAULT, NULL);
-	cv_init(&tq->tq_wait_cv, NULL, CV_DEFAULT, NULL);
-	cv_init(&tq->tq_maxalloc_cv, NULL, CV_DEFAULT, NULL);
-	(void) strncpy(tq->tq_name, name, TASKQ_NAMELEN);
-	tq->tq_flags = flags | TASKQ_ACTIVE;
-	tq->tq_active = nthreads;
-	tq->tq_nthreads = nthreads;
-	tq->tq_minalloc = minalloc;
-	tq->tq_maxalloc = maxalloc;
-	tq->tq_task.tqent_next = &tq->tq_task;
-	tq->tq_task.tqent_prev = &tq->tq_task;
-	tq->tq_threadlist = kmem_alloc(nthreads * sizeof (kthread_t *),
-	    KM_SLEEP);
-
-	if (flags & TASKQ_PREPOPULATE) {
-		mutex_enter(&tq->tq_lock);
-		while (minalloc-- > 0)
-			task_free(tq, task_alloc(tq, KM_SLEEP));
-		mutex_exit(&tq->tq_lock);
-	}
-
-	int state = TS_RUN;
-	if (flags & TASKQ_NEW_RUNTIME) {
-		state |= TS_NEW_RUNTIME;
-	}
-
-	for (t = 0; t < nthreads; t++)
-		VERIFY((tq->tq_threadlist[t] = thread_create(NULL, 0,
-		    taskq_thread, tq, 0, &p0, state, pri)) != NULL);
-
-	return (tq);
+	task->func = NULL;
+	task->arg = NULL;
 }
 
 void
 taskq_destroy(taskq_t *tq)
 {
-	int nthreads = tq->tq_nthreads;
+	taskq_ops.taskq_destroy(tq);
+}
 
-	taskq_wait(tq);
+void
+taskq_wait(taskq_t *tq)
+{
+	taskq_ops.taskq_wait(tq);
+}
 
-	mutex_enter(&tq->tq_lock);
+void
+taskq_wait_id(taskq_t *tq, taskqid_t id)
+{
+	taskq_ops.taskq_wait_id(tq, id);
+}
 
-	tq->tq_flags &= ~TASKQ_ACTIVE;
-	cv_broadcast(&tq->tq_dispatch_cv);
-
-	while (tq->tq_nthreads != 0)
-		cv_wait(&tq->tq_wait_cv, &tq->tq_lock);
-
-	tq->tq_minalloc = 0;
-	while (tq->tq_nalloc != 0) {
-		ASSERT(tq->tq_freelist != NULL);
-		taskq_ent_t *tqent_nexttq = tq->tq_freelist->tqent_next;
-		task_free(tq, tq->tq_freelist);
-		tq->tq_freelist = tqent_nexttq;
-	}
-
-	mutex_exit(&tq->tq_lock);
-
-	kmem_free(tq->tq_threadlist, nthreads * sizeof (kthread_t *));
-
-	rw_destroy(&tq->tq_threadlock);
-	mutex_destroy(&tq->tq_lock);
-	cv_destroy(&tq->tq_dispatch_cv);
-	cv_destroy(&tq->tq_wait_cv);
-	cv_destroy(&tq->tq_maxalloc_cv);
-
-	kmem_free(tq, sizeof (taskq_t));
+void
+taskq_wait_outstanding(taskq_t *tq, taskqid_t _)
+{
+	taskq_ops.taskq_wait(tq);
 }
 
 int
-taskq_member(taskq_t *tq, kthread_t *t)
+taskq_member(taskq_t *tq, kthread_t *id)
 {
-	int i;
-
-	if (taskq_now)
-		return (1);
-
-	for (i = 0; i < tq->tq_nthreads; i++)
-		if (tq->tq_threadlist[i] == t)
-			return (1);
-
-	return (0);
+	return (taskq_ops.taskq_member(tq, (uint64_t)id));
 }
 
-taskq_t *
+taskq_t	*
 taskq_of_curthread(void)
 {
-	return (tsd_get(taskq_tsd));
+	return (taskq_ops.taskq_of_curthread());
 }
 
 int
 taskq_cancel_id(taskq_t *tq, taskqid_t id)
 {
-	return (ENOENT);
+	if (id == TASKQID_INVALID) {
+		return (ENOENT);
+	}
+
+	return (taskq_ops.taskq_cancel_id(tq, id));
 }
 
 void
 system_taskq_init(void)
 {
-	tsd_create(&taskq_tsd, NULL);
 	system_taskq = taskq_create("system_taskq", 64, maxclsyspri, 4, 512,
 	    TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
 	system_delay_taskq = taskq_create("delay_taskq", 4, maxclsyspri, 4,

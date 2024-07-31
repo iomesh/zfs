@@ -28,6 +28,8 @@
 #ifndef _SYS_ZFS_CONTEXT_H
 #define	_SYS_ZFS_CONTEXT_H
 
+#include "sys/avl.h"
+#include "sys/stdtypes.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -121,7 +123,7 @@ extern "C" {
 #include <sys/debug.h>
 #include <sys/utsname.h>
 #include <sys/trace_zfs.h>
-#include <coroutine.h>
+#include <sync_ops.h>
 
 #include <sys/zfs_context_os.h>
 
@@ -162,6 +164,12 @@ extern void cmn_err(int, const char *, ...);
 extern void vcmn_err(int, const char *, va_list);
 extern void panic(const char *, ...)  __NORETURN;
 extern void vpanic(const char *, va_list)  __NORETURN;
+
+extern coroutine_ops_t co_ops;
+extern co_mutex_ops_t co_mutex_ops;
+extern co_cond_ops_t co_cond_ops;
+extern co_rwlock_ops_t co_rwlock_ops;
+extern thread_ops_t thread_ops;
 
 #define	fm_panic	panic
 
@@ -227,27 +235,18 @@ typedef pthread_t	kthread_t;
 
 #define	TS_RUN		0x00000002
 #define	TS_JOINABLE	0x00000004
-#define	TS_NEW_RUNTIME	0x00000008
+#define	TS_BLOCKING	0x00000008
 
 #define	kpreempt(x)	yield()
 #define	getcomm()	"unknown"
 
-typedef uint64_t (*thread_create_func)(void (*thread_func)(void *), void *arg,
-    int stksize, boolean_t joinable, boolean_t new_runtime);
-typedef void (*thread_exit_func)(void);
-typedef void (*thread_join_func)(uint64_t);
-typedef void (*backtrace_func)(void);
-
-extern void set_thread_funcs(thread_create_func create, thread_exit_func exit,
-    thread_join_func join);
-
 #define	thread_create_named(name, stk, stksize, func, arg, len, \
     pp, state, pri)	\
-	zk_thread_create(func, arg, stksize, state)
+	(kthread_t *)thread_ops.uthread_create(func, arg, state)
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
-	zk_thread_create(func, arg, stksize, state)
-#define	thread_exit()	zk_thread_exit()
-#define	thread_join(t)	zk_thread_join((void *)t)
+	(kthread_t *)thread_ops.uthread_create(func, arg, state)
+#define	thread_exit()	thread_ops.uthread_exit()
+#define	thread_join(t)	thread_ops.uthread_join((uint64_t)t)
 
 #define	newproc(f, a, cid, pri, ctp, pid)	(ENOSYS)
 
@@ -318,31 +317,31 @@ typedef pthread_cond_t		kcondvar_t;
  * Mutexes
  */
 typedef co_mutex_t kmutex_t;
-#define	cond_resched()		coroutine_sched_yield()
+#define	cond_resched()		co_ops.coroutine_sched_yield()
 
-#define	MUTEX_HELD(mp)		co_mutex_held(mp)
+#define	MUTEX_HELD(mp)		co_mutex_ops.co_mutex_held(mp)
 #define	MUTEX_NOT_HELD(mp)	!MUTEX_HELD(mp)
 
 /*
  * RW locks
  */
-typedef co_rw_lock_t krwlock_t;
+typedef co_rwlock_t krwlock_t;
 
-#define	RW_READ_HELD(rw)	co_rw_lock_read_held(rw)
-#define	RW_WRITE_HELD(rw)	co_rw_lock_write_held(rw)
+#define	RW_READ_HELD(rw)	co_rwlock_ops.co_rw_lock_read_held(rw)
+#define	RW_WRITE_HELD(rw)	co_rwlock_ops.co_rw_lock_write_held(rw)
 #define	RW_LOCK_HELD(rw)	(RW_READ_HELD(rw) || RW_WRITE_HELD(rw))
 
 /*
  * Condition variables
  */
 typedef co_cond_t kcondvar_t;
-#define	curthread	((void *)(uintptr_t)uzfs_coroutine_self())
+#define	curthread	((void *)(uintptr_t)co_ops.uzfs_coroutine_self())
 
-#define	tsd_get(k) coroutine_getkey(k)
-#define	tsd_set(k, v) coroutine_setkey(k, v)
-#define	tsd_create(kp, d) coroutine_key_create((uint32_t *)kp)
+#define	tsd_get(k) co_ops.coroutine_getkey(k)
+#define	tsd_set(k, v) co_ops.coroutine_setkey(k, v)
+#define	tsd_create(kp, d) co_ops.coroutine_key_create((uint32_t *)kp, d)
 #define	tsd_destroy(kp) /* nothing */
-#define	nano_sleep(ts)	coroutine_sleep(&ts)
+#define	nano_sleep(ts)	co_ops.coroutine_sleep(&ts)
 
 #endif
 
@@ -454,35 +453,14 @@ void procfs_list_add(procfs_list_t *procfs_list, void *p);
 
 #define	TASKQ_NAMELEN	31
 
-typedef uintptr_t taskqid_t;
+extern taskq_ops_t taskq_ops;
+typedef uint64_t taskqid_t;
+typedef void	taskq_t;
 typedef void (task_func_t)(void *);
-
 typedef struct taskq_ent {
-	struct taskq_ent	*tqent_next;
-	struct taskq_ent	*tqent_prev;
-	task_func_t		*tqent_func;
-	void			*tqent_arg;
-	uintptr_t		tqent_flags;
+	task_func_t	*func;
+	void		*arg;
 } taskq_ent_t;
-
-typedef struct taskq {
-	char		tq_name[TASKQ_NAMELEN + 1];
-	kmutex_t	tq_lock;
-	krwlock_t	tq_threadlock;
-	kcondvar_t	tq_dispatch_cv;
-	kcondvar_t	tq_wait_cv;
-	kthread_t	**tq_threadlist;
-	int		tq_flags;
-	int		tq_active;
-	int		tq_nthreads;
-	int		tq_nalloc;
-	int		tq_minalloc;
-	int		tq_maxalloc;
-	kcondvar_t	tq_maxalloc_cv;
-	int		tq_maxalloc_wait;
-	taskq_ent_t	*tq_freelist;
-	taskq_ent_t	tq_task;
-} taskq_t;
 
 #define	TQENT_FLAG_PREALLOC	0x1	/* taskq_dispatch_ent used */
 
@@ -491,7 +469,6 @@ typedef struct taskq {
 #define	TASKQ_DYNAMIC		0x0004	/* Use dynamic thread scheduling */
 #define	TASKQ_THREADS_CPU_PCT	0x0008	/* Scale # threads by # cpus */
 #define	TASKQ_DC_BATCH		0x0010	/* Mark threads as batch */
-#define	TASKQ_NEW_RUNTIME	0x0020	/* every worker in taskq is a thread */
 
 #define	TQ_SLEEP	KM_SLEEP	/* Can block for memory */
 #define	TQ_NOSLEEP	KM_NOSLEEP	/* cannot block for memory; may fail */
@@ -568,7 +545,7 @@ extern void delay(clock_t ticks);
 #define	maxclsyspri	-20
 #define	defclsyspri	0
 
-#define	CPU_SEQID	(((uintptr_t)uzfs_coroutine_self()) % max_ncpus)
+#define	CPU_SEQID	(((uintptr_t)co_ops.uzfs_coroutine_self()) % max_ncpus)
 #define	CPU_SEQID_UNSTABLE	CPU_SEQID
 
 #define	ptob(x)		((x) * PAGESIZE)
@@ -700,10 +677,12 @@ void ksiddomain_rele(ksiddomain_t *);
 #define	zfs_sleep_until(wakeup)						\
 	do {								\
 		hrtime_t delta = wakeup - gethrtime();			\
-		struct timespec ts;					\
-		ts.tv_sec = delta / NANOSEC;				\
-		ts.tv_nsec = delta % NANOSEC;				\
-		(void) nano_sleep(ts);				\
+		if (delta > 0) {					\
+			struct timespec ts;				\
+			ts.tv_sec = delta / NANOSEC;			\
+			ts.tv_nsec = delta % NANOSEC;			\
+			(void) nano_sleep(ts);				\
+		}							\
 	} while (0)
 
 typedef int fstrans_cookie_t;

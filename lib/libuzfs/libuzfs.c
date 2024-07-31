@@ -59,7 +59,6 @@
 #include <sys/sa_impl.h>
 
 #include "atomic.h"
-#include "coroutine.h"
 #include "libuzfs.h"
 #include "libuzfs_impl.h"
 #include "sys/dnode.h"
@@ -131,6 +130,23 @@ fatal(int do_perror, char *message, ...)
 	dump_debug_buffer();
 
 	exit(3);
+}
+
+extern aio_ops_t aio_ops;
+
+void
+libuzfs_set_sync_ops(const coroutine_ops_t *co,
+    const co_mutex_ops_t *mo, const co_cond_ops_t *condo,
+    const co_rwlock_ops_t *ro, const aio_ops_t *ao,
+    const thread_ops_t *tho, const taskq_ops_t *tqo)
+{
+	co_ops = *co;
+	co_mutex_ops = *mo;
+	co_cond_ops = *condo;
+	co_rwlock_ops = *ro;
+	aio_ops = *ao;
+	thread_ops = *tho;
+	taskq_ops = *tqo;
 }
 
 static uint64_t
@@ -791,15 +807,9 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	return (error);
 }
 
-extern void (*do_backtrace)(void);
-
 void
-libuzfs_init(thread_create_func create, thread_exit_func exit,
-    thread_join_func join, backtrace_func bt_func)
+libuzfs_init(void)
 {
-	do_backtrace = bt_func;
-	set_thread_funcs(create, exit, join);
-	coroutine_init();
 	kernel_init(SPA_MODE_READ | SPA_MODE_WRITE);
 }
 
@@ -807,7 +817,6 @@ void
 libuzfs_fini(void)
 {
 	kernel_fini();
-	coroutine_destroy();
 	if (change_zpool_cache_path) {
 		free(spa_config_path);
 	}
@@ -1036,18 +1045,20 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	    DMU_OT_NONE, 0, tx);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1, &sa_obj, tx));
 
-	libuzfs_dataset_handle_t dhp;
-	memset(&dhp, 0, sizeof (dhp));
-	dhp.os = os;
-	dhp.dnodesize = 1024;
+	libuzfs_dataset_handle_t *dhp = umem_zalloc(
+	    sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
+	dhp->os = os;
+	dhp->dnodesize = 1024;
 	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		mutex_init(&dhp.objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
+		mutex_init(&dhp->objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
 	}
-	libuzfs_setup_dataset_sa(&dhp);
+	libuzfs_setup_dataset_sa(dhp);
 	uint64_t sb_obj = 0;
-	libuzfs_create_inode_with_type_impl(&dhp, &sb_obj,
+	libuzfs_create_inode_with_type_impl(dhp, &sb_obj,
 	    B_FALSE, INODE_DIR, tx, 0);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx));
+	sa_tear_down(dhp->os);
+	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 }
 
 int
@@ -1185,7 +1196,7 @@ libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp)
 	}
 	dmu_objset_disown(dhp->os, B_TRUE, dhp);
 	libuzfs_dhp_fini(dhp);
-	free(dhp);
+	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 }
 
 uint64_t

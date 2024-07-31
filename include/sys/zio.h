@@ -34,6 +34,7 @@
 #ifndef _ZIO_H
 #define	_ZIO_H
 
+#include "sys/time.h"
 #include <sys/zio_priority.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
@@ -522,6 +523,8 @@ struct zio {
 
 	/* Taskq dispatching state */
 	taskq_ent_t	io_tqent;
+
+	void		*buf;
 };
 
 enum blk_verify_flag {
