@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_IMPL_H
 #define	_LIBUZFS_IMPL_H
 
+#include "sys/stdtypes.h"
 #include <sys/zap.h>
 #include <libuzfs.h>
 
@@ -55,21 +56,28 @@ struct libuzfs_zpool_handle {
 	spa_t *spa;
 };
 
-typedef struct hash_bucket {
-	avl_tree_t tree;
-	kmutex_t mutex;
-} hash_bucket_t;
-
-typedef struct libuzfs_node {
-	avl_node_t node;
-	zfs_rangelock_t rl;
+struct libuzfs_inode_handle {
 	sa_handle_t *sa_hdl;
+	libuzfs_dataset_handle_t *dhp;
+	// usually, this inode structure is protected by locks in sfs inode,
+	// but sometimes we need to bypass the locks of sfs inode to avoid
+	// deadlocks like get parent in rename.
+	// Consider a situation where we call getkv and set high priority
+	// kv concurrenctly, getkv would first read hp_kvattr_cache to check
+	// the existence of the key, but the set kv wants to modify
+	// hp_kvattr_cache structure, so we need lock to protect that
+	krwlock_t hp_kvattr_cache_lock;
+	nvlist_t *hp_kvattr_cache;
+	uint64_t ino;
+	uint32_t rc;
+	uint64_t gen;
+	boolean_t is_data_inode;
+
+	// these attributes is only valid when is_data_inode is true
 	uint64_t u_size;
 	uint32_t u_blksz;
-	uint64_t u_obj;
-	uint64_t ref_count;
-	libuzfs_dataset_handle_t *dhp;
-} libuzfs_node_t;
+	zfs_rangelock_t rl;
+};
 
 #define	NUM_NODE_BUCKETS 997
 struct libuzfs_dataset_handle {
@@ -79,7 +87,6 @@ struct libuzfs_dataset_handle {
 	uint64_t sb_ino;
 	uint32_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
-	hash_bucket_t nodes_buckets[NUM_NODE_BUCKETS];
 	kmutex_t objs_lock[NUM_NODE_BUCKETS];
 	uint32_t dnodesize;
 };
@@ -112,14 +119,12 @@ struct libuzfs_zap_iterator {
 #define	UZFS_MAX_RESERVED_1K		192
 #define	UZFS_KV_CAPACITY_1K		608
 
-extern void libuzfs_inode_attr_init(libuzfs_dataset_handle_t *dhp,
-    sa_handle_t *sa_hdl, dmu_tx_t *tx, libuzfs_inode_type_t type, uint64_t gen);
+extern void libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
-extern int libuzfs_get_xattr_zap_obj(libuzfs_dataset_handle_t *dhp,
-    uint64_t ino, uint64_t *xattr_zap_obj);
-extern int libuzfs_acquire_node(libuzfs_dataset_handle_t *dhp,
-    uint64_t obj, libuzfs_node_t **upp);
-extern void libuzfs_release_node(libuzfs_node_t *up);
+extern int libuzfs_get_xattr_zap_obj(libuzfs_inode_handle_t *ihp,
+    uint64_t *xattr_zap_obj);
+extern int libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
+    nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr);
 
 #ifdef	__cplusplus
 }
