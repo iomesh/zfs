@@ -292,6 +292,9 @@ extern int libuzfs_dataset_snapshot_destroy(const char *snapname);
 extern int libuzfs_dataset_snapshot_rollback(libuzfs_dataset_handle_t *dhp,
     const char *snapname);
 
+extern void libuzfs_configure_trim(libuzfs_dataset_handle_t *dhp,
+    uint64_t granularity, boolean_t enable_manual_trim);
+
 #ifdef	__cplusplus
 }
 #endif

@@ -45,6 +45,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "sys/vdev_trim.h"
 #include <unistd.h>
 #include <umem.h>
 #include <ctype.h>
@@ -1133,6 +1134,29 @@ out:
 	nvlist_free(pools);
 
 	return (err);
+}
+
+void
+libuzfs_configure_trim(libuzfs_dataset_handle_t *dhp,
+    uint64_t granularity, boolean_t enable_manual_trim)
+{
+	VERIFY(granularity > 0);
+	VERIFY(ISP2(granularity));
+	spa_t *spa = dhp->os->os_spa;
+	vdev_t *root_vdev = spa->spa_root_vdev;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+		mutex_enter(&leaf_vdev->vdev_trim_lock);
+		leaf_vdev->discard_granularity = granularity;
+		// spa import may restart trim, so
+		// leaf_vdev->vdev_trim_thread might not be NULL
+		if (granularity <= 4096 && enable_manual_trim
+		    && leaf_vdev->vdev_trim_thread == NULL) {
+			vdev_trim(leaf_vdev, UINT64_MAX,
+			    B_TRUE, B_FALSE);
+		}
+		mutex_exit(&leaf_vdev->vdev_trim_lock);
+	}
 }
 
 int

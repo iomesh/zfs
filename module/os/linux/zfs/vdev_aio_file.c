@@ -248,20 +248,21 @@ submit_zio_task(zio_t *zio)
 	}
 }
 
-// not 256K aligned trim will be transformed into zero-out which
-// wastes bandwidth so we should only issue 256 aligned trim for now
-#define	MIN_TRIM_EXTENT_SHIFT	18
-#define	MIN_TRIM_EXTENT	(1<<MIN_TRIM_EXTENT_SHIFT)
-
 static void
 do_trim_work(void *arg)
 {
 	zio_t *zio = arg;
 	vdev_t *vd = zio->io_vd;
+	uint64_t discard_granularity = vd->discard_granularity;
+	if (unlikely(discard_granularity == 0)) {
+		discard_granularity = 262144;
+	}
+	VERIFY(ISP2(discard_granularity));
+
 	vdev_file_t *vf = vd->vdev_tsd;
-	uint64_t offset = P2ROUNDUP(zio->io_offset, MIN_TRIM_EXTENT);
-	uint64_t end = (zio->io_offset + zio->io_size) >>
-	    MIN_TRIM_EXTENT_SHIFT << MIN_TRIM_EXTENT_SHIFT;
+	uint64_t offset = P2ROUNDUP(zio->io_offset, discard_granularity);
+	uint64_t end = zio->io_offset + zio->io_size;
+	end = end / discard_granularity * discard_granularity;
 	uint64_t size = end > offset ? end - offset : 0;
 
 	VERIFY(offset >= zio->io_offset);
