@@ -430,7 +430,9 @@ libuzfs_inode_set_kvattr(libuzfs_inode_handle_t *ihp,
 		// hp area has enough space, just put in hp area
 		if (err == 0) {
 			dmu_tx_t *tx = dmu_tx_create(dhp->os);
-			dmu_tx_hold_sa(tx, sa_hdl, B_TRUE);
+			boolean_t may_grow = sa_attr_would_spill(sa_hdl,
+			    sa_tbl[UZFS_XATTR_HIGH], hp_xattr_data_size);
+			dmu_tx_hold_sa(tx, sa_hdl, may_grow);
 			if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 				dmu_tx_abort(tx);
 			} else {
