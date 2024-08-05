@@ -147,7 +147,10 @@ libuzfs_inode_handle_init(libuzfs_inode_handle_t *ihp,
 	if (is_data_inode) {
 		VERIFY0(sa_lookup(sa_hdl, attr_tbl[UZFS_SIZE],
 		    &ihp->u_size, sizeof (ihp->u_size)));
-		dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(sa_hdl));
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(sa_hdl);
+		DB_DNODE_ENTER(db);
+		dnode_t *dn = DB_DNODE(db);
+		DB_DNODE_EXIT(db);
 		ihp->u_blksz = dn->dn_datablksz;
 		zfs_rangelock_init(&ihp->rl, libuzfs_rangelock_cb, ihp);
 	}
@@ -605,7 +608,9 @@ static void
 libuzfs_grow_blocksize(libuzfs_inode_handle_t *ihp,
     uint64_t newblksz, dmu_tx_t *tx)
 {
-	dnode_t *dn = DB_DNODE(((dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl)));
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dnode_t *dn = DB_DNODE(db);
 	int err = dnode_set_blksz(dn, newblksz, 0, tx);
 	if (err != 0) {
 		dprintf("failed to update to new"
@@ -614,6 +619,7 @@ libuzfs_grow_blocksize(libuzfs_inode_handle_t *ihp,
 		ASSERT(ISP2(ihp->u_blksz));
 		VERIFY3U(err, ==, ENOTSUP);
 	}
+	DB_DNODE_EXIT(db);
 	ihp->u_blksz = dn->dn_datablksz;
 }
 
@@ -907,8 +913,10 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	if (buf != NULL) {	/* immediate write */
 		zgd->zgd_lr = zfs_rangelock_enter(&ihp->rl,
 		    offset, size, RL_READER);
-		dnode_t *dn =
-		    DB_DNODE((dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl));
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+		DB_DNODE_ENTER(db);
+		dnode_t *dn = DB_DNODE(db);
+		DB_DNODE_EXIT(db);
 		err = dmu_read_by_dnode(dn, offset, size, lr + 1,
 		    DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
 	} else {	/* indirect write */
@@ -1827,7 +1835,9 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 			}
 
 			libuzfs_grow_blocksize(ihp, new_blksz, tx);
+			DB_DNODE_ENTER(db);
 			ihp->u_blksz = DB_DNODE(db)->dn_datablksz;
+			DB_DNODE_EXIT(db);
 			zfs_rangelock_reduce(lr, offset, size);
 		}
 
@@ -2766,7 +2776,9 @@ int
 libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp,
     uint64_t *off)
 {
-	dnode_t *dn = DB_DNODE((dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl));
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dnode_t *dn = DB_DNODE(db);
 
 	int err = dnode_next_offset(dn, DNODE_FIND_HOLE, off, 1, 1, 0);
 	if (err == ESRCH) {
@@ -2774,6 +2786,7 @@ libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp,
 		err = 0;
 	}
 
+	DB_DNODE_EXIT(db);
 	return (err);
 }
 
