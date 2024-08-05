@@ -25,6 +25,7 @@
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  */
 
+#include "sys/stdtypes.h"
 #include <sys/zfs_context.h>
 #include <sys/types.h>
 #include <sys/param.h>
@@ -306,6 +307,44 @@ sa_get_spill(sa_handle_t *hdl)
 	}
 
 	return (rc);
+}
+
+boolean_t
+sa_attr_would_spill(sa_handle_t *hdl, sa_attr_type_t attr_type, int size)
+{
+	if (sa_get_spill(hdl) != ENOENT) {
+		return (B_TRUE);
+	}
+
+	sa_os_t *sa = hdl->sa_os->os_sa;
+
+	sa_hdr_phys_t *hdr = SA_GET_HDR(hdl, SA_BONUS);
+	sa_idx_tab_t *idx_tab = SA_IDX_TAB_GET(hdl, SA_BONUS);
+	int total_attr_len = 0;
+	int bonus_attr_count = idx_tab->sa_layout->lot_attr_count;
+	for (int i = 0, length_idx = 0; i < bonus_attr_count; ++i) {
+		sa_attr_type_t type = idx_tab->sa_layout->lot_attrs[i];
+		int reg_length = SA_REGISTERED_LEN(sa, type);
+		if (type == attr_type) {
+			VERIFY0(reg_length);
+			// length is stored as a uint16
+			total_attr_len += 2;
+			total_attr_len += size;
+			length_idx++;
+		} else if (reg_length == 0) {
+			// length is stored as a uint16
+			total_attr_len += 2;
+			total_attr_len += hdr->sa_lengths[length_idx];
+			length_idx++;
+		} else {
+			total_attr_len += reg_length;
+		}
+	}
+
+	int dnodesize;
+	dmu_object_dnsize_from_db(hdl->sa_bonus, &dnodesize);
+	int bonuslen = DN_BONUS_SIZE(dnodesize);
+	return (bonuslen <= total_attr_len);
 }
 
 /*
