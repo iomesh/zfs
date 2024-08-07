@@ -295,6 +295,9 @@ extern int libuzfs_dataset_snapshot_rollback(libuzfs_dataset_handle_t *dhp,
 extern void libuzfs_configure_trim(libuzfs_dataset_handle_t *dhp,
     uint64_t granularity, boolean_t enable_manual_trim);
 
+extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
+    uint64_t *offset, uint64_t *size);
+
 #ifdef	__cplusplus
 }
 #endif

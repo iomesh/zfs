@@ -109,9 +109,9 @@ taskq_dispatch_ent_locked(taskq_t *tq, uint_t flags, taskq_ent_t *task)
 {
 	ASSERT(MUTEX_HELD(&tq->tq_lock));
 	if (flags & (TQ_FRONT | TQ_NOQUEUE)) {
-		list_insert_head(&tq->prio_list, task);
+		list_insert_tail(&tq->prio_list, task);
 	} else {
-		list_insert_head(&tq->pend_list, task);
+		list_insert_tail(&tq->pend_list, task);
 	}
 
 	if (tq->tq_nthreads < tq->tq_maxthreads) {
