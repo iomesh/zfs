@@ -198,7 +198,7 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 		ihp = umem_zalloc(
 		    sizeof (libuzfs_inode_handle_t), UMEM_NOFAIL);
 		libuzfs_inode_handle_init(ihp, sa_hdl,
-		    dhp, ino, gen, is_data_inode);
+		    dhp, ino, stored_gen, is_data_inode);
 
 		sa_set_userp(sa_hdl, ihp);
 	}
@@ -2683,6 +2683,30 @@ libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp,
 	}
 
 	DB_DNODE_EXIT(db);
+	return (err);
+}
+
+int
+libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
+    uint64_t *offset, uint64_t *size)
+{
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dnode_t *dn = DB_DNODE(db);
+	rw_enter(&dn->dn_struct_rwlock, RW_READER);
+
+	int err = 0;
+	if (dnode_is_dirty(dn)) {
+		err = SET_ERROR(EBUSY);
+	} else {
+		*size = dn->dn_datablksz;
+		err = dnode_next_offset(dn, DNODE_FIND_HAVELOCK,
+		    offset, 1, 1, 0);
+	}
+
+	rw_exit(&dn->dn_struct_rwlock);
+	DB_DNODE_EXIT(db);
+
 	return (err);
 }
 

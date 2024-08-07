@@ -288,6 +288,9 @@ extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
 
 extern void libuzfs_set_fail_percent(int fail_percent);
 
+extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
+    uint64_t *offset, uint64_t *size);
+
 #ifdef	__cplusplus
 }
 #endif
