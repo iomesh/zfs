@@ -28,6 +28,7 @@
  * Copyright (c) 2021, Datto, Inc.
  */
 
+#include "sys/stdtypes.h"
 #include <sys/sysmacros.h>
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
@@ -65,7 +66,7 @@ const char *zio_type_name[ZIO_TYPES] = {
 	"z_null", "z_rd", "z_wr", "z_fr", "z_cl", "z_ioctl", "z_trim"
 };
 
-int zio_dva_throttle_enabled = B_TRUE;
+int zio_dva_throttle_enabled = B_FALSE;
 int zio_deadman_log_all = B_FALSE;
 
 /*

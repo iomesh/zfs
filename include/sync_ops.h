@@ -5,6 +5,7 @@
 #include <bits/stdint-uintn.h>
 #include <pthread.h>
 #include <sys/stdtypes.h>
+#include <time.h>
 
 struct WaiterList {
 	void *head;
@@ -131,5 +132,31 @@ typedef struct thread_ops {
 	uthread_join_func_t	*uthread_join;
 	backtrace_func_t	*backtrace;
 } thread_ops_t;
+
+typedef void *taskq_create_func_t(void);
+typedef uint64_t taskq_dispatch_func_t(const void *, void (*)(void *), void *, uint32_t);
+typedef uint64_t taskq_delay_dispatch_func_t(const void *, void (*)(void *), void *, const struct timespec*);
+typedef int taskq_member_func_t(const void *, uint64_t);
+typedef void *taskq_of_curthread_func_t(void);
+typedef void taskq_wait_func_t(const void *);
+typedef void taskq_destroy_func_t(const void *);
+typedef void taskq_wait_id_func_t(const void *, uint64_t);
+typedef void taskq_cancel_id_func_t(const void *, uint64_t );
+typedef int taskq_is_empty_func_t(const void *);
+typedef int taskq_nalloc_func_t(const void *);
+
+typedef struct taskq_ops {
+	taskq_create_func_t		*taskq_create;
+	taskq_dispatch_func_t		*taskq_dispatch;
+	taskq_delay_dispatch_func_t	*taskq_delay_dispatch;
+	taskq_member_func_t		*taskq_member;
+	taskq_of_curthread_func_t	*taskq_of_curthread;
+	taskq_wait_func_t		*taskq_wait;
+	taskq_destroy_func_t		*taskq_destroy;
+	taskq_wait_id_func_t		*taskq_wait_id;
+	taskq_cancel_id_func_t		*taskq_cancel_id;
+	taskq_is_empty_func_t		*taskq_is_empty;
+	taskq_nalloc_func_t		*taskq_nalloc;
+} taskq_ops_t;
 
 #endif

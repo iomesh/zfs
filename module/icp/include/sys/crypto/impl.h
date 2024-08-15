@@ -98,7 +98,7 @@ typedef struct kcf_sched_info {
  * and the lock contention may be too costly for this code path.
  */
 #define	KCF_PROV_LOAD(pd)	((pd)->pd_state != KCF_PROV_BUSY ?	\
-	(pd)->pd_irefcnt : (pd)->pd_sched_info.ks_taskq->tq_nalloc)
+	(pd)->pd_irefcnt : taskq_ops.taskq_nalloc((pd)->pd_sched_info.ks_taskq))
 
 #define	KCF_PROV_INCRSTATS(pd, error)	{				\
 	(pd)->pd_sched_info.ks_ndispatches++;				\

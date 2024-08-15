@@ -45,6 +45,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "sync_ops.h"
 #include "sys/vdev_trim.h"
 #include <unistd.h>
 #include <umem.h>
@@ -283,7 +284,7 @@ void
 libuzfs_set_sync_ops(const coroutine_ops_t *co,
     const co_mutex_ops_t *mo, const co_cond_ops_t *condo,
     const co_rwlock_ops_t *ro, const aio_ops_t *ao,
-    const thread_ops_t *tho)
+    const thread_ops_t *tho, const taskq_ops_t *tqo)
 {
 	co_ops = *co;
 	co_mutex_ops = *mo;
@@ -291,6 +292,7 @@ libuzfs_set_sync_ops(const coroutine_ops_t *co,
 	co_rwlock_ops = *ro;
 	aio_ops = *ao;
 	thread_ops = *tho;
+	taskq_ops = *tqo;
 }
 
 static uint64_t

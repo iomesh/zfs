@@ -453,60 +453,14 @@ void procfs_list_add(procfs_list_t *procfs_list, void *p);
 
 #define	TASKQ_NAMELEN	31
 
+extern taskq_ops_t taskq_ops;
 typedef uint64_t taskqid_t;
+typedef void	taskq_t;
 typedef void (task_func_t)(void *);
-
-struct taskq_ent;
-struct taskq;
-
-typedef struct delayed_task_args {
-	clock_t			expire_time;
-	kcondvar_t		notify;
-	struct taskq		*tq;
-	struct taskq_ent	*task;
-} delayed_task_args_t;
-
 typedef struct taskq_ent {
-	list_node_t		node;
-	task_func_t		*tqent_func;
-	void			*tqent_arg;
-	taskqid_t		id;
-	boolean_t		preallocated;
-	list_node_t		global_node;
-
-	delayed_task_args_t	*delay_args;
+	task_func_t	*func;
+	void		*arg;
 } taskq_ent_t;
-
-typedef struct taskq {
-	char		tq_name[TASKQ_NAMELEN + 1];
-	kmutex_t	tq_lock;
-	kcondvar_t	tq_wait_cv;
-	taskqid_t	tq_id_next;
-	int		tq_nthreads;
-	int		tq_ndelay_threads;
-	int		tq_maxthreads;
-	list_t		tq_threadlist;
-
-	int		tq_nalloc;
-	int		tq_minalloc;
-	int		tq_maxalloc;
-	kcondvar_t	tq_maxwait;
-	list_t		free_list;
-
-	list_t		prio_list;
-	list_t		pend_list;
-	list_t		delay_list;
-	list_t		task_list;
-	boolean_t	active;
-
-	kcondvar_t	tq_completion;
-} taskq_t;
-
-typedef struct taskq_thread {
-	list_node_t	node;
-	kthread_t	*id;
-	taskq_t		*tq;
-} taskq_thread_t;
 
 #define	TQENT_FLAG_PREALLOC	0x1	/* taskq_dispatch_ent used */
 

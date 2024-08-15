@@ -312,7 +312,7 @@ boolean_t
 sa_attr_would_spill(sa_handle_t *hdl, sa_attr_type_t attr_type, int size)
 {
 	if (sa_get_spill(hdl) != ENOENT) {
-		return (B_FALSE);
+		return (B_TRUE);
 	}
 
 	sa_os_t *sa = hdl->sa_os->os_sa;

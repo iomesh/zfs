@@ -100,7 +100,7 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 extern void libuzfs_set_sync_ops(const coroutine_ops_t *,
     const co_mutex_ops_t *, const co_cond_ops_t *,
     const co_rwlock_ops_t *, const aio_ops_t *,
-    const thread_ops_t *);
+    const thread_ops_t *, const taskq_ops_t *);
 
 // only have effect when in debug binary
 extern void libuzfs_enable_debug_msg(void);
