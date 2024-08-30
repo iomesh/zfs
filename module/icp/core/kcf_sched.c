@@ -673,7 +673,8 @@ kcf_submit_request(kcf_provider_desc_t *pd, crypto_ctx_t *ctx,
 				 * the synchronous case, we wait for the taskq
 				 * to become empty.
 				 */
-				if (taskq_ops.taskq_nalloc(taskq) >= crypto_taskq_maxalloc) {
+				if (taskq_ops.taskq_nalloc(taskq) >=
+				    crypto_taskq_maxalloc) {
 					taskq_wait(taskq);
 				}
 
@@ -766,7 +767,8 @@ kcf_submit_request(kcf_provider_desc_t *pd, crypto_ctx_t *ctx,
 			 * value if we exceeded maxalloc. Hence the check
 			 * here.
 			 */
-			if (taskq_ops.taskq_nalloc(taskq) >= crypto_taskq_maxalloc) {
+			if (taskq_ops.taskq_nalloc(taskq) >=
+			    crypto_taskq_maxalloc) {
 				error = CRYPTO_BUSY;
 				KCF_AREQ_REFRELE(areq);
 				goto done;
