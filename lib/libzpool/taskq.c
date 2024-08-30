@@ -48,9 +48,20 @@ taskq_t *system_delay_taskq;
 taskq_ops_t taskq_ops;
 
 taskq_t	*
-taskq_create(const char * tq_name, int _b, pri_t _c, int _d, int _e, uint_t _f)
+taskq_create(const char *tq_name, int nthreads,
+    pri_t _c, int _d, int _e, uint_t flags)
 {
-	return (taskq_ops.taskq_create(tq_name));
+	if (flags & TASKQ_THREADS_CPU_PCT) {
+		int pct;
+		ASSERT3S(nthreads, >=, 0);
+		ASSERT3S(nthreads, <=, 100);
+		pct = MIN(nthreads, 100);
+		pct = MAX(pct, 0);
+
+		nthreads = (sysconf(_SC_NPROCESSORS_ONLN) * pct) / 100;
+		nthreads = MAX(nthreads, 1);	/* need at least 1 thread */
+	}
+	return (taskq_ops.taskq_create(tq_name, nthreads));
 }
 
 taskqid_t
