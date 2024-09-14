@@ -44,6 +44,7 @@
 #include <sys/dsl_destroy.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/vdev_trim.h>
 #include <time.h>
 #include <unistd.h>
 #include <umem.h>
@@ -149,8 +150,8 @@ libuzfs_inode_handle_init(libuzfs_inode_handle_t *ihp,
 		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(sa_hdl);
 		DB_DNODE_ENTER(db);
 		dnode_t *dn = DB_DNODE(db);
-		DB_DNODE_EXIT(db);
 		ihp->u_blksz = dn->dn_datablksz;
+		DB_DNODE_EXIT(db);
 		zfs_rangelock_init(&ihp->rl, libuzfs_rangelock_cb, ihp);
 	}
 }
@@ -607,6 +608,7 @@ static void
 libuzfs_grow_blocksize(libuzfs_inode_handle_t *ihp,
     uint64_t newblksz, dmu_tx_t *tx)
 {
+	VERIFY3U(newblksz, >=, ihp->u_blksz);
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
 	DB_DNODE_ENTER(db);
 	dnode_t *dn = DB_DNODE(db);
@@ -618,8 +620,8 @@ libuzfs_grow_blocksize(libuzfs_inode_handle_t *ihp,
 		ASSERT(ISP2(ihp->u_blksz));
 		VERIFY3U(err, ==, ENOTSUP);
 	}
-	DB_DNODE_EXIT(db);
 	ihp->u_blksz = dn->dn_datablksz;
+	DB_DNODE_EXIT(db);
 }
 
 static int
@@ -915,9 +917,9 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
 		DB_DNODE_ENTER(db);
 		dnode_t *dn = DB_DNODE(db);
-		DB_DNODE_EXIT(db);
 		err = dmu_read_by_dnode(dn, offset, size, lr + 1,
 		    DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
+		DB_DNODE_EXIT(db);
 	} else {	/* indirect write */
 		// considering that the blksz of this object may change, we need
 		// to try many times until the blksz is what we loaded
@@ -1141,6 +1143,26 @@ out:
 	nvlist_free(pools);
 
 	return (err);
+}
+
+int
+libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp)
+{
+	spa_t *spa = dhp->os->os_spa;
+	vdev_t *root_vdev = spa->spa_root_vdev;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+		mutex_enter(&leaf_vdev->vdev_trim_lock);
+		// spa import may restart trim, so
+		// leaf_vdev->vdev_trim_thread might not be NULL
+		if (leaf_vdev->vdev_trim_thread != NULL) {
+			mutex_exit(&leaf_vdev->vdev_trim_lock);
+			return (EEXIST);
+		}
+		vdev_trim(leaf_vdev, UINT64_MAX, B_TRUE, B_FALSE);
+		mutex_exit(&leaf_vdev->vdev_trim_lock);
+	}
+	return (0);
 }
 
 int
@@ -1731,9 +1753,6 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 			}
 
 			libuzfs_grow_blocksize(ihp, new_blksz, tx);
-			DB_DNODE_ENTER(db);
-			ihp->u_blksz = DB_DNODE(db)->dn_datablksz;
-			DB_DNODE_EXIT(db);
 			zfs_rangelock_reduce(lr, offset, size);
 		}
 
@@ -1792,8 +1811,8 @@ libuzfs_object_read(libuzfs_inode_handle_t *ihp,
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
 	DB_DNODE_ENTER(db);
 	dnode_t *dn = DB_DNODE(db);
-	int err = dmu_read_by_dnode(dn, offset, read_size, buf,
-	    DMU_READ_NO_PREFETCH | DMU_READ_NO_SKIP);
+	int err = dmu_read_by_dnode(dn, offset, read_size,
+	    buf, DMU_READ_NO_SKIP);
 	DB_DNODE_EXIT(db);
 	if (err != 0) {
 		rc = -err;
