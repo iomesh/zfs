@@ -27,6 +27,7 @@
 #define	_LIBUZFS_H
 
 #include <sync_ops.h>
+#include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/time.h"
 #include <libnvpair.h>
@@ -97,10 +98,11 @@ typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
 #define	UZFS_XATTR_MAXVALUELEN (8192)
 
-extern void libuzfs_set_sync_ops(const coroutine_ops_t *,
+extern void libuzfs_set_ops(const coroutine_ops_t *,
     const co_mutex_ops_t *, const co_cond_ops_t *,
     const co_rwlock_ops_t *, const aio_ops_t *,
-    const thread_ops_t *, const taskq_ops_t *);
+    const thread_ops_t *, const taskq_ops_t *,
+    void (*print_log)(const char *, int));
 
 // only have effect when in debug binary
 extern void libuzfs_enable_debug_msg(void);
@@ -292,6 +294,7 @@ extern int libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
     uint64_t *offset, uint64_t *size);
 
+extern void libuzfs_debug_main(int argc, char **argv);
 #ifdef	__cplusplus
 }
 #endif

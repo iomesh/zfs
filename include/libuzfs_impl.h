@@ -126,6 +126,9 @@ extern int libuzfs_get_xattr_zap_obj(libuzfs_inode_handle_t *ihp,
 extern int libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
     nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr);
 
+
+extern void dump_intent_log(zilog_t *);
+
 #ifdef	__cplusplus
 }
 #endif

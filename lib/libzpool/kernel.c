@@ -642,6 +642,8 @@ dprintf_setup(int *argc, char **argv)
 		zfs_flags |= ZFS_DEBUG_DPRINTF;
 }
 
+void (*print_log)(const char *, int) = NULL;
+
 /*
  * =========================================================================
  * debug printfs
@@ -678,13 +680,9 @@ __dprintf(boolean_t new_line, const char *file, const char *func,
 	vsnprintf(buf + len, max_len - len, fmt, adx);
 	va_end(adx);
 
-	flockfile(stdout);
-	if (likely(new_line)) {
-		printf("%s\n", buf);
-	} else {
-		printf("%s", buf);
+	if (print_log) {
+		print_log(buf, new_line);
 	}
-	funlockfile(stdout);
 }
 
 /*
@@ -764,7 +762,7 @@ __attribute__((weak))int
 highbit64(uint64_t i)
 {
 	if (i == 0)
-	return (0);
+		return (0);
 
 	return (NBBY * sizeof (uint64_t) - __builtin_clzll(i));
 }

@@ -16,7 +16,9 @@ lib_LTLIBRARIES = libuzfs.la
 
 USER_C = \
     libuzfs.c \
-    libuzfs_attr.c
+    libuzfs_attr.c \
+    libuzfs_debug.c \
+    libuzfs_debug_zil.c
 
 libuzfs_la_SOURCES = $(USER_C)
 
