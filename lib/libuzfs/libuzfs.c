@@ -278,12 +278,14 @@ fatal(int do_perror, char *message, ...)
 }
 
 extern aio_ops_t aio_ops;
+extern void (*print_log)(const char *, int);
 
 void
-libuzfs_set_sync_ops(const coroutine_ops_t *co,
+libuzfs_set_ops(const coroutine_ops_t *co,
     const co_mutex_ops_t *mo, const co_cond_ops_t *condo,
     const co_rwlock_ops_t *ro, const aio_ops_t *ao,
-    const thread_ops_t *tho, const taskq_ops_t *tqo)
+    const thread_ops_t *tho, const taskq_ops_t *tqo,
+    void (*pl)(const char *, int))
 {
 	co_ops = *co;
 	co_mutex_ops = *mo;
@@ -292,6 +294,7 @@ libuzfs_set_sync_ops(const coroutine_ops_t *co,
 	aio_ops = *ao;
 	thread_ops = *tho;
 	taskq_ops = *tqo;
+	print_log = pl;
 }
 
 static uint64_t
