@@ -440,6 +440,7 @@ struct spa {
 	zfs_refcount_t	spa_refcount;		/* number of opens */
 
 	taskq_t		*spa_upgrade_taskq;	/* taskq for upgrade jobs */
+	const void	*metrics;		/* pointers point to metrics */
 };
 
 extern char *spa_config_path;

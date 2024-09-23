@@ -416,16 +416,26 @@ extern void kstat_set_raw_ops(kstat_t *ksp,
  * procfs list manipulation
  */
 
+struct procfs_list;
+struct seq_file;
+
 typedef struct procfs_list {
 	void		*pl_private;
 	kmutex_t	pl_lock;
 	list_t		pl_list;
 	uint64_t	pl_next_id;
 	size_t		pl_node_offset;
+	char		name[KSTAT_STRLEN];
+	int (*show)(struct seq_file *, void *);
+	int (*show_header)(struct seq_file *);
+	int (*clear)(struct procfs_list *);
 } procfs_list_t;
 
 #ifndef __cplusplus
-struct seq_file { };
+struct seq_file {
+	char	*buf;
+	int	size;
+};
 void seq_printf(struct seq_file *m, const char *fmt, ...);
 
 typedef struct procfs_list_node {
@@ -446,6 +456,17 @@ void procfs_list_uninstall(procfs_list_t *procfs_list);
 void procfs_list_destroy(procfs_list_t *procfs_list);
 void procfs_list_add(procfs_list_t *procfs_list, void *p);
 #endif
+
+#define	KSTAT_PROCFS	1
+#define	KSTAT_NORMAL	2
+
+typedef struct seq_file_generator {
+	void (*generate)(void *, struct seq_file *);
+	void *arg;
+} seq_file_generator_t;
+
+void show_procfs_content(procfs_list_t *, const seq_file_generator_t *);
+void show_kstat_content(kstat_t *, const seq_file_generator_t *);
 
 /*
  * Task queues

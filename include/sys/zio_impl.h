@@ -151,6 +151,8 @@ enum zio_stage {
 	ZIO_STAGE_DONE			= 1 << 24	/* RWFCI */
 };
 
+#define	ZIO_PIPELINE_STAGES	25
+
 #define	ZIO_INTERLOCK_STAGES			\
 	(ZIO_STAGE_READY |			\
 	ZIO_STAGE_DONE)

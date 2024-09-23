@@ -124,13 +124,11 @@ typedef struct aio_ops {
 typedef uint64_t uthread_create_func_t(void (*)(void *), void *, int);
 typedef void uthread_exit_func_t(void);
 typedef void uthread_join_func_t(uint64_t);
-typedef void backtrace_func_t(void);
 
 typedef struct thread_ops {
 	uthread_create_func_t	*uthread_create;
 	uthread_exit_func_t	*uthread_exit;
 	uthread_join_func_t	*uthread_join;
-	backtrace_func_t	*backtrace;
 } thread_ops_t;
 
 typedef void *taskq_create_func_t(const char *, int);
@@ -160,5 +158,21 @@ typedef struct taskq_ops {
 	taskq_is_empty_func_t		*taskq_is_empty;
 	taskq_nalloc_func_t		*taskq_nalloc;
 } taskq_ops_t;
+
+typedef void print_log_func_t(const char *, int);
+typedef void kstat_install_func_t(const char *, void *, int);
+typedef void kstat_uninstall_func_t(const char *);
+typedef void backtrace_func_t(void);
+typedef void record_txg_delay_func_t(const void *, int, uint64_t);
+typedef void record_zio_func_t(const void *, const int64_t *, int);
+
+typedef struct stat_ops {
+	print_log_func_t	*print_log;
+	kstat_install_func_t	*kstat_install;
+	kstat_uninstall_func_t	*kstat_uinstall;
+	backtrace_func_t	*backtrace;
+	record_txg_delay_func_t	*record_txg_delays;
+	record_zio_func_t	*record_zio;
+} stat_ops_t;
 
 #endif

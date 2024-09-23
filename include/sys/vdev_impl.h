@@ -465,6 +465,7 @@ struct vdev {
 	zfs_ratelimit_t vdev_delay_rl;
 	zfs_ratelimit_t vdev_deadman_rl;
 	zfs_ratelimit_t vdev_checksum_rl;
+	const void	*metrics;
 };
 
 #define	VDEV_PAD_SIZE		(8 << 10)

@@ -24,6 +24,9 @@
  * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  */
 
+#include "sys/kmem.h"
+#include "sys/kstat.h"
+#include "sys/list.h"
 #include "sys/stdtypes.h"
 #include <assert.h>
 #include <bits/types/struct_timespec.h>
@@ -32,6 +35,7 @@
 #include <libgen.h>
 #include <poll.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,6 +81,7 @@ co_mutex_ops_t co_mutex_ops = {NULL};
 co_cond_ops_t co_cond_ops = {NULL};
 co_rwlock_ops_t co_rwlock_ops = {NULL};
 thread_ops_t thread_ops = {NULL};
+stat_ops_t stat_ops = {NULL};
 
 /*
  * =========================================================================
@@ -162,25 +167,282 @@ kstat_t *
 kstat_create(const char *module, int instance, const char *name,
     const char *class, uchar_t type, ulong_t ndata, uchar_t ks_flag)
 {
-	return (NULL);
+	kstat_t *ks = kmem_zalloc(sizeof (kstat_t), KM_SLEEP);
+	snprintf(ks->ks_name, KSTAT_STRLEN, "%s/%s/%s", module, class, name);
+	ks->ks_type = type;
+	ks->ks_flags = ks_flag;
+	ks->ks_ndata = ndata;
+	switch (type) {
+		case KSTAT_TYPE_RAW:
+			ks->ks_ndata = 1;
+			ks->ks_data_size = ndata;
+			break;
+		case KSTAT_TYPE_NAMED:
+			ks->ks_data_size = ndata * sizeof (kstat_named_t);
+			break;
+		case KSTAT_TYPE_INTR:
+			ks->ks_data_size = ndata * sizeof (kstat_intr_t);
+			break;
+		case KSTAT_TYPE_IO:
+			ks->ks_data_size = ndata * sizeof (kstat_io_t);
+			break;
+		case KSTAT_TYPE_TIMER:
+			ks->ks_data_size = ndata * sizeof (kstat_timer_t);
+			break;
+		default:
+			panic("Undefined kstat type %d\n", type);
+	}
+
+	VERIFY((ks_flag & KSTAT_FLAG_VIRTUAL) != 0);
+
+	return (ks);
 }
 
 /*ARGSUSED*/
 void
 kstat_install(kstat_t *ksp)
-{}
+{
+	stat_ops.kstat_install(ksp->ks_name, ksp, KSTAT_NORMAL);
+}
 
 /*ARGSUSED*/
 void
 kstat_delete(kstat_t *ksp)
-{}
+{
+	stat_ops.kstat_uinstall(ksp->ks_name);
+	kmem_free(ksp, sizeof (kstat_t));
+}
 
 void
 kstat_set_raw_ops(kstat_t *ksp,
     int (*headers)(char *buf, size_t size),
     int (*data)(char *buf, size_t size, void *data),
     void *(*addr)(kstat_t *ksp, loff_t index))
-{}
+{
+	ksp->raw_ops.headers = headers;
+	ksp->raw_ops.data = data;
+	ksp->raw_ops.addr = addr;
+}
+
+static void
+show_kstat_header(kstat_t *ks, struct seq_file *sf)
+{
+	switch (ks->ks_type) {
+		case KSTAT_TYPE_RAW:
+			if (ks->raw_ops.headers) {
+				(void) ks->raw_ops.headers(sf->buf, sf->size);
+			} else {
+				seq_printf(sf, "raw data\n");
+			}
+			break;
+		case KSTAT_TYPE_NAMED:
+			seq_printf(sf, "%-31s %-4s %s\n",
+			    "name", "type", "data");
+			break;
+		case KSTAT_TYPE_INTR:
+			seq_printf(sf, "%-8s %-8s %-8s %-8s %-8s\n",
+			    "hard", "soft", "watchdog",
+			    "spurious", "multsvc");
+			break;
+		case KSTAT_TYPE_IO:
+			seq_printf(sf,
+			    "%-8s %-8s %-8s %-8s %-8s %-8s "
+			    "%-8s %-8s %-8s %-8s %-8s %-8s\n",
+			    "nread", "nwritten", "reads", "writes",
+			    "wtime", "wlentime", "wupdate",
+			    "rtime", "rlentime", "rupdate",
+			    "wcnt", "rcnt");
+			break;
+		case KSTAT_TYPE_TIMER:
+			seq_printf(sf,
+			    "%-31s %-8s "
+			    "%-8s %-8s %-8s %-8s %-8s\n",
+			    "name", "events", "elapsed",
+			    "min", "max", "start", "stop");
+			break;
+		default:
+			panic("Undefined kstat type %d\n", ks->ks_type);
+	}
+}
+
+static int
+kstat_seq_show_raw(struct seq_file *f, unsigned char *p, int l)
+{
+	int i, j;
+
+	for (i = 0; ; i++) {
+		seq_printf(f, "%03x:", i);
+
+		for (j = 0; j < 16; j++) {
+			if (i * 16 + j >= l) {
+				seq_printf(f, "\n");
+				goto out;
+			}
+
+			seq_printf(f, " %02x", (unsigned char)p[i * 16 + j]);
+		}
+		seq_printf(f, "\n");
+	}
+out:
+	return (0);
+}
+
+static int
+kstat_seq_show_named(struct seq_file *f, kstat_named_t *knp)
+{
+	seq_printf(f, "%-31s %-4d ", knp->name, knp->data_type);
+
+	switch (knp->data_type) {
+		case KSTAT_DATA_CHAR:
+			knp->value.c[15] = '\0'; /* NULL terminate */
+			seq_printf(f, "%-16s", knp->value.c);
+			break;
+		/*
+		 * NOTE - We need to be more careful able what tokens are
+		 * used for each arch, for now this is correct for x86_64.
+		 */
+		case KSTAT_DATA_INT32:
+			seq_printf(f, "%d", knp->value.i32);
+			break;
+		case KSTAT_DATA_UINT32:
+			seq_printf(f, "%u", knp->value.ui32);
+			break;
+		case KSTAT_DATA_INT64:
+			seq_printf(f, "%lld", (signed long long)knp->value.i64);
+			break;
+		case KSTAT_DATA_UINT64:
+			seq_printf(f, "%llu",
+			    (unsigned long long)knp->value.ui64);
+			break;
+		case KSTAT_DATA_STRING:
+			KSTAT_NAMED_STR_PTR(knp)
+				[KSTAT_NAMED_STR_BUFLEN(knp)-1] = '\0';
+			seq_printf(f, "%s", KSTAT_NAMED_STR_PTR(knp));
+			break;
+		default:
+			panic("Undefined kstat data type %d\n", knp->data_type);
+	}
+
+	seq_printf(f, "\n");
+
+	return (0);
+}
+
+static int
+kstat_seq_show_intr(struct seq_file *f, kstat_intr_t *kip)
+{
+	seq_printf(f, "%-8u %-8u %-8u %-8u %-8u\n",
+	    kip->intrs[KSTAT_INTR_HARD],
+	    kip->intrs[KSTAT_INTR_SOFT],
+	    kip->intrs[KSTAT_INTR_WATCHDOG],
+	    kip->intrs[KSTAT_INTR_SPURIOUS],
+	    kip->intrs[KSTAT_INTR_MULTSVC]);
+
+	return (0);
+}
+
+static int
+kstat_seq_show_io(struct seq_file *f, kstat_io_t *kip)
+{
+	/* though wlentime & friends are signed, they will never be negative */
+	seq_printf(f,
+	    "%-8llu %-8llu %-8u %-8u %-8llu %-8llu "
+	    "%-8llu %-8llu %-8llu %-8llu %-8u %-8u\n",
+	    kip->nread, kip->nwritten,
+	    kip->reads, kip->writes,
+	    kip->wtime, kip->wlentime, kip->wlastupdate,
+	    kip->rtime, kip->rlentime, kip->rlastupdate,
+	    kip->wcnt,  kip->rcnt);
+
+	return (0);
+}
+
+static int
+kstat_seq_show_timer(struct seq_file *f, kstat_timer_t *ktp)
+{
+	seq_printf(f,
+	    "%-31s %-8llu %-8llu %-8llu %-8llu %-8llu %-8llu\n",
+	    ktp->name, ktp->num_events, ktp->elapsed_time,
+	    ktp->min_time, ktp->max_time,
+	    ktp->start_time, ktp->stop_time);
+
+	return (0);
+}
+
+static int
+show_kstat_line(kstat_t *ks, struct seq_file *sf, int n)
+{
+	void *data = NULL;
+	switch (ks->ks_type) {
+		case KSTAT_TYPE_RAW:
+			if (ks->raw_ops.addr) {
+				data = ks->raw_ops.addr(ks, n);
+			} else {
+				data = ks->ks_data;
+			}
+
+			if (data == NULL) {
+				return (-1);
+			}
+
+			if (ks->raw_ops.data) {
+				return (ks->raw_ops.data(sf->buf,
+				    sf->size, data));
+			} else {
+				ASSERT(ks->ks_ndata == 1);
+				return (kstat_seq_show_raw(sf,
+				    ks->ks_data, ks->ks_data_size));
+			}
+		case KSTAT_TYPE_NAMED:
+			data = ks->ks_data + n * sizeof (kstat_named_t);
+			return (kstat_seq_show_named(
+			    sf, (kstat_named_t *)data));
+		case KSTAT_TYPE_INTR:
+			data = ks->ks_data + n * sizeof (kstat_intr_t);
+			return (kstat_seq_show_intr(
+			    sf, (kstat_intr_t *)data));
+		case KSTAT_TYPE_IO:
+			data = ks->ks_data + n * sizeof (kstat_io_t);
+			return (kstat_seq_show_io(
+			    sf, (kstat_io_t *)data));
+		case KSTAT_TYPE_TIMER:
+			data = ks->ks_data + n * sizeof (kstat_timer_t);
+			return (kstat_seq_show_timer(
+			    sf, (kstat_timer_t *)data));
+		default:
+			panic("Undefined kstat type %d\n", ks->ks_type);
+	}
+
+	return (0);
+}
+
+void
+show_kstat_content(kstat_t *ks, const seq_file_generator_t *generator)
+{
+	if (ks->ks_lock) {
+		mutex_enter(ks->ks_lock);
+	}
+	if (ks->ks_update) {
+		ks->ks_update(ks, KSTAT_READ);
+	}
+
+	struct seq_file sf;
+	if (!(ks->ks_flags & KSTAT_FLAG_NO_HEADERS)) {
+		generator->generate(generator->arg, &sf);
+		show_kstat_header(ks, &sf);
+	}
+
+	generator->generate(generator->arg, &sf);
+	for (int i = 0; i < ks->ks_ndata; ++i) {
+		if (show_kstat_line(ks, &sf, i) < 0) {
+			break;
+		}
+		generator->generate(generator->arg, &sf);
+	}
+	if (ks->ks_lock) {
+		mutex_exit(ks->ks_lock);
+	}
+}
 
 /*
  * =========================================================================
@@ -520,7 +782,15 @@ cv_broadcast(kcondvar_t *cv)
 
 void
 seq_printf(struct seq_file *m, const char *fmt, ...)
-{}
+{
+	va_list adx;
+	va_start(adx, fmt);
+	vsnprintf(m->buf, m->size, fmt, adx);
+	va_end(adx);
+	int len = strlen(m->buf);
+	m->buf += len;
+	m->size -= len;
+}
 
 void
 procfs_list_install(const char *module,
@@ -533,17 +803,42 @@ procfs_list_install(const char *module,
     int (*clear)(procfs_list_t *procfs_list),
     size_t procfs_list_node_off)
 {
+	snprintf(procfs_list->name, KSTAT_STRLEN,
+	    "%s/%s/%s", module, submodule, name);
 	mutex_init(&procfs_list->pl_lock, NULL, MUTEX_DEFAULT, NULL);
 	list_create(&procfs_list->pl_list,
 	    procfs_list_node_off + sizeof (procfs_list_node_t),
 	    procfs_list_node_off + offsetof(procfs_list_node_t, pln_link));
 	procfs_list->pl_next_id = 1;
 	procfs_list->pl_node_offset = procfs_list_node_off;
+	procfs_list->show = show;
+	procfs_list->show_header = show_header;
+	procfs_list->clear = clear;
+	stat_ops.kstat_install(procfs_list->name, procfs_list, KSTAT_PROCFS);
 }
 
 void
 procfs_list_uninstall(procfs_list_t *procfs_list)
-{}
+{
+	stat_ops.kstat_uinstall(procfs_list->name);
+}
+
+void
+show_procfs_content(procfs_list_t *procfs_list,
+    const seq_file_generator_t *generator)
+{
+	struct seq_file sf;
+	generator->generate(generator->arg, &sf);
+	procfs_list->show_header(&sf);
+
+	mutex_enter(&procfs_list->pl_lock);
+	for (void *cur = list_head(&procfs_list->pl_list); cur != NULL;
+	    cur = list_next(&procfs_list->pl_list, cur)) {
+		generator->generate(generator->arg, &sf);
+		procfs_list->show(&sf, cur);
+	}
+	mutex_exit(&procfs_list->pl_lock);
+}
 
 void
 procfs_list_destroy(procfs_list_t *procfs_list)
@@ -642,8 +937,6 @@ dprintf_setup(int *argc, char **argv)
 		zfs_flags |= ZFS_DEBUG_DPRINTF;
 }
 
-void (*print_log)(const char *, int) = NULL;
-
 /*
  * =========================================================================
  * debug printfs
@@ -680,8 +973,8 @@ __dprintf(boolean_t new_line, const char *file, const char *func,
 	vsnprintf(buf + len, max_len - len, fmt, adx);
 	va_end(adx);
 
-	if (print_log) {
-		print_log(buf, new_line);
+	if (stat_ops.print_log) {
+		stat_ops.print_log(buf, new_line);
 	}
 }
 
@@ -700,7 +993,7 @@ vpanic(const char *fmt, va_list adx)
 	(void) vfprintf(stderr, fmt, adx);
 	(void) fprintf(stderr, "\n");
 
-	thread_ops.backtrace();
+	stat_ops.backtrace();
 
 	abort();	/* think of it as a "user-level crash dump" */
 }

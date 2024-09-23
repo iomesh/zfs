@@ -19,6 +19,8 @@
  * CDDL HEADER END
  */
 
+#include "sync_ops.h"
+#include "sys/time.h"
 #include <sys/zfs_context.h>
 #include <sys/spa_impl.h>
 #include <sys/vdev_impl.h>
@@ -335,6 +337,8 @@ spa_txg_history_add(spa_t *spa, uint64_t txg, hrtime_t birth_time)
 	mutex_exit(&shl->procfs_list.pl_lock);
 }
 
+extern stat_ops_t stat_ops;
+
 /*
  * Set txg state completion time and increment current state.
  */
@@ -354,6 +358,12 @@ spa_txg_history_set(spa_t *spa, uint64_t txg, txg_state_t completed_state,
 	    sth = list_prev(&shl->procfs_list.pl_list, sth)) {
 		if (sth->txg == txg) {
 			sth->times[completed_state] = completed_time;
+			if (completed_state > 0 && spa->metrics) {
+				hrtime_t delay = completed_time -
+				    sth->times[completed_state - 1];
+				stat_ops.record_txg_delays(spa->metrics,
+				    completed_state, delay);
+			}
 			sth->state++;
 			error = 0;
 			break;

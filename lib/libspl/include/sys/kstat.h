@@ -61,6 +61,8 @@ typedef int	kid_t;		/* unique kstat id */
 
 #define	KSTAT_STRLEN	255	/* 254 chars + NULL; must be 16 * n - 1 */
 
+
+#ifdef _KERNEL
 /*
  * The generic kstat header
  */
@@ -91,6 +93,32 @@ typedef struct kstat {
 	int		(*ks_snapshot)(struct kstat *, void *, int);
 	void		*ks_lock;	/* protects this kstat's data */
 } kstat_t;
+#else
+
+struct kstat;
+
+typedef struct kstat_raw_ops {
+	int (*headers)(char *buf, size_t size);
+	int (*data)(char *buf, size_t size, void *data);
+	void *(*addr)(struct kstat *ksp, loff_t index);
+} kstat_raw_ops_t;
+
+typedef struct kstat {
+	char		ks_name[KSTAT_STRLEN]; /* kstat name */
+	uchar_t		ks_type;	/* kstat data type */
+	uchar_t		ks_flags;	/* kstat flags */
+	void		*ks_data;	/* kstat type-specific data */
+	uint_t		ks_ndata;	/* # of type-specific data records */
+	size_t		ks_data_size;	/* total size of kstat data section */
+	kstat_raw_ops_t	raw_ops;
+	/*
+	 * Fields relevant to kernel only
+	 */
+	int		(*ks_update)(struct kstat *, int); /* dynamic update */
+	void		*ks_private;	/* arbitrary provider-private data */
+	void		*ks_lock;	/* protects this kstat's data */
+} kstat_t;
+#endif
 
 #ifdef _SYSCALL32
 

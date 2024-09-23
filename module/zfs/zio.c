@@ -28,6 +28,8 @@
  * Copyright (c) 2021, Datto, Inc.
  */
 
+#include "sync_ops.h"
+#include "sys/fs/zfs.h"
 #include <sys/sysmacros.h>
 #include <sys/zfs_context.h>
 #include <sys/fm/fs/zfs.h>
@@ -140,6 +142,17 @@ int zio_buf_debug_limit = 0;
 static inline void __zio_execute(zio_t *zio);
 
 static void zio_taskq_dispatch(zio_t *, zio_taskq_type_t, boolean_t);
+
+static inline boolean_t
+zio_need_record_stage(zio_t *zio)
+{
+	return ((zio->io_type == ZIO_TYPE_READ ||
+	    zio->io_type == ZIO_TYPE_WRITE) &&
+	    zio->io_spa != NULL &&
+	    zio->io_spa->metrics &&
+	    (zio->io_orig_pipeline == ZIO_READ_PIPELINE ||
+	    zio->io_orig_pipeline == ZIO_WRITE_PIPELINE));
+}
 
 void
 zio_init(void)
@@ -879,6 +892,9 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 	zio->io_orig_stage = zio->io_stage = stage;
 	zio->io_orig_pipeline = zio->io_pipeline = pipeline;
 	zio->io_pipeline_trace = ZIO_STAGE_OPEN;
+	if (zio_need_record_stage(zio)) {
+		zio->io_stage_start[0] = gethrtime();
+	}
 
 	zio->io_state[ZIO_WAIT_READY] = (stage >= ZIO_STAGE_READY);
 	zio->io_state[ZIO_WAIT_DONE] = (stage >= ZIO_STAGE_DONE);
@@ -2220,12 +2236,16 @@ __zio_execute(zio_t *zio)
 		zio->io_stage = stage;
 		zio->io_pipeline_trace |= zio->io_stage;
 
+		int idx = highbit64(stage) - 1;
+		if (zio_need_record_stage(zio)) {
+			zio->io_stage_start[idx] = gethrtime();
+		}
 		/*
 		 * The zio pipeline stage returns the next zio to execute
 		 * (typically the same as this one), or NULL if we should
 		 * stop.
 		 */
-		zio = zio_pipeline[highbit64(stage) - 1](zio);
+		zio = zio_pipeline[idx](zio);
 
 		if (zio == NULL)
 			return;
@@ -4517,6 +4537,8 @@ zio_dva_throttle_done(zio_t *zio)
 	zio_allocate_dispatch(zio->io_spa, pio->io_allocator);
 }
 
+extern stat_ops_t stat_ops;
+
 static zio_t *
 zio_done(zio_t *zio)
 {
@@ -4870,6 +4892,11 @@ zio_done(zio_t *zio)
 		pio_next = zio_walk_parents(zio, &zl);
 		zio_remove_child(pio, zio, remove_zl);
 		zio_notify_parent(pio, zio, ZIO_WAIT_DONE, &next_to_execute);
+	}
+
+	if (zio_need_record_stage(zio)) {
+		stat_ops.record_zio(zio->io_spa->metrics,
+		    zio->io_stage_start, zio->io_type == ZIO_TYPE_READ);
 	}
 
 	if (zio->io_waiter != NULL) {

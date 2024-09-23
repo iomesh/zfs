@@ -29,6 +29,7 @@
 int aok = 0;
 
 extern thread_ops_t thread_ops;
+extern stat_ops_t stat_ops;
 
 /* printf version of libspl_assert */
 void
@@ -46,7 +47,7 @@ libspl_assertf(const char *file, const char *func, int line,
 		return;
 	}
 
-	thread_ops.backtrace();
+	stat_ops.backtrace();
 
 	abort();
 }
