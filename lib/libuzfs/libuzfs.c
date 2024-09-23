@@ -278,14 +278,14 @@ fatal(int do_perror, char *message, ...)
 }
 
 extern aio_ops_t aio_ops;
-extern void (*print_log)(const char *, int);
+extern stat_ops_t stat_ops;
 
 void
 libuzfs_set_ops(const coroutine_ops_t *co,
     const co_mutex_ops_t *mo, const co_cond_ops_t *condo,
     const co_rwlock_ops_t *ro, const aio_ops_t *ao,
     const thread_ops_t *tho, const taskq_ops_t *tqo,
-    void (*pl)(const char *, int))
+    const stat_ops_t *sto)
 {
 	co_ops = *co;
 	co_mutex_ops = *mo;
@@ -294,7 +294,23 @@ libuzfs_set_ops(const coroutine_ops_t *co,
 	aio_ops = *ao;
 	thread_ops = *tho;
 	taskq_ops = *tqo;
-	print_log = pl;
+	stat_ops = *sto;
+}
+
+void
+libuzfs_show_stats(void *stat, int type,
+    const seq_file_generator_t *generator)
+{
+	switch (type) {
+	case KSTAT_PROCFS:
+		show_procfs_content(stat, generator);
+		break;
+	case KSTAT_NORMAL:
+		show_kstat_content(stat, generator);
+		break;
+	default:
+		panic("unknown stat type: %d\n", type);
+	}
 }
 
 static uint64_t
@@ -1338,8 +1354,8 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 }
 
 libuzfs_dataset_handle_t *
-libuzfs_dataset_open(const char *dsname, int *err,
-    uint32_t dnodesize, uint32_t max_blksz)
+libuzfs_dataset_open(const char *dsname, int *err, uint32_t dnodesize,
+    uint32_t max_blksz, const void *metrics)
 {
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
@@ -1353,6 +1369,8 @@ libuzfs_dataset_open(const char *dsname, int *err,
 		umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 		return (NULL);
 	}
+
+	os->os_spa->metrics = metrics;
 
 	libuzfs_dhp_init(dhp, os, dnodesize);
 

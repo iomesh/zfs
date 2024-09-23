@@ -102,7 +102,7 @@ extern void libuzfs_set_ops(const coroutine_ops_t *,
     const co_mutex_ops_t *, const co_cond_ops_t *,
     const co_rwlock_ops_t *, const aio_ops_t *,
     const thread_ops_t *, const taskq_ops_t *,
-    void (*print_log)(const char *, int));
+    const stat_ops_t *);
 
 // only have effect when in debug binary
 extern void libuzfs_enable_debug_msg(void);
@@ -132,7 +132,7 @@ extern int libuzfs_zpool_prop_get(libuzfs_zpool_handle_t *zhp,
 extern int libuzfs_dataset_create(const char *dsname);
 extern void libuzfs_dataset_destroy(const char *dsname);
 extern libuzfs_dataset_handle_t *libuzfs_dataset_open(const char *dsname,
-    int *err, uint32_t dnodesize, uint32_t max_blksz);
+    int *err, uint32_t dnodesize, uint32_t max_blksz, const void *metrics);
 extern void libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp);
 
 extern uint64_t libuzfs_dataset_get_superblock_ino(
@@ -295,6 +295,8 @@ extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
     uint64_t *offset, uint64_t *size);
 
 extern void libuzfs_debug_main(int argc, char **argv);
+
+extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
 #ifdef	__cplusplus
 }
 #endif

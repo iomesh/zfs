@@ -4513,6 +4513,8 @@ vdev_scan_stat_init(vdev_t *vd)
 	mutex_exit(&vd->vdev_stat_lock);
 }
 
+extern stat_ops_t stat_ops;
+
 void
 vdev_stat_update(zio_t *zio, uint64_t psize)
 {
