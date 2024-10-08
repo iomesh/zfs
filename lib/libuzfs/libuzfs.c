@@ -24,6 +24,7 @@
 
 #include <asm-generic/errno-base.h>
 #include <bits/stdint-uintn.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
@@ -62,6 +63,8 @@
 #include "atomic.h"
 #include "libuzfs.h"
 #include "libuzfs_impl.h"
+#include "sys/arc.h"
+#include "sys/arc_impl.h"
 #include "sys/dnode.h"
 #include "sys/nvpair.h"
 #include "sys/sa.h"
@@ -1003,6 +1006,31 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	libuzfs_get_done(zgd, err);
 
 	return (err);
+}
+
+extern unsigned long zfs_arc_max;
+extern unsigned long zfs_arc_min;
+extern unsigned long zfs_arc_sys_free;
+
+void
+libuzfs_config_arc(size_t arc_max, size_t arc_min, size_t sys_reserved)
+{
+	zfs_arc_min = arc_min;
+	zfs_arc_max = arc_max;
+	zfs_arc_sys_free = sys_reserved;
+	arc_tuning_update(B_FALSE);
+}
+
+void
+libuzfs_arc_shrink(size_t percent)
+{
+	arc_shrink(percent);
+}
+
+void
+libuzfs_wakeup_arc_evictor(void)
+{
+	arc_wakeup_evictor();
 }
 
 void
