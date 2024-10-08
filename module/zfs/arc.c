@@ -4810,6 +4810,15 @@ arc_reduce_target_size(int64_t to_free)
 	}
 }
 
+void
+arc_wakeup_evictor(void)
+{
+	mutex_enter(&arc_evict_lock);
+	arc_evict_needed = B_TRUE;
+	mutex_exit(&arc_evict_lock);
+	zthr_wakeup(arc_evict_zthr);
+}
+
 /*
  * Determine if the system is under memory pressure and is asking
  * to reclaim memory. A return value of B_TRUE indicates that the system

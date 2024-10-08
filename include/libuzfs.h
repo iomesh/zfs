@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_H
 #define	_LIBUZFS_H
 
+#include <stddef.h>
 #include <sync_ops.h>
 #include "sys/stdtypes.h"
 #include "sys/time.h"
@@ -291,6 +292,9 @@ extern void libuzfs_set_fail_percent(int fail_percent);
 extern int libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
     uint64_t *offset, uint64_t *size);
+extern void libuzfs_config_arc(size_t, size_t, size_t);
+extern void libuzfs_arc_shrink(size_t);
+extern void libuzfs_wakeup_arc_evictor(void);
 
 #ifdef	__cplusplus
 }
