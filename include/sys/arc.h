@@ -29,6 +29,7 @@
 #ifndef	_SYS_ARC_H
 #define	_SYS_ARC_H
 
+#include <stddef.h>
 #include <sys/zfs_context.h>
 
 #ifdef	__cplusplus
@@ -320,6 +321,8 @@ uint64_t arc_target_bytes(void);
 void arc_set_limits(uint64_t);
 void arc_init(void);
 void arc_fini(void);
+void arc_shrink(size_t);
+void arc_wakeup_evictor(void);
 
 /*
  * Level 2 ARC

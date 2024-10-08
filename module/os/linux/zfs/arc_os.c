@@ -26,6 +26,10 @@
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
+#include "sys/stdtypes.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/sysinfo.h>
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/spa_impl.h>
@@ -446,13 +450,7 @@ arc_unregister_hotplug(void)
 int64_t
 arc_available_memory(void)
 {
-	int64_t lowest = INT64_MAX;
-
-	/* Every 100 calls, free a small amount */
-	if (random_in_range(100) == 0)
-		lowest = -1024;
-
-	return (lowest);
+	return (arc_free_memory() - arc_sys_free);
 }
 
 int
@@ -464,13 +462,31 @@ arc_memory_throttle(spa_t *spa, uint64_t reserve, uint64_t txg)
 uint64_t
 arc_all_memory(void)
 {
-	return (ptob(physmem) / 2);
+	return (ptob(physmem));
+}
+
+void
+arc_shrink(size_t percent)
+{
+	if (percent > 80) {
+		percent = 80;
+	}
+
+	uint64_t to_free = aggsum_value(&arc_sums.arcstat_size) * percent / 100;
+	arc_reduce_target_size(to_free);
+	arc_wait_for_eviction(to_free, B_FALSE);
+	arc_no_grow = B_TRUE;
 }
 
 uint64_t
 arc_free_memory(void)
 {
-	return (random_in_range(arc_all_memory() * 20 / 100));
+	struct sysinfo info;
+	if (sysinfo(&info) == -1) {
+		return (0);
+	}
+
+	return (info.freeram);
 }
 
 void

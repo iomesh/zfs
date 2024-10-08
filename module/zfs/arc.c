@@ -5301,6 +5301,13 @@ arc_wait_for_eviction(uint64_t amount, boolean_t use_reserve)
 	}
 }
 
+void
+arc_wakeup_evictor(void)
+{
+	arc_evict_needed = B_TRUE;
+	zthr_wakeup(arc_evict_zthr);
+}
+
 /*
  * Allocate a block and return it to the caller. If we are hitting the
  * hard limit for the cache size, we must sleep, waiting for the eviction
