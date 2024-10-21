@@ -142,7 +142,7 @@ libuzfs_inode_handle_init(libuzfs_inode_handle_t *ihp,
 	ihp->ino = ino;
 	ihp->rc = 1;
 	ihp->gen = gen;
-	ihp->is_data_inode = B_TRUE;
+	ihp->is_data_inode = is_data_inode;
 
 	if (is_data_inode) {
 		VERIFY0(sa_lookup(sa_hdl, attr_tbl[UZFS_SIZE],
@@ -220,6 +220,10 @@ libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 		ASSERT(ihp->hp_kvattr_cache);
 		nvlist_free(ihp->hp_kvattr_cache);
 		sa_handle_destroy(ihp->sa_hdl);
+		rw_destroy(&ihp->hp_kvattr_cache_lock);
+		if (ihp->is_data_inode) {
+			zfs_rangelock_fini(&ihp->rl);
+		}
 		umem_free(ihp, sizeof (libuzfs_inode_handle_t));
 	}
 
