@@ -225,8 +225,10 @@ extern int libuzfs_dentry_delete(libuzfs_inode_handle_t *ihp,
 extern int libuzfs_dentry_lookup(libuzfs_inode_handle_t *ihp,
     const char *name, uint64_t *value);
 
-extern int libuzfs_dentry_iterate(libuzfs_inode_handle_t *ihp,
-    uint64_t whence, uint32_t size, char *buf, uint32_t *num);
+typedef int (*dir_emit_func_t)(void *arg, uint64_t whence,
+    const char *name, uint64_t value);
+extern int libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
+    uint64_t whence, void *arg, dir_emit_func_t dir_emit);
 
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);

@@ -233,12 +233,6 @@ libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 	mutex_exit(mp);
 }
 
-typedef struct dir_emit_ctx {
-	char *buf;
-	char *cur;
-	uint32_t size;
-} dir_emit_ctx_t;
-
 static void
 dump_debug_buffer(void)
 {
@@ -2209,44 +2203,14 @@ libuzfs_dentry_lookup(libuzfs_inode_handle_t *dihp,
 	return (libuzfs_zap_lookup(dihp->dhp, dihp->ino, name, 8, 1, value));
 }
 
-static boolean_t
-dir_emit(dir_emit_ctx_t *ctx, uint64_t whence, uint64_t value, char *name,
-    uint32_t name_len)
-{
-	int size = offsetof(struct uzfs_dentry, name) + name_len + 1;
-
-	// ensure dentry is aligned to 8 bytes to make Rust happy
-	size = roundup(size, sizeof (uint64_t));
-	if (ctx->cur + size > ctx->buf + ctx->size) {
-		return (B_TRUE);
-	}
-
-	struct uzfs_dentry *dentry = (struct uzfs_dentry *)ctx->cur;
-	dentry->size = size;
-	dentry->whence = whence;
-	dentry->value = value;
-	memcpy(dentry->name, name, name_len + 1);
-
-	ctx->cur += size;
-
-	return (B_FALSE);
-}
-
 int
 libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
-    uint64_t whence, uint32_t size, char *buf, uint32_t *num)
+    uint64_t whence, void *arg, dir_emit_func_t dir_emit)
 {
 	int		error = 0;
 	zap_cursor_t	zc;
 	zap_attribute_t	zap;
 	boolean_t	done = B_FALSE;
-	dir_emit_ctx_t  ctx;
-
-	*num = 0;
-	ctx.buf = buf;
-	ctx.cur = buf;
-	ctx.size = size;
-	memset(ctx.buf, 0, size);
 
 	libuzfs_dataset_handle_t *dhp = dihp->dhp;
 	uint64_t dino = dihp->ino;
@@ -2275,17 +2239,12 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 		zap_cursor_advance(&zc);
 		whence = zap_cursor_serialize(&zc);
 
-		done = dir_emit(&ctx, whence, zap.za_first_integer, zap.za_name,
-		    strlen(zap.za_name));
+		done = dir_emit(arg, whence, zap.za_name, zap.za_first_integer);
 		if (done)
 			break;
-		(*num)++;
 	}
 
 	zap_cursor_fini(&zc);
-	if (error == ENOENT) {
-		error = 0;
-	}
 	return (error);
 }
 
