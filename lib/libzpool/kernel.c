@@ -294,13 +294,9 @@ kstat_seq_show_named(struct seq_file *f, kstat_named_t *knp)
 
 	switch (knp->data_type) {
 		case KSTAT_DATA_CHAR:
-			knp->value.c[15] = '\0'; /* NULL terminate */
+			knp->value.c[15] = '\0';
 			seq_printf(f, "%-16s", knp->value.c);
 			break;
-		/*
-		 * NOTE - We need to be more careful able what tokens are
-		 * used for each arch, for now this is correct for x86_64.
-		 */
 		case KSTAT_DATA_INT32:
 			seq_printf(f, "%d", knp->value.i32);
 			break;
@@ -344,7 +340,6 @@ kstat_seq_show_intr(struct seq_file *f, kstat_intr_t *kip)
 static int
 kstat_seq_show_io(struct seq_file *f, kstat_io_t *kip)
 {
-	/* though wlentime & friends are signed, they will never be negative */
 	seq_printf(f,
 	    "%-8llu %-8llu %-8u %-8u %-8llu %-8llu "
 	    "%-8llu %-8llu %-8llu %-8llu %-8u %-8u\n",
