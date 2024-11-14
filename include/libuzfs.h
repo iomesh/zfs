@@ -300,7 +300,7 @@ extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
 extern void libuzfs_debug_main(int argc, char **argv);
 
 extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
-extern void libuzfs_config_arc(size_t, size_t, size_t);
+extern void libuzfs_config_arc(size_t, size_t);
 extern void libuzfs_arc_shrink(size_t);
 void libuzfs_wakeup_arc_evictor(void);
 #ifdef	__cplusplus
