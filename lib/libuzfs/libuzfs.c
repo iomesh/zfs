@@ -1004,14 +1004,12 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 
 extern unsigned long zfs_arc_max;
 extern unsigned long zfs_arc_min;
-extern unsigned long zfs_arc_sys_free;
 
 void
-libuzfs_config_arc(size_t arc_max, size_t arc_min, size_t sys_reserved)
+libuzfs_config_arc(size_t arc_max, size_t arc_min)
 {
 	zfs_arc_min = arc_min;
 	zfs_arc_max = arc_max;
-	zfs_arc_sys_free = sys_reserved;
 	arc_tuning_update(B_FALSE);
 }
 

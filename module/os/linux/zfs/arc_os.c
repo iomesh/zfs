@@ -481,12 +481,7 @@ arc_shrink(size_t percent)
 uint64_t
 arc_free_memory(void)
 {
-	struct sysinfo info;
-	if (sysinfo(&info) == -1) {
-		return (0);
-	}
-
-	return (info.freeram);
+	return (INT64_MAX);
 }
 
 void
