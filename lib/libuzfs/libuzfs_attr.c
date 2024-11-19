@@ -220,6 +220,7 @@ libuzfs_inode_setattr(libuzfs_dataset_handle_t *dhp, uint64_t ino,
 	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
 	if ((err = dmu_tx_assign(tx, TXG_WAIT)) != 0) {
 		dmu_tx_abort(tx);
+		sa_handle_destroy(sa_hdl);
 		return (err);
 	}
 
