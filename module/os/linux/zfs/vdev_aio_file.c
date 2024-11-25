@@ -28,7 +28,6 @@
 #include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
 #include "umem.h"
-#include <asm/unistd_64.h>
 #include <bits/stdint-uintn.h>
 #include <errno.h>
 #include <linux/fs.h>
