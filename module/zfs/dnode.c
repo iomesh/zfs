@@ -76,7 +76,7 @@ static kmem_cache_t *dnode_cache;
 
 static dnode_phys_t dnode_phys_zero __maybe_unused;
 
-int zfs_default_bs = SPA_MINBLOCKSHIFT;
+int zfs_default_bs = UZFS_VDEV_ASHIFT;
 int zfs_default_ibs = DN_MAX_INDBLKSHIFT;
 
 #ifdef	_KERNEL
