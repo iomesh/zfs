@@ -28,6 +28,7 @@
 
 #include <stddef.h>
 #include <sync_ops.h>
+#include "sys/arc.h"
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/time.h"
@@ -109,6 +110,9 @@ extern void libuzfs_set_ops(const coroutine_ops_t *,
 extern void libuzfs_enable_debug_msg(void);
 extern void libuzfs_disable_debug_msg(void);
 
+extern arc_prune_t *libuzfs_register_arc_prune(
+    arc_prune_func_t *arc_prune, void *arg);
+extern void libuzfs_unregister_arc_prune(arc_prune_t *ap);
 extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
@@ -300,9 +304,8 @@ extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
 extern void libuzfs_debug_main(int argc, char **argv);
 
 extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
-extern void libuzfs_config_arc(size_t, size_t);
-extern void libuzfs_arc_shrink(size_t);
-void libuzfs_wakeup_arc_evictor(void);
+extern void libuzfs_config_arc(size_t arc_max, uint32_t meta_percent,
+    uint32_t dnode_percent);
 #ifdef	__cplusplus
 }
 #endif
