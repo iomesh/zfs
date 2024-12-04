@@ -321,8 +321,6 @@ uint64_t arc_target_bytes(void);
 void arc_set_limits(uint64_t);
 void arc_init(void);
 void arc_fini(void);
-void arc_shrink(size_t);
-void arc_wakeup_evictor(void);
 
 /*
  * Level 2 ARC

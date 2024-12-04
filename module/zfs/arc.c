@@ -4185,6 +4185,19 @@ arc_state_free_markers(arc_buf_hdr_t **markers, int count)
 	kmem_free(markers, sizeof (*markers) * count);
 }
 
+static void
+arc_evict_dnodes(void)
+{
+	uint64_t upper_bound = aggsum_upper_bound(
+	    &arc_sums.arcstat_dnode_size);
+	uint64_t limit = arc_dnode_size_limit;
+	if (upper_bound > limit && limit > 0) {
+		int64_t percent = (upper_bound - limit) * 100 / upper_bound;
+		percent = MAX(percent, zfs_arc_dnode_reduce_percent);
+		arc_prune_async(percent);
+	}
+}
+
 /*
  * Evict buffers from the given arc state, until we've removed the
  * specified number of bytes. Move the removed buffers to the
@@ -4245,10 +4258,7 @@ arc_evict_state(arc_state_t *state, uint64_t spa, uint64_t bytes,
 		 */
 		if (type == ARC_BUFC_DATA && aggsum_compare(
 		    &arc_sums.arcstat_dnode_size, arc_dnode_size_limit) > 0) {
-			arc_prune_async((aggsum_upper_bound(
-			    &arc_sums.arcstat_dnode_size) -
-			    arc_dnode_size_limit) / sizeof (dnode_t) /
-			    zfs_arc_dnode_reduce_percent);
+			arc_evict_dnodes();
 		}
 
 		/*
@@ -4460,7 +4470,7 @@ restart:
 
 			if (zfs_arc_meta_prune) {
 				prune += zfs_arc_meta_prune;
-				arc_prune_async(prune);
+				arc_evict_dnodes();
 			}
 		}
 
@@ -5299,13 +5309,6 @@ arc_wait_for_eviction(uint64_t amount, boolean_t use_reserve)
 		cv_destroy(&aw.aew_cv);
 	}
 	}
-}
-
-void
-arc_wakeup_evictor(void)
-{
-	arc_evict_needed = B_TRUE;
-	zthr_wakeup(arc_evict_zthr);
 }
 
 /*
@@ -7938,9 +7941,12 @@ arc_set_limits(uint64_t allmem)
 	/* How to set default max varies by platform. */
 	arc_c_max = arc_default_max(arc_c_min, allmem);
 }
+extern int mem_file_fd;
 void
 arc_init(void)
 {
+	mem_file_fd = open("/proc/meminfo", O_RDONLY);
+	VERIFY(mem_file_fd >= 0);
 	uint64_t percent, allmem = arc_all_memory();
 	mutex_init(&arc_evict_lock, NULL, MUTEX_DEFAULT, NULL);
 	list_create(&arc_evict_waiters, sizeof (arc_evict_waiter_t),
@@ -8127,6 +8133,8 @@ arc_fini(void)
 	zthr_destroy(arc_reap_zthr);
 
 	ASSERT0(arc_loaned_bytes);
+	close(mem_file_fd);
+	mem_file_fd = -1;
 }
 
 /*
