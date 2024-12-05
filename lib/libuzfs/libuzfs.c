@@ -312,7 +312,8 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 void
 libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 {
-	uzfs_hold_handle_t *uhh = uzfs_holds_enter(&ihp->dhp->holds, ihp->ino);
+	uzfs_holds_t *holds = &ihp->dhp->holds;
+	uzfs_hold_handle_t *uhh = uzfs_holds_enter(holds, ihp->ino);
 	if (--ihp->rc <= 0) {
 		ASSERT(ihp->hp_kvattr_cache);
 		nvlist_free(ihp->hp_kvattr_cache);
@@ -324,7 +325,7 @@ libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 		umem_free(ihp, sizeof (libuzfs_inode_handle_t));
 	}
 
-	uzfs_holds_exit(&ihp->dhp->holds, uhh);
+	uzfs_holds_exit(holds, uhh);
 }
 
 static void
@@ -1102,18 +1103,23 @@ extern unsigned long zfs_arc_dnode_limit_percent;
 extern unsigned long zfs_arc_meta_limit_percent;
 extern unsigned long zfs_arc_sys_free;
 extern unsigned long zfs_dirty_data_max;
+extern int zfs_sync_pass_dont_compress;
 
 void
-libuzfs_config_arc(size_t arc_max, uint32_t meta_percent,
-    uint32_t dnode_percent)
+libuzfs_config(size_t arc_max, uint32_t arc_meta_percent,
+    uint32_t arc_dnode_percent, boolean_t enable_txg_compress)
 {
+	if (!enable_txg_compress) {
+		zfs_sync_pass_dont_compress = 0;
+	}
+
 	zfs_arc_min = arc_max >> 2;
 	zfs_dirty_data_max = MIN(4ULL * 1024 * 1024 * 1024, zfs_arc_min);
 	zfs_arc_max = zfs_arc_min * 3;
 
 	zfs_arc_sys_free = 512 << 20;
-	zfs_arc_meta_limit_percent = meta_percent;
-	zfs_arc_dnode_limit_percent = dnode_percent;
+	zfs_arc_meta_limit_percent = arc_meta_percent;
+	zfs_arc_dnode_limit_percent = arc_dnode_percent;
 	arc_tuning_update(B_FALSE);
 }
 
@@ -1153,16 +1159,14 @@ libuzfs_set_zpool_cache_path(const char *zpool_cache)
 
 // for now, only support one device per pool
 int
-libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
-    nvlist_t *fsprops)
+libuzfs_zpool_create(const char *zpool, const char *path)
 {
 	int err = 0;
 	nvlist_t *nvroot = NULL;
 
 	nvroot = make_vdev_root(path, NULL, zpool, 0, 0, NULL, 1, 0, 1);
 
-	props = fnvlist_alloc();
-	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_AUTOTRIM), 1);
+	nvlist_t *props = fnvlist_alloc();
 	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
 	    ZIO_FAILURE_MODE_PANIC);
 	err = spa_create(zpool, nvroot, props, NULL, NULL);
@@ -1183,7 +1187,7 @@ libuzfs_zpool_destroy(const char *zpool)
 }
 
 libuzfs_zpool_handle_t *
-libuzfs_zpool_open(const char *zpool, int *err)
+libuzfs_zpool_open(const char *zpool, int *err, boolean_t autotrim)
 {
 	spa_t *spa = NULL;
 
@@ -1194,6 +1198,8 @@ libuzfs_zpool_open(const char *zpool, int *err)
 	libuzfs_zpool_handle_t *zhp;
 	zhp = umem_alloc(sizeof (libuzfs_zpool_handle_t), UMEM_NOFAIL);
 	zhp->spa = spa;
+	spa->spa_autotrim = autotrim ? SPA_AUTOTRIM_ON : SPA_AUTOTRIM_OFF;
+	vdev_autotrim(spa);
 	(void) strlcpy(zhp->zpool_name, zpool, sizeof (zhp->zpool_name));
 
 	return (zhp);

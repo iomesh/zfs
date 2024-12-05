@@ -117,7 +117,7 @@ int zio_slow_io_ms = (30 * MILLISEC);
  * and may need to load new metaslabs to satisfy 128K allocations.
  */
 int zfs_sync_pass_deferred_free = 2; /* defer frees starting in this pass */
-int zfs_sync_pass_dont_compress = 8; /* don't compress starting in this pass */
+int zfs_sync_pass_dont_compress = 0; /* don't compress starting in this pass */
 int zfs_sync_pass_rewrite = 2; /* rewrite new bps starting in this pass */
 
 /*
