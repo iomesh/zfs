@@ -79,7 +79,21 @@ struct libuzfs_inode_handle {
 	zfs_rangelock_t rl;
 };
 
+typedef struct uzfs_hold_handle {
+	avl_node_t avl_node;
+	kmutex_t lock;
+	int ref;
+	uint64_t ino;
+} uzfs_hold_handle_t;
+
 #define	NUM_NODE_BUCKETS 997
+
+typedef struct uzfs_holds {
+	kmutex_t locks[NUM_NODE_BUCKETS];
+	avl_tree_t trees[NUM_NODE_BUCKETS];
+} uzfs_holds_t;
+
+
 struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	objset_t *os;
@@ -87,7 +101,7 @@ struct libuzfs_dataset_handle {
 	uint64_t sb_ino;
 	uint32_t max_blksz;
 	sa_attr_type_t	*uzfs_attr_table;
-	kmutex_t objs_lock[NUM_NODE_BUCKETS];
+	uzfs_holds_t holds;
 	uint32_t dnodesize;
 };
 

@@ -28,6 +28,7 @@
 
 #include <stddef.h>
 #include <sync_ops.h>
+#include "sys/arc.h"
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/time.h"
@@ -113,11 +114,11 @@ extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 
-extern int libuzfs_zpool_create(const char *zpool, const char *path,
-    nvlist_t *props, nvlist_t *fsprops);
+extern int libuzfs_zpool_create(const char *zpool, const char *path);
 
 extern int libuzfs_zpool_destroy(const char *zpool);
-extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool, int *err);
+extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool,
+    int *err, boolean_t autotrim);
 extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
 
 extern int libuzfs_zpool_import(const char *dev_path,
@@ -300,8 +301,8 @@ extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
 extern void libuzfs_debug_main(int argc, char **argv);
 
 extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
-extern void libuzfs_config_arc(size_t, size_t);
-extern void libuzfs_arc_shrink(size_t);
+extern void libuzfs_config(size_t arc_max, size_t meta_percent,
+    boolean_t enable_txg_compress);
 void libuzfs_wakeup_arc_evictor(void);
 #ifdef	__cplusplus
 }
