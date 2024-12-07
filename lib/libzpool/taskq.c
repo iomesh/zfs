@@ -58,7 +58,7 @@ taskq_create(const char *tq_name, int nthreads,
 		pct = MIN(nthreads, 100);
 		pct = MAX(pct, 0);
 
-		nthreads = (sysconf(_SC_NPROCESSORS_ONLN) * pct) / 100;
+		nthreads = (sysconf(_SC_NPROCESSORS_ONLN) * pct * 2) / 100;
 		nthreads = MAX(nthreads, 1);	/* need at least 1 thread */
 	}
 	return (taskq_ops.taskq_create(tq_name, nthreads));
