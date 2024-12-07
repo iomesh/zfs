@@ -27,6 +27,7 @@
  */
 
 #include "sys/stdtypes.h"
+#include "sys/time.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/sysinfo.h>
@@ -465,23 +466,40 @@ arc_all_memory(void)
 	return (ptob(physmem));
 }
 
-void
-arc_shrink(size_t percent)
-{
-	if (percent > 80) {
-		percent = 80;
-	}
-
-	uint64_t to_free = aggsum_value(&arc_sums.arcstat_size) * percent / 100;
-	arc_reduce_target_size(to_free);
-	arc_wait_for_eviction(to_free, B_FALSE);
-	arc_no_grow = B_TRUE;
-}
+int mem_file_fd = -1;
+// update every 10ms
+const hrtime_t update_interval = 10 * 1000 * 1000;
+__thread hrtime_t last_update_time = 0;
+__thread uint64_t last_available_bytes = 0;
 
 uint64_t
 arc_free_memory(void)
 {
-	return (INT64_MAX);
+	hrtime_t now = gethrtime();
+	if (now < last_update_time + update_interval &&
+	    last_available_bytes > 0) {
+		return (last_available_bytes);
+	}
+
+	char buffer[256];
+	ssize_t bytes_read = pread64(mem_file_fd,
+	    buffer, sizeof (buffer) - 1, 0);
+	if (bytes_read <= 0) {
+		return (0);
+	}
+
+	buffer[bytes_read] = '\0';
+	char *line = strstr(buffer, "MemAvailable:");
+	if (!line) {
+		return (0);
+	}
+
+	uint64_t available_memory = 0;
+	sscanf(line, "MemAvailable: %lu", &available_memory);
+	last_available_bytes = available_memory << 10;
+	last_update_time = now;
+
+	return (last_available_bytes);
 }
 
 void

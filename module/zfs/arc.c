@@ -7938,9 +7938,12 @@ arc_set_limits(uint64_t allmem)
 	/* How to set default max varies by platform. */
 	arc_c_max = arc_default_max(arc_c_min, allmem);
 }
+extern int mem_file_fd;
 void
 arc_init(void)
 {
+	mem_file_fd = open("/proc/meminfo", O_RDONLY);
+	VERIFY(mem_file_fd >= 0);
 	uint64_t percent, allmem = arc_all_memory();
 	mutex_init(&arc_evict_lock, NULL, MUTEX_DEFAULT, NULL);
 	list_create(&arc_evict_waiters, sizeof (arc_evict_waiter_t),
@@ -8127,6 +8130,8 @@ arc_fini(void)
 	zthr_destroy(arc_reap_zthr);
 
 	ASSERT0(arc_loaned_bytes);
+	close(mem_file_fd);
+	mem_file_fd = -1;
 }
 
 /*

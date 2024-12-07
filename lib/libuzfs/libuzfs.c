@@ -66,6 +66,7 @@
 #include "sys/arc.h"
 #include "sys/arc_impl.h"
 #include "sys/dnode.h"
+#include "sys/dsl_pool.h"
 #include "sys/nvpair.h"
 #include "sys/sa.h"
 #include "sys/stdtypes.h"
@@ -83,6 +84,103 @@ static libuzfs_inode_handle_t *libuzfs_create_inode_with_type_impl(
 
 static inline int libuzfs_object_write_impl(libuzfs_inode_handle_t *,
     uint64_t, struct iovec *, int, boolean_t, uint64_t);
+
+static int
+hold_compare(const void *h1, const void *h2)
+{
+	uint64_t ino1 = ((const uzfs_hold_handle_t *)h1)->ino;
+	uint64_t ino2 = ((const uzfs_hold_handle_t *)h2)->ino;
+
+	if (ino1 < ino2) {
+		return (-1);
+	}
+
+	if (ino1 == ino2) {
+		return (0);
+	}
+
+	return (1);
+}
+
+static void
+uzfs_holds_init(uzfs_holds_t *holds)
+{
+	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
+		mutex_init(&holds->locks[i], NULL, MUTEX_DEFAULT, NULL);
+		avl_create(&holds->trees[i], hold_compare,
+		    sizeof (uzfs_hold_handle_t),
+		    offsetof(uzfs_hold_handle_t, avl_node));
+	}
+}
+
+static void
+uzfs_holds_fini(uzfs_holds_t *holds)
+{
+	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
+		mutex_destroy(&holds->locks[i]);
+		avl_destroy(&holds->trees[i]);
+	}
+}
+
+static uzfs_hold_handle_t *
+uzfs_holds_enter(uzfs_holds_t *holds, uint64_t ino)
+{
+	uint64_t idx = ino % NUM_NODE_BUCKETS;
+	avl_tree_t *tree = &holds->trees[idx];
+	kmutex_t *mp = &holds->locks[idx];
+
+	uzfs_hold_handle_t *uhh_new = umem_zalloc(
+	    sizeof (uzfs_hold_handle_t), UMEM_NOFAIL);
+	uhh_new->ino = ino;
+	mutex_init(&uhh_new->lock, NULL, MUTEX_DEFAULT, NULL);
+
+	avl_index_t where;
+	boolean_t free = B_FALSE;
+	mutex_enter(mp);
+	uzfs_hold_handle_t *uhh = avl_find(tree, uhh_new, &where);
+	if (likely(uhh == NULL)) {
+		avl_insert(&holds->trees[idx], uhh_new, where);
+		uhh = uhh_new;
+	} else {
+		free = B_TRUE;
+	}
+	uhh->ref++;
+	mutex_exit(mp);
+
+	if (free) {
+		umem_free(uhh_new, sizeof (uzfs_hold_handle_t));
+	}
+
+	mutex_enter(&uhh->lock);
+
+	return (uhh);
+}
+
+static void
+uzfs_holds_exit(uzfs_holds_t *holds, uzfs_hold_handle_t *uhh)
+{
+	mutex_exit(&uhh->lock);
+
+	uint64_t idx = uhh->ino % NUM_NODE_BUCKETS;
+	avl_tree_t *tree = &holds->trees[idx];
+	kmutex_t *mp = &holds->locks[idx];
+
+	boolean_t free = B_FALSE;
+
+	mutex_enter(mp);
+
+	uhh->ref--;
+	if (uhh->ref == 0) {
+		avl_remove(tree, uhh);
+		free = B_TRUE;
+	}
+
+	mutex_exit(mp);
+
+	if (free) {
+		umem_free(uhh, sizeof (uzfs_hold_handle_t));
+	}
+}
 
 static void
 libuzfs_rangelock_cb(zfs_locked_range_t *new, void *arg)
@@ -106,7 +204,6 @@ static int
 libuzfs_sa_handle_get(libuzfs_dataset_handle_t *dhp,
     uint64_t ino, sa_handle_t **sa_hdlp)
 {
-	ASSERT(MUTEX_HELD(&dhp->objs_lock[ino % NUM_NODE_BUCKETS]));
 	dmu_buf_t *db;
 	objset_t *os = dhp->os;
 	int err = sa_buf_hold(os, ino, NULL, &db);
@@ -164,20 +261,19 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
     boolean_t is_data_inode, uint64_t ino,
     uint64_t gen, libuzfs_inode_handle_t **ihpp)
 {
-	kmutex_t *mp = &dhp->objs_lock[ino % NUM_NODE_BUCKETS];
-	mutex_enter(mp);
+	uzfs_hold_handle_t *uhh = uzfs_holds_enter(&dhp->holds, ino);
 
 	sa_handle_t *sa_hdl = NULL;
 	int err = libuzfs_sa_handle_get(dhp, ino, &sa_hdl);
 	if (sa_hdl == NULL) {
-		mutex_exit(mp);
+		uzfs_holds_exit(&dhp->holds, uhh);
 		return (err);
 	}
 
 	libuzfs_inode_handle_t *ihp = sa_get_userdata(sa_hdl);
 	if (ihp != NULL) {
 		if (unlikely(ihp->gen != gen && gen != -1ul)) {
-			mutex_exit(mp);
+			uzfs_holds_exit(&dhp->holds, uhh);
 			return (ENOENT);
 		}
 		++ihp->rc;
@@ -189,13 +285,13 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 		    &stored_gen, sizeof (stored_gen));
 		if (err != 0) {
 			sa_handle_destroy(sa_hdl);
-			mutex_exit(mp);
+			uzfs_holds_exit(&dhp->holds, uhh);
 			return (err);
 		}
 
 		if (unlikely(stored_gen != gen && gen != -1ul)) {
 			sa_handle_destroy(sa_hdl);
-			mutex_exit(mp);
+			uzfs_holds_exit(&dhp->holds, uhh);
 			return (ENOENT);
 		}
 
@@ -207,7 +303,7 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 		sa_set_userp(sa_hdl, ihp);
 	}
 
-	mutex_exit(mp);
+	uzfs_holds_exit(&dhp->holds, uhh);
 	*ihpp = ihp;
 
 	return (0);
@@ -216,9 +312,8 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 void
 libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 {
-	kmutex_t *mp = &ihp->dhp->objs_lock[ihp->ino % NUM_NODE_BUCKETS];
-	mutex_enter(mp);
-	rw_destroy(&ihp->hp_kvattr_cache_lock);
+	uzfs_holds_t *holds = &ihp->dhp->holds;
+	uzfs_hold_handle_t *uhh = uzfs_holds_enter(holds, ihp->ino);
 	if (--ihp->rc <= 0) {
 		ASSERT(ihp->hp_kvattr_cache);
 		nvlist_free(ihp->hp_kvattr_cache);
@@ -230,7 +325,7 @@ libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 		umem_free(ihp, sizeof (libuzfs_inode_handle_t));
 	}
 
-	mutex_exit(mp);
+	uzfs_holds_exit(holds, uhh);
 }
 
 static void
@@ -1004,19 +1099,27 @@ libuzfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 
 extern unsigned long zfs_arc_max;
 extern unsigned long zfs_arc_min;
+extern unsigned long zfs_arc_meta_limit_percent;
+extern unsigned long zfs_arc_sys_free;
+extern unsigned long zfs_dirty_data_max;
+extern int zfs_sync_pass_dont_compress;
 
 void
-libuzfs_config_arc(size_t arc_max, size_t arc_min)
+libuzfs_config(size_t arc_max, size_t meta_percent,
+    boolean_t enable_txg_compress)
 {
-	zfs_arc_min = arc_min;
-	zfs_arc_max = arc_max;
+	if (!enable_txg_compress) {
+		zfs_sync_pass_dont_compress = 0;
+	}
+
+	zfs_arc_meta_limit_percent = meta_percent;
+
+	zfs_arc_min = arc_max >> 2;
+	zfs_dirty_data_max = MIN(4ULL * 1024 * 1024 * 1024, zfs_arc_min);
+	zfs_arc_max = arc_max - zfs_dirty_data_max;
+
+	zfs_arc_sys_free = 512 << 20;
 	arc_tuning_update(B_FALSE);
-}
-
-void
-libuzfs_arc_shrink(size_t percent)
-{
-	arc_shrink(percent);
 }
 
 void
@@ -1049,16 +1152,14 @@ libuzfs_set_zpool_cache_path(const char *zpool_cache)
 
 // for now, only support one device per pool
 int
-libuzfs_zpool_create(const char *zpool, const char *path, nvlist_t *props,
-    nvlist_t *fsprops)
+libuzfs_zpool_create(const char *zpool, const char *path)
 {
 	int err = 0;
 	nvlist_t *nvroot = NULL;
 
 	nvroot = make_vdev_root(path, NULL, zpool, 0, 0, NULL, 1, 0, 1);
 
-	props = fnvlist_alloc();
-	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_AUTOTRIM), 1);
+	nvlist_t *props = fnvlist_alloc();
 	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
 	    ZIO_FAILURE_MODE_PANIC);
 	err = spa_create(zpool, nvroot, props, NULL, NULL);
@@ -1079,7 +1180,7 @@ libuzfs_zpool_destroy(const char *zpool)
 }
 
 libuzfs_zpool_handle_t *
-libuzfs_zpool_open(const char *zpool, int *err)
+libuzfs_zpool_open(const char *zpool, int *err, boolean_t autotrim)
 {
 	spa_t *spa = NULL;
 
@@ -1090,6 +1191,8 @@ libuzfs_zpool_open(const char *zpool, int *err)
 	libuzfs_zpool_handle_t *zhp;
 	zhp = umem_alloc(sizeof (libuzfs_zpool_handle_t), UMEM_NOFAIL);
 	zhp->spa = spa;
+	spa->spa_autotrim = autotrim ? SPA_AUTOTRIM_ON : SPA_AUTOTRIM_OFF;
+	vdev_autotrim(spa);
 	(void) strlcpy(zhp->zpool_name, zpool, sizeof (zhp->zpool_name));
 
 	return (zhp);
@@ -1287,9 +1390,7 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	    sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
 	dhp->os = os;
 	dhp->dnodesize = 1024;
-	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		mutex_init(&dhp->objs_lock[i], NULL, MUTEX_DEFAULT, NULL);
-	}
+	uzfs_holds_init(&dhp->holds);
 	libuzfs_setup_dataset_sa(dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_inode_handle_t *ihp = libuzfs_create_inode_with_type_impl(
@@ -1357,9 +1458,7 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 	dmu_objset_register_type(DMU_OST_ZFS, uzfs_get_file_info);
 	libuzfs_setup_dataset_sa(dhp);
 
-	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		mutex_init(&dhp->objs_lock[i], NULL, 0, NULL);
-	}
+	uzfs_holds_init(&dhp->holds);
 
 	dhp->zilog = zil_open(os, libuzfs_get_data);
 	dhp->dnodesize = dnodesize;
@@ -1372,9 +1471,7 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 static void
 libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 {
-	for (int i = 0; i < NUM_NODE_BUCKETS; ++i) {
-		mutex_destroy(&dhp->objs_lock[i]);
-	}
+	uzfs_holds_fini(&dhp->holds);
 }
 
 libuzfs_dataset_handle_t *
@@ -1554,8 +1651,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		zfs_rangelock_init(&ihp->rl, libuzfs_rangelock_cb, ihp);
 	}
 
-	kmutex_t *mp = &dhp->objs_lock[(*obj) % NUM_NODE_BUCKETS];
-	mutex_enter(mp);
+	uzfs_hold_handle_t *uhh = uzfs_holds_enter(&dhp->holds, *obj);
 	dmu_buf_t *bonus = NULL;
 	VERIFY0(dmu_bonus_hold_by_dnode(dn, ihp,
 	    &bonus, DMU_READ_NO_PREFETCH));
@@ -1563,7 +1659,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	    ihp, SA_HDL_SHARED, &ihp->sa_hdl));
 	libuzfs_inode_attr_init(ihp, tx);
 	dnode_rele(dn, FTAG);
-	mutex_exit(mp);
+	uzfs_holds_exit(&dhp->holds, uhh);
 
 	return (ihp);
 }
