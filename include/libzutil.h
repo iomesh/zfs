@@ -79,8 +79,9 @@ extern const char * const * zpool_default_search_paths(size_t *count);
 extern int zpool_read_label(int, nvlist_t **, int *);
 extern int zpool_label_disk_wait(const char *, int);
 extern int zpool_read_label_secure(int fd, nvlist_t **config, int *num_labels);
-extern nvlist_t *zpool_leaf_to_pools(nvlist_t *leaf_config, int num_labels,
-    const char *dev_path);
+extern int zpool_read_configs_from_devs(const char *const dev_paths[],
+    uint32_t ndevs, const char *pool_name, nvlist_t **pools,
+    const char **empty_dev);
 
 struct udev_device;
 
