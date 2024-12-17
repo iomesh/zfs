@@ -22,59 +22,21 @@
  * Copyright (c) 2022, SmartX Inc. All rights reserved.
  */
 
-#include <asm-generic/errno-base.h>
-#include <bits/stdint-uintn.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <sys/zfs_context.h>
-#include <sys/spa.h>
-#include <sys/dmu.h>
+#include "libuzfs.h"
+#include "sys/nvpair.h"
+#include "sys/spa.h"
+#include "sys/stdtypes.h"
+#include "sys/zfs_context.h"
 #include <sys/dbuf.h>
-#include <sys/zap.h>
-#include <sys/dmu_objset.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/zio.h>
-#include <sys/zil.h>
 #include <sys/zil_impl.h>
 #include <sys/vdev_impl.h>
-#include <sys/vdev_file.h>
 #include <sys/spa_impl.h>
-#include <sys/dsl_prop.h>
-#include <sys/dsl_dataset.h>
 #include <sys/dsl_destroy.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/vdev_trim.h>
-#include <time.h>
-#include <unistd.h>
-#include <umem.h>
-#include <ctype.h>
-#include <math.h>
-#include <sys/fs/zfs.h>
-#include <libnvpair.h>
 #include <libzutil.h>
 #include <sys/zfs_vnops.h>
-#include <sys/zfs_znode.h>
-#include <sys/zfs_vfsops.h>
-#include <sys/zfs_ioctl_impl.h>
-#include <sys/sa_impl.h>
-
-#include "atomic.h"
-#include "libuzfs.h"
-#include "libuzfs_impl.h"
-#include "sys/arc.h"
-#include "sys/arc_impl.h"
-#include "sys/dnode.h"
-#include "sys/dsl_pool.h"
-#include "sys/nvpair.h"
-#include "sys/sa.h"
-#include "sys/stdtypes.h"
-#include "sys/sysmacros.h"
-#include "sys/txg.h"
-#include "sys/zfs_debug.h"
-#include "sys/zfs_refcount.h"
-#include "sys/zfs_rlock.h"
+#include <libuzfs_impl.h>
+#include <sys/arc_impl.h>
 
 static boolean_t change_zpool_cache_path = B_FALSE;
 
@@ -519,27 +481,6 @@ make_vdev_root(const char *path, char *aux, const char *pool, size_t size,
 	umem_free(child, t * sizeof (nvlist_t *));
 
 	return (root);
-}
-
-static int
-libuzfs_spa_prop_set_uint64(spa_t *spa, zpool_prop_t prop, uint64_t value)
-{
-	int err = 0;
-	nvlist_t *props = NULL;
-
-	props = fnvlist_alloc();
-	fnvlist_add_uint64(props, zpool_prop_to_name(prop), value);
-
-	err = spa_prop_set(spa, props);
-
-	fnvlist_free(props);
-
-	if (err == ENOSPC)
-		return (err);
-
-	ASSERT0(err);
-
-	return (err);
 }
 
 static int
@@ -1150,8 +1091,7 @@ libuzfs_set_zpool_cache_path(const char *zpool_cache)
 	change_zpool_cache_path = B_TRUE;
 }
 
-// for now, only support one device per pool
-int
+static int
 libuzfs_zpool_create(const char *zpool, const char *path)
 {
 	int err = 0;
@@ -1173,145 +1113,7 @@ out:
 	return (err);
 }
 
-int
-libuzfs_zpool_destroy(const char *zpool)
-{
-	return (spa_destroy(zpool));
-}
-
-libuzfs_zpool_handle_t *
-libuzfs_zpool_open(const char *zpool, int *err, boolean_t autotrim)
-{
-	spa_t *spa = NULL;
-
-	*err = spa_open(zpool, &spa, FTAG);
-	if (*err)
-		return (NULL);
-
-	libuzfs_zpool_handle_t *zhp;
-	zhp = umem_alloc(sizeof (libuzfs_zpool_handle_t), UMEM_NOFAIL);
-	zhp->spa = spa;
-	spa->spa_autotrim = autotrim ? SPA_AUTOTRIM_ON : SPA_AUTOTRIM_OFF;
-	vdev_autotrim(spa);
-	(void) strlcpy(zhp->zpool_name, zpool, sizeof (zhp->zpool_name));
-
-	return (zhp);
-}
-
-void
-libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
-{
-	spa_close(zhp->spa, FTAG);
-	free(zhp);
-}
-
-#ifdef ZFS_DEBUG
-extern int fail_percent;
-#endif
-
-void
-libuzfs_set_fail_percent(int fp)
-{
-#ifdef ZFS_DEBUG
-	fail_percent = fp;
-#endif
-}
-
-int
-libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
-{
-	/*
-	 * Preferentially open using O_DIRECT to bypass the block device
-	 * cache which may be stale for multipath devices.  An EINVAL errno
-	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
-	 */
-	int fd = open(dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
-#ifdef ZFS_DEBUG
-	if (rand() % 100 < fail_percent) {
-		close(fd);
-		errno = EIO;
-		fd = -1;
-	}
-#endif
-	if (fd < 0) {
-		zfs_dbgmsg("open dev_path %s failed, err: %d", dev_path, errno);
-		if (errno == ENOENT) {
-			return (ENODEV);
-		} else {
-			return (errno);
-		}
-	}
-
-	nvlist_t *leaf_config = NULL;
-	nvlist_t *pools = NULL;
-	int num_labels = 0;
-	int err = zpool_read_label_secure(fd, &leaf_config, &num_labels);
-	if (err != 0) {
-		VERIFY(err != ENOENT);
-		zfs_dbgmsg("read label error: %d", err);
-		goto out;
-	}
-
-	zfs_dbgmsg("got %d labels from %s", num_labels, dev_path);
-	if (num_labels == 0) {
-		err = ENOENT;
-		goto out;
-	}
-
-	pools = zpool_leaf_to_pools(leaf_config, num_labels, dev_path);
-	nvpair_t *elem = nvlist_next_nvpair(pools, NULL);
-	VERIFY3U(elem, !=, NULL);
-	VERIFY3U(nvlist_next_nvpair(pools, elem), ==, NULL);
-
-	nvlist_t *root_config = NULL;
-	VERIFY0(nvpair_value_nvlist(elem, &root_config));
-	flockfile(stdout);
-	nvlist_print(stdout, root_config);
-	funlockfile(stdout);
-
-	char *stored_pool_name;
-	VERIFY0(nvlist_lookup_string(root_config,
-	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
-	int name_len = strlen(stored_pool_name);
-	if (name_len >= size) {
-		err = ERANGE;
-		goto out;
-	}
-	strncpy(pool_name, stored_pool_name, name_len);
-	pool_name[name_len] = '\0';
-
-	err = spa_import(pool_name, root_config, NULL, ZFS_IMPORT_NORMAL);
-	VERIFY(err != ENOENT);
-
-out:
-	close(fd);
-	nvlist_free(leaf_config);
-	nvlist_free(pools);
-
-	return (err);
-}
-
-int
-libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp)
-{
-	spa_t *spa = dhp->os->os_spa;
-	vdev_t *root_vdev = spa->spa_root_vdev;
-	for (int i = 0; i < root_vdev->vdev_children; ++i) {
-		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
-		mutex_enter(&leaf_vdev->vdev_trim_lock);
-		// spa import may restart trim, so
-		// leaf_vdev->vdev_trim_thread might not be NULL
-		if (leaf_vdev->vdev_trim_thread != NULL) {
-			mutex_exit(&leaf_vdev->vdev_trim_lock);
-			return (EEXIST);
-		}
-		vdev_trim(leaf_vdev, UINT64_MAX, B_TRUE, B_FALSE);
-		mutex_exit(&leaf_vdev->vdev_trim_lock);
-	}
-	return (0);
-}
-
-int
+static int
 libuzfs_zpool_export(const char *pool_name)
 {
 	zfs_dbgmsg("exporting zpool %s", pool_name);
@@ -1326,59 +1128,180 @@ libuzfs_zpool_export(const char *pool_name)
 }
 
 int
-libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp)
+libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp)
 {
-	spa_t *spa = dhp->os->os_spa;
-	vdev_t *root_vdev = spa->spa_root_vdev;
-	for (int i = 0; i < root_vdev->vdev_children; ++i) {
-		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
-		vdev_state_t newstate;
-
-		int err = vdev_online(spa, leaf_vdev->vdev_guid,
-		    ZFS_ONLINE_EXPAND, &newstate);
-		if (err != 0) {
-			return (err);
-		}
-	}
-
-	return (0);
+	spa_close(zhp->spa, NULL);
+	mutex_destroy(&zhp->vdev_add_lock);
+	int err = libuzfs_zpool_export(zhp->name);
+	umem_free(zhp, sizeof (libuzfs_zpool_handle_t));
+	return (err);
 }
 
+#ifdef ZFS_DEBUG
+extern int fail_percent;
+#endif
+
 void
-libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp, zpool_prop_t prop,
-    uint64_t value)
+libuzfs_set_fail_percent(int fp)
 {
-	libuzfs_spa_prop_set_uint64(zhp->spa, prop, value);
+#ifdef ZFS_DEBUG
+	fail_percent = fp;
+#endif
+}
+
+static void
+libuzfs_feature_enable_sync(void *_arg, dmu_tx_t *tx)
+{
+	spa_t *spa = dmu_tx_pool(tx)->dp_spa;
+	spa_feature_enable(spa, SPA_FEATURE_LARGE_BLOCKS, tx);
+	spa_feature_enable(spa, SPA_FEATURE_LARGE_DNODE, tx);
 }
 
 int
-libuzfs_zpool_prop_get(libuzfs_zpool_handle_t *zhp, zpool_prop_t prop,
-    uint64_t *value)
+libuzfs_zpool_open(const char *const dev_paths[], uint32_t ndevs,
+    const char *pool_name, libuzfs_zpool_handle_t **zhpp,
+    boolean_t create, boolean_t autotrim, const void *metrics)
 {
-	int err = 0;
-	nvlist_t *props = NULL;
-	nvlist_t *propval = NULL;
-
-	VERIFY0(spa_prop_get(zhp->spa, &props));
-
-	err = nvlist_lookup_nvlist(props, zpool_prop_to_name(prop), &propval);
-	if (err) {
-		goto out;
+	*zhpp = NULL;
+	nvlist_t *pools = NULL;
+	const char *empty_dev = NULL;
+	int err = zpool_read_configs_from_devs(dev_paths, ndevs,
+	    pool_name, &pools, &empty_dev);
+	if (err != 0) {
+		return (err);
 	}
 
-	*value = fnvlist_lookup_uint64(propval, ZPROP_VALUE);
+	// this is the first open for this pool, we should call zpool create
+	if (empty_dev != NULL && ndevs == 1) {
+		if (!create) {
+			err = ENOENT;
+			goto free_nvl;
+		}
+		err = libuzfs_zpool_create(pool_name, empty_dev);
+		zfs_dbgmsg("create zpool %s, err: %d", pool_name, err);
+	} else {
+		nvpair_t *elem = nvlist_next_nvpair(pools, NULL);
+		VERIFY3U(elem, !=, NULL);
+		VERIFY3U(nvlist_next_nvpair(pools, elem), ==, NULL);
 
-out:
-	fnvlist_free(props);
+		nvlist_t *root_config = NULL;
+		VERIFY0(nvpair_value_nvlist(elem, &root_config));
+		flockfile(stdout);
+		nvlist_print(stdout, root_config);
+		funlockfile(stdout);
+		err = spa_import(pool_name, root_config,
+		    NULL, ZFS_IMPORT_NORMAL);
+		zfs_dbgmsg("import zpool %s, err: %d", pool_name, err);
+	}
+
+	if (err == 0) {
+		VERIFY0(dsl_sync_task(pool_name, NULL,
+		    libuzfs_feature_enable_sync,
+		    NULL, 5, ZFS_SPACE_CHECK_NORMAL));
+	}
+
+	if (err != 0) {
+		goto free_nvl;
+	}
+
+	spa_t *spa = NULL;
+	err = spa_open(pool_name, &spa, NULL);
+	if (err != 0) {
+		VERIFY0(libuzfs_zpool_export(pool_name));
+	} else {
+		libuzfs_zpool_handle_t *zhp = umem_alloc(
+		    sizeof (libuzfs_zpool_handle_t), UMEM_NOFAIL);
+		zhp->spa = spa;
+		mutex_init(&zhp->vdev_add_lock, NULL, MUTEX_DEFAULT, NULL);
+		strcpy(zhp->name, pool_name);
+
+		if (empty_dev != NULL && ndevs > 1) {
+			zfs_dbgmsg("device %s is empty, added to pool %s", empty_dev, pool_name);
+			err = libuzfs_zpool_dev_add(zhp, empty_dev);
+			if (err) {
+				VERIFY0(libuzfs_zpool_close(zhp));
+			}
+		}
+		spa->spa_autotrim = autotrim ? SPA_AUTOTRIM_ON
+		    : SPA_AUTOTRIM_OFF;
+		vdev_autotrim(spa);
+		*zhpp = zhp;
+	}
+
+free_nvl:
+	nvlist_free(pools);
+
 	return (err);
+}
+
+int
+libuzfs_zpool_dev_add(libuzfs_zpool_handle_t *zhp, const char *dev_path)
+{
+	mutex_enter(&zhp->vdev_add_lock);
+
+	const char *empty_dev = NULL;
+	nvlist_t *root_config = NULL;
+	int err = zpool_read_configs_from_devs(&dev_path, 1,
+	    zhp->name, &root_config, &empty_dev);
+	if (empty_dev == dev_path && err == 0) {
+		nvlist_t *nvroot = make_vdev_root(dev_path, NULL,
+		    zhp->name, 0, 0, NULL, 1, 0, 1);
+		err = spa_vdev_add(zhp->spa, nvroot);
+	}
+
+	mutex_exit(&zhp->vdev_add_lock);
+	return (err);
+}
+
+int
+libuzfs_zpool_start_trim(libuzfs_zpool_handle_t *zhp)
+{
+	// this lock is to prevent concurrent vdev add
+	mutex_enter(&spa_namespace_lock);
+	vdev_t *root_vdev = zhp->spa->spa_root_vdev;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+		mutex_enter(&leaf_vdev->vdev_trim_lock);
+		// spa import may restart trim, so
+		// leaf_vdev->vdev_trim_thread might not be NULL
+		if (leaf_vdev->vdev_trim_thread != NULL) {
+			mutex_exit(&leaf_vdev->vdev_trim_lock);
+			mutex_exit(&spa_namespace_lock);
+			return (EEXIST);
+		}
+		vdev_trim(leaf_vdev, UINT64_MAX, B_TRUE, B_FALSE);
+		mutex_exit(&leaf_vdev->vdev_trim_lock);
+	}
+	mutex_exit(&spa_namespace_lock);
+	return (0);
+}
+
+int
+libuzfs_zpool_expand_vdev(libuzfs_zpool_handle_t *zhp, const char *dev_path)
+{
+	// this lock is to prevent concurrent vdev add
+	mutex_enter(&spa_namespace_lock);
+	vdev_t *root_vdev = zhp->spa->spa_root_vdev;
+	for (int i = 0; i < root_vdev->vdev_children; ++i) {
+		vdev_t *leaf_vdev = root_vdev->vdev_child[i];
+
+		if (strcmp(dev_path, leaf_vdev->vdev_path) == 0) {
+			mutex_exit(&spa_namespace_lock);
+			vdev_state_t newstate;
+			int err = vdev_online(zhp->spa, leaf_vdev->vdev_guid,
+			    ZFS_ONLINE_EXPAND, &newstate);
+			return (err);
+		}
+
+	}
+	mutex_exit(&spa_namespace_lock);
+
+	return (ENOENT);
 }
 
 static void
 libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
-	spa_feature_enable(os->os_spa, SPA_FEATURE_LARGE_BLOCKS, tx);
-	spa_feature_enable(os->os_spa, SPA_FEATURE_LARGE_DNODE, tx);
-
 	VERIFY0(zap_create_claim(os, MASTER_NODE_OBJ, DMU_OT_MASTER_NODE,
 	    DMU_OT_NONE, 0, tx));
 
@@ -1401,13 +1324,6 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 }
 
-int
-libuzfs_dataset_create(const char *dsname)
-{
-	return (dmu_objset_create(dsname, DMU_OST_ZFS, 0, NULL,
-	    libuzfs_objset_create_cb, NULL));
-}
-
 static int
 libuzfs_objset_destroy_cb(const char *name, void *arg)
 {
@@ -1417,22 +1333,21 @@ libuzfs_objset_destroy_cb(const char *name, void *arg)
 	 * Destroy the dataset.
 	 */
 	if (strchr(name, '@') != NULL) {
-		VERIFY0(dsl_destroy_snapshot(name, B_TRUE));
+		err = dsl_destroy_snapshot(name, B_TRUE);
 	} else {
 		err = dsl_destroy_head(name);
-		if (err != EBUSY) {
-			/* There could be a hold on this dataset */
-			ASSERT0(err);
-		}
 	}
-	return (0);
+	return (err);
 }
 
-void
-libuzfs_dataset_destroy(const char *dsname)
+int
+libuzfs_dataset_destroy(libuzfs_zpool_handle_t *zhp, const char *dsname)
 {
-	(void) dmu_objset_find(dsname, libuzfs_objset_destroy_cb, NULL,
-	    DS_FIND_SNAPSHOTS | DS_FIND_CHILDREN);
+	char full_name[MAXNAMLEN];
+	int nwritten = snprintf(full_name, MAXNAMLEN,
+	    "%s/%s", zhp->name, dsname);
+	VERIFY3U(nwritten, <, MAXNAMLEN);
+	return (dsl_destroy_head(full_name));
 }
 
 static int
@@ -1449,8 +1364,7 @@ uzfs_get_file_info(dmu_object_type_t bonustype, const void *data,
 }
 
 static void
-libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
-    uint64_t dnodesize)
+libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os)
 {
 	dhp->os = os;
 	dmu_objset_name(os, dhp->name);
@@ -1461,7 +1375,6 @@ libuzfs_dhp_init(libuzfs_dataset_handle_t *dhp, objset_t *os,
 	uzfs_holds_init(&dhp->holds);
 
 	dhp->zilog = zil_open(os, libuzfs_get_data);
-	dhp->dnodesize = dnodesize;
 	zil_replay(os, dhp, libuzfs_replay_vector);
 
 	VERIFY0(zap_lookup(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1,
@@ -1475,25 +1388,39 @@ libuzfs_dhp_fini(libuzfs_dataset_handle_t *dhp)
 }
 
 libuzfs_dataset_handle_t *
-libuzfs_dataset_open(const char *dsname, int *err, uint32_t dnodesize,
-    uint32_t max_blksz, const void *metrics)
+libuzfs_dataset_open(libuzfs_zpool_handle_t *zhp, const char *dsname,
+    int *err, uint32_t dnodesize, uint32_t max_blksz, boolean_t create)
 {
+	char full_name[MAXNAMLEN];
+	int nwritten = snprintf(full_name, MAXNAMLEN,
+	    "%s/%s", zhp->name, dsname);
+	VERIFY3U(nwritten, <, MAXNAMLEN);
+
 	libuzfs_dataset_handle_t *dhp = NULL;
 	objset_t *os = NULL;
 
 	dhp = umem_zalloc(sizeof (libuzfs_dataset_handle_t), UMEM_NOFAIL);
 	dhp->max_blksz = max_blksz == 0 ? UZFS_DEFAULT_BLOCKSIZE : max_blksz;
+	dhp->dnodesize = dnodesize;
 
-	*err = libuzfs_dmu_objset_own(dsname, DMU_OST_ZFS, B_FALSE, B_TRUE,
+	*err = libuzfs_dmu_objset_own(full_name, DMU_OST_ZFS, B_FALSE, B_TRUE,
 	    dhp, &os);
+	if (*err == ENOENT && create) {
+		*err = dmu_objset_create(full_name, DMU_OST_ZFS, 0, NULL,
+		    libuzfs_objset_create_cb, NULL);
+		if (*err == 0) {
+			*err = libuzfs_dmu_objset_own(full_name, DMU_OST_ZFS,
+			    B_FALSE, B_TRUE, dhp, &os);
+			VERIFY(*err != ENOENT);
+		}
+	}
+
 	if (*err) {
 		umem_free(dhp, sizeof (libuzfs_dataset_handle_t));
 		return (NULL);
 	}
 
-	os->os_spa->metrics = metrics;
-
-	libuzfs_dhp_init(dhp, os, dnodesize);
+	libuzfs_dhp_init(dhp, os);
 
 	return (dhp);
 }

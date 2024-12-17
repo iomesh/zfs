@@ -69,6 +69,7 @@
 
 #include "sys/nvpair.h"
 #include "sys/stdtypes.h"
+#include "sys/zfs_context.h"
 #include "zutil_import.h"
 
 /*PRINTFLIKE2*/
@@ -879,6 +880,72 @@ error:
 	return (NULL);
 }
 
+typedef struct import_args {
+	nvlist_t *leaf_config;
+	int error;
+	int label_num;
+	const char *pool_name;
+	const char *dev_path;
+} import_args_t;
+
+#ifdef ZFS_DEBUG
+extern int fail_percent;
+#endif
+
+static void
+libuzfs_leaf_label_reader(void *args)
+{
+	import_args_t *iargs = args;
+	iargs->leaf_config = NULL;
+	iargs->label_num = 0;
+	/*
+	 * Preferentially open using O_DIRECT to bypass the block device
+	 * cache which may be stale for multipath devices.  An EINVAL errno
+	 * indicates O_DIRECT is unsupported so fallback to just O_RDONLY.
+	 */
+	int fd = open(iargs->dev_path, O_RDONLY | O_DIRECT | O_CLOEXEC);
+#ifdef ZFS_DEBUG
+	if (rand() % 100 < fail_percent) {
+		close(fd);
+		errno = EIO;
+		fd = -1;
+	}
+#endif
+	if (fd < 0) {
+		zfs_dbgmsg("open dev_path %s failed, err: %d",
+		    iargs->dev_path, errno);
+		if (errno == ENOENT) {
+			iargs->error = ENODEV;
+		} else {
+			iargs->error = errno;
+		}
+	}
+
+	int err = zpool_read_label_secure(fd, &iargs->leaf_config,
+	    &iargs->label_num);
+	if (err != 0) {
+		VERIFY(err != ENOENT);
+		zfs_dbgmsg("read label from %s error: %d",
+		    iargs->dev_path, err);
+		iargs->error = err;
+	}
+
+	zfs_dbgmsg("got %d labels from %s", iargs->label_num, iargs->dev_path);
+	if (iargs->label_num == 0) {
+		iargs->error = ENOENT;
+		return;
+	}
+
+	char *stored_pool_name;
+	VERIFY0(nvlist_lookup_string(iargs->leaf_config,
+	    ZPOOL_CONFIG_POOL_NAME, &stored_pool_name));
+	if (strcmp(iargs->pool_name, stored_pool_name) != 0) {
+		zfs_dbgmsg("pool name if %s should be: %s, but it is %s",
+		    iargs->dev_path, iargs->pool_name, stored_pool_name);
+		iargs->error = EINVAL;
+	}
+}
+
 static int
 pool_active(void *unused, const char *name, uint64_t guid,
     boolean_t *isactive)
@@ -895,9 +962,28 @@ refresh_config(void *unused, nvlist_t *tryconfig)
 	return (res);
 }
 
-nvlist_t *
-zpool_leaf_to_pools(nvlist_t *leaf_config, int num_labels, const char *dev_path)
+int
+zpool_read_configs_from_devs(const char *const dev_paths[],
+    uint32_t ndevs, const char *pool_name, nvlist_t **pools,
+    const char **empty_dev)
 {
+	*empty_dev = NULL;
+	*pools = NULL;
+
+	import_args_t *iargs = umem_zalloc(
+	    sizeof (import_args_t) * ndevs,
+	    UMEM_NOFAIL);
+	kthread_t **tids = umem_zalloc(
+	    sizeof (kthread_t *) *ndevs, UMEM_NOFAIL);
+
+	for (int i = 0; i < ndevs; ++i) {
+		iargs[i].pool_name = pool_name;
+		iargs[i].dev_path = dev_paths[i];
+		tids[i] = thread_create(0, 0, libuzfs_leaf_label_reader,
+		    &iargs[i], 0, 0, TS_RUN | TS_BLOCKING | TS_JOINABLE,
+		    defclsyspri);
+	}
+
 	pool_config_ops_t ops = {
 		.pco_refresh_config = refresh_config,
 		.pco_pool_active = pool_active,
@@ -908,12 +994,29 @@ zpool_leaf_to_pools(nvlist_t *leaf_config, int num_labels, const char *dev_path)
 	hdl.lpc_printerr = B_TRUE;
 
 	pool_list_t pl = {0};
-	int ret = add_config(&hdl, &pl, dev_path,
-	    IMPORT_ORDER_DEFAULT, num_labels, leaf_config);
-	VERIFY(ret == 0);
-	nvlist_t *pools = get_configs(&hdl, &pl, B_FALSE, NULL);
-	VERIFY(pools != NULL && !nvlist_empty(pools));
-	return (pools);
+	int first_error = 0;
+	for (int i = 0; i < ndevs; ++i) {
+		thread_join(tids[i]);
+		if (iargs[i].error == 0) {
+			VERIFY0(add_config(&hdl, &pl,
+			    dev_paths[i], IMPORT_ORDER_SCAN_OFFSET + i,
+			    iargs[i].label_num,
+			    iargs[i].leaf_config));
+		} else if (iargs[i].error == ENOENT) {
+			VERIFY0(*empty_dev);
+			*empty_dev = dev_paths[i];
+		} else if (first_error == 0) {
+			first_error = iargs[i].error;
+		}
+		nvlist_free(iargs[i].leaf_config);
+	}
+
+	*pools = get_configs(&hdl, &pl, B_FALSE, NULL);
+
+	umem_free(iargs, sizeof (import_args_t) * ndevs);
+	umem_free(tids, sizeof (kthread_t *) *ndevs);
+
+	return (first_error);
 }
 
 /*
