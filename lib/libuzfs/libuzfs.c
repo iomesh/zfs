@@ -79,8 +79,9 @@
 static boolean_t change_zpool_cache_path = B_FALSE;
 
 static libuzfs_inode_handle_t *libuzfs_create_inode_with_type_impl(
-    libuzfs_dataset_handle_t *, uint64_t *, boolean_t,
-    libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
+    libuzfs_dataset_handle_t *dhp, uint64_t *obj, boolean_t claiming,
+    libuzfs_inode_type_t type, dmu_tx_t *tx, uint64_t gen, nvlist_t *hp_nvl,
+    const char *reserved, uint32_t reserved_size);
 
 static inline int libuzfs_object_write_impl(libuzfs_inode_handle_t *,
     uint64_t, struct iovec *, int, boolean_t, uint64_t);
@@ -1394,7 +1395,7 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	libuzfs_setup_dataset_sa(dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_inode_handle_t *ihp = libuzfs_create_inode_with_type_impl(
-	    dhp, &sb_obj, B_FALSE, INODE_DIR, tx, 0);
+	    dhp, &sb_obj, B_FALSE, INODE_DIR, tx, 0, NULL, NULL, 0);
 	libuzfs_inode_handle_rele(ihp);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx));
 	sa_tear_down(dhp->os);
@@ -1587,7 +1588,8 @@ libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
 static libuzfs_inode_handle_t *
 libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t *obj, boolean_t claiming, libuzfs_inode_type_t type,
-    dmu_tx_t *tx, uint64_t gen)
+    dmu_tx_t *tx, uint64_t gen, nvlist_t *hp_nvl, const char *reserved,
+    uint32_t reserved_size)
 {
 	// create/claim object
 	objset_t *os = dhp->os;
@@ -1640,7 +1642,10 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	// sa_hdl will be filled in sa_handle_get_from_db
 	ihp->dhp = dhp;
 	rw_init(&ihp->hp_kvattr_cache_lock, NULL, RW_DEFAULT, NULL);
-	// hp_kvattr_cache will be filled in libuzfs_inode_attr_init
+	ihp->hp_kvattr_cache = hp_nvl;
+	if (!ihp->hp_kvattr_cache) {
+		VERIFY0(nvlist_alloc(&ihp->hp_kvattr_cache, NV_UNIQUE_NAME, KM_SLEEP));
+	}
 	ihp->ino = *obj;
 	ihp->rc = 1;
 	ihp->gen = gen;
@@ -1657,7 +1662,7 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	    &bonus, DMU_READ_NO_PREFETCH));
 	VERIFY0(sa_handle_get_from_db(os, bonus,
 	    ihp, SA_HDL_SHARED, &ihp->sa_hdl));
-	libuzfs_inode_attr_init(ihp, tx);
+	libuzfs_inode_attr_init(ihp, tx, reserved, reserved_size);
 	dnode_rele(dn, FTAG);
 	uzfs_holds_exit(&dhp->holds, uhh);
 
@@ -1682,7 +1687,7 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	}
 
 	*ihpp = libuzfs_create_inode_with_type_impl(dhp, obj,
-	    claiming, type, tx, gen);
+	    claiming, type, tx, gen, NULL, NULL, 0);
 
 	dmu_tx_commit(tx);
 
@@ -1723,7 +1728,7 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 	for (int i = 0; i < num_objs; ++i) {
 		libuzfs_inode_handle_t *ihp =
 		    libuzfs_create_inode_with_type_impl(dhp, &objs[i],
-		    B_FALSE, INODE_DATA_OBJ, tx, 0);
+		    B_FALSE, INODE_DATA_OBJ, tx, 0, NULL, NULL, 0);
 		libuzfs_inode_handle_rele(ihp);
 	}
 
@@ -2254,6 +2259,40 @@ libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 	}
 
 	return (err);
+}
+
+void
+libuzfs_inode_create_all(void *args)
+{
+	inode_create_args_t *ica = args;
+	nvlist_t *nvl = NULL;
+	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+	for (int i = 0; i < ica->num_kvs; ++i) {
+		VERIFY0(nvlist_add_byte_array(nvl, ica->kvs[i].key,
+		    ica->kvs[i].value, ica->kvs[i].value_size));
+	}
+
+	objset_t *os = ica->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_inode_attr_t));
+	if (ica->inode_type == INODE_DIR) {
+		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
+	}
+	dmu_tx_hold_zap(tx, ica->dihp->ino, B_TRUE, ica->name);
+	dmu_tx_hold_sa(tx, ica->dihp->sa_hdl, B_FALSE);
+	if ((ica->err = dmu_tx_assign(tx, TXG_WAIT) != 0)) {
+		dmu_tx_abort(tx);
+		nvlist_free(nvl);
+	} else {
+		ica->gen = tx->tx_txg;
+		ica->ihp = libuzfs_create_inode_with_type_impl(ica->dhp, &ica->ino,
+		    B_FALSE, ica->inode_type, tx, ica->gen,
+		    nvl, ica->attr, ica->attr_size);
+		VERIFY0(zap_add(os, ica->ino, ica->name, 8, 1, &ica->ino, tx));
+		VERIFY0(sa_update(ica->dihp->sa_hdl, ica->dhp->uzfs_attr_table[UZFS_RESERVED],
+		    (void *)ica->pattr, ica->pattr_size, tx));
+		dmu_tx_commit(tx);
+	}
 }
 
 int

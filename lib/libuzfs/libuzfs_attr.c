@@ -70,7 +70,8 @@ libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp)
 }
 
 void
-libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
+libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx,
+    const char *reserved, uint32_t reserved_size)
 {
 	sa_bulk_attr_t sa_attrs[UZFS_END];
 	int cnt = 0;
@@ -89,27 +90,36 @@ libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
 		    NULL, &mtime, sizeof (mtime));
 	} else {
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_RESERVED],
-		    NULL, NULL, 0);
+		    NULL, (void *)reserved, reserved_size);
 	}
 
-	VERIFY0(nvlist_alloc(&ihp->hp_kvattr_cache, NV_UNIQUE_NAME, KM_SLEEP));
-
-	uint64_t xattr_sa_size;
+	// pack high-priority kvs
+	uint64_t hp_xattr_sa_size;
 	VERIFY0(nvlist_size(ihp->hp_kvattr_cache,
-	    &xattr_sa_size, NV_ENCODE_XDR));
+	    &hp_xattr_sa_size, NV_ENCODE_XDR));
+	char *hp_xattr_sa_data = vmem_alloc(hp_xattr_sa_size, KM_SLEEP);
+	VERIFY0(nvlist_pack(ihp->hp_kvattr_cache, &hp_xattr_sa_data,
+	    &hp_xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
 
+	// pack normal kvs
+	nvlist_t *nvl = NULL;
+	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+	uint64_t xattr_sa_size;
+	VERIFY0(nvlist_size(nvl,
+	    &xattr_sa_size, NV_ENCODE_XDR));
 	char *xattr_sa_data = vmem_alloc(xattr_sa_size, KM_SLEEP);
 	VERIFY0(nvlist_pack(ihp->hp_kvattr_cache, &xattr_sa_data,
 	    &xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
 
 	// add high priority kv before normal kv to place it in bonous buffer
 	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR_HIGH],
-	    NULL, xattr_sa_data, xattr_sa_size);
+	    NULL, hp_xattr_sa_data, hp_xattr_sa_size);
 	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR],
 	    NULL, xattr_sa_data, xattr_sa_size);
 
 	VERIFY0(sa_replace_all_by_template(ihp->sa_hdl, sa_attrs, cnt, tx));
 
+	vmem_free(hp_xattr_sa_data, hp_xattr_sa_size);
 	vmem_free(xattr_sa_data, xattr_sa_size);
 }
 

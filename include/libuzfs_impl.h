@@ -133,7 +133,8 @@ struct libuzfs_zap_iterator {
 #define	UZFS_MAX_RESERVED_1K		192
 #define	UZFS_KV_CAPACITY_1K		608
 
-extern void libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx);
+extern void libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx,
+    const char *reserved, uint32_t size);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_inode_handle_t *ihp,
     uint64_t *xattr_zap_obj);

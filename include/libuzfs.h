@@ -207,7 +207,33 @@ extern int libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *count);
 
+typedef struct inode_kv {
+	const char *key;
+	void *value;
+	uint32_t value_size;
+} inode_kv_t;
+
+typedef struct inode_create_args {
+	libuzfs_dataset_handle_t *dhp;
+	libuzfs_inode_type_t inode_type;
+	libuzfs_inode_handle_t *dihp;
+	const char *name;
+	const char *pattr;
+	uint32_t pattr_size;
+	const char *attr;
+	uint32_t attr_size;
+	const inode_kv_t *kvs;
+	uint32_t num_kvs;
+
+	libuzfs_inode_handle_t *ihp;
+	uint64_t ino;
+	uint64_t gen;
+	int err;
+} inode_create_args_t;
+
 // libuzfs_exit should be called after other attrs are set
+extern void libuzfs_inode_create_all(void *args);
+
 extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, libuzfs_inode_handle_t **ihpp, uint64_t *gen);
 
