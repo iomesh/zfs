@@ -1102,13 +1102,10 @@ libuzfs_zpool_create(const char *zpool, const char *path)
 	nvlist_t *props = fnvlist_alloc();
 	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
 	    ZIO_FAILURE_MODE_PANIC);
+	fnvlist_add_uint64(props, zpool_prop_to_name(ZPOOL_PROP_MULTIHOST),
+	    B_TRUE);
 	err = spa_create(zpool, nvroot, props, NULL, NULL);
 	fnvlist_free(props);
-	if (err) {
-		goto out;
-	}
-
-out:
 	fnvlist_free(nvroot);
 	return (err);
 }
