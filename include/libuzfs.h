@@ -83,7 +83,6 @@ struct uzfs_dentry {
 	char name[0];
 };
 
-typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_inode_attr uzfs_inode_attr_t;
 typedef struct uzfs_object_attr uzfs_object_attr_t;
@@ -114,28 +113,24 @@ extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 
-extern int libuzfs_zpool_create(const char *zpool, const char *path);
+typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 
-extern int libuzfs_zpool_destroy(const char *zpool);
-extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool,
-    int *err, boolean_t autotrim);
-extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
+extern int libuzfs_zpool_open(const char *const dev_paths[], uint32_t ndevs,
+    const char *pool_name, libuzfs_zpool_handle_t **zhpp,
+    boolean_t create, boolean_t autotrim, const void *metrics);
+extern int libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
+extern int libuzfs_zpool_dev_add(libuzfs_zpool_handle_t *zhp,
+    const char *dev_path);
+extern int libuzfs_zpool_start_trim(libuzfs_zpool_handle_t *zhp);
+extern int libuzfs_zpool_expand_vdev(libuzfs_zpool_handle_t *zhp,
+    const char *dev_path);
 
-extern int libuzfs_zpool_import(const char *dev_path,
-    char *pool_name, int size);
-extern int libuzfs_zpool_export(const char *pool_name);
-
-extern void libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp,
-    zpool_prop_t prop, uint64_t value);
-
-extern int libuzfs_zpool_prop_get(libuzfs_zpool_handle_t *zhp,
-    zpool_prop_t prop, uint64_t *value);
-
-extern int libuzfs_dataset_create(const char *dsname);
-extern void libuzfs_dataset_destroy(const char *dsname);
-extern libuzfs_dataset_handle_t *libuzfs_dataset_open(const char *dsname,
-    int *err, uint32_t dnodesize, uint32_t max_blksz, const void *metrics);
+extern libuzfs_dataset_handle_t *libuzfs_dataset_open(
+    libuzfs_zpool_handle_t *zhp, const char *dsname, int *err,
+    uint32_t dnodesize, uint32_t max_blksz, boolean_t create);
 extern void libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp);
+extern int libuzfs_dataset_destroy(libuzfs_zpool_handle_t *zhp,
+    const char *dsname);
 
 extern uint64_t libuzfs_dataset_get_superblock_ino(
     libuzfs_dataset_handle_t *dhp);
@@ -290,11 +285,8 @@ extern void libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
 
-extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
-
 extern void libuzfs_set_fail_percent(int fail_percent);
 
-extern int libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
     uint64_t *offset, uint64_t *size);
 

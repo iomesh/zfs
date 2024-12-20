@@ -51,11 +51,6 @@ typedef enum uzfs_attr_type {
 	UZFS_END
 } uzfs_attr_type_t;
 
-struct libuzfs_zpool_handle {
-	char zpool_name[ZFS_MAX_DATASET_NAME_LEN];
-	spa_t *spa;
-};
-
 struct libuzfs_inode_handle {
 	sa_handle_t *sa_hdl;
 	libuzfs_dataset_handle_t *dhp;
@@ -103,6 +98,20 @@ struct libuzfs_dataset_handle {
 	sa_attr_type_t	*uzfs_attr_table;
 	uzfs_holds_t holds;
 	uint32_t dnodesize;
+};
+
+struct libuzfs_zpool_handle {
+	char name[ZFS_MAX_DATASET_NAME_LEN];
+	spa_t *spa;
+	// A disk can and should only be formatted once.
+	// To achieve this, we need to ensure:
+	// 1. The same disk can only be added to one Zpool
+	//   (this is guaranteed by the caller).
+	// 2. At any given time, only one addition operation is
+	//   allowed for a disk, and subsequent addition attempts
+	//   must be able to recognize the result of the previous
+	//   operation to prevent a second formatting.
+	kmutex_t vdev_add_lock;
 };
 
 struct libuzfs_kvattr_iterator {

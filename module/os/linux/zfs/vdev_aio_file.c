@@ -22,29 +22,10 @@
  * Copyright (c) 2023, SmartX Inc. All rights reserved.
  */
 
-#include "atomic.h"
-#include "sys/fs/zfs.h"
-#include "sys/spa.h"
-#include "sys/stdtypes.h"
 #include "sys/zfs_context.h"
-#include "umem.h"
-#include <asm/unistd_64.h>
-#include <bits/stdint-uintn.h>
-#include <errno.h>
-#include <linux/fs.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/vdev_file.h>
 #include <sys/vdev_impl.h>
-#include <sys/zio.h>
-#include <sys/abd.h>
-#include <sys/syscall.h>
-#include <linux/aio_abi.h>
-#include <unistd.h>
-#include <semaphore.h>
+#include <sys/vdev_file.h>
+#include <linux/fs.h>
 #ifdef _KERNEL
 #include <linux/falloc.h>
 #endif
