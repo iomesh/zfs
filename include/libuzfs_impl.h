@@ -59,15 +59,6 @@ struct libuzfs_zpool_handle {
 struct libuzfs_inode_handle {
 	sa_handle_t *sa_hdl;
 	libuzfs_dataset_handle_t *dhp;
-	// usually, this inode structure is protected by locks in sfs inode,
-	// but sometimes we need to bypass the locks of sfs inode to avoid
-	// deadlocks like get parent in rename.
-	// Consider a situation where we call getkv and set high priority
-	// kv concurrenctly, getkv would first read hp_kvattr_cache to check
-	// the existence of the key, but the set kv wants to modify
-	// hp_kvattr_cache structure, so we need lock to protect that
-	krwlock_t hp_kvattr_cache_lock;
-	nvlist_t *hp_kvattr_cache;
 	uint64_t ino;
 	uint32_t rc;
 	uint64_t gen;

@@ -236,9 +236,6 @@ libuzfs_inode_handle_init(libuzfs_inode_handle_t *ihp,
 	ihp->sa_hdl = sa_hdl;
 	ihp->dhp = dhp;
 	sa_attr_type_t *attr_tbl = dhp->uzfs_attr_table;
-	rw_init(&ihp->hp_kvattr_cache_lock, NULL, RW_DEFAULT, NULL);
-	VERIFY0(libuzfs_get_nvlist_from_handle(attr_tbl, &ihp->hp_kvattr_cache,
-	    sa_hdl, UZFS_XATTR_HIGH));
 	ihp->ino = ino;
 	ihp->rc = 1;
 	ihp->gen = gen;
@@ -315,10 +312,7 @@ libuzfs_inode_handle_rele(libuzfs_inode_handle_t *ihp)
 	uzfs_holds_t *holds = &ihp->dhp->holds;
 	uzfs_hold_handle_t *uhh = uzfs_holds_enter(holds, ihp->ino);
 	if (--ihp->rc <= 0) {
-		ASSERT(ihp->hp_kvattr_cache);
-		nvlist_free(ihp->hp_kvattr_cache);
 		sa_handle_destroy(ihp->sa_hdl);
-		rw_destroy(&ihp->hp_kvattr_cache_lock);
 		if (ihp->is_data_inode) {
 			zfs_rangelock_fini(&ihp->rl);
 		}
@@ -1639,8 +1633,6 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 	    sizeof (libuzfs_inode_handle_t), UMEM_NOFAIL);
 	// sa_hdl will be filled in sa_handle_get_from_db
 	ihp->dhp = dhp;
-	rw_init(&ihp->hp_kvattr_cache_lock, NULL, RW_DEFAULT, NULL);
-	// hp_kvattr_cache will be filled in libuzfs_inode_attr_init
 	ihp->ino = *obj;
 	ihp->rc = 1;
 	ihp->gen = gen;
