@@ -92,14 +92,14 @@ libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
 		    NULL, NULL, 0);
 	}
 
-	VERIFY0(nvlist_alloc(&ihp->hp_kvattr_cache, NV_UNIQUE_NAME, KM_SLEEP));
+	nvlist_t *nvl = NULL;
+	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
 
 	uint64_t xattr_sa_size;
-	VERIFY0(nvlist_size(ihp->hp_kvattr_cache,
-	    &xattr_sa_size, NV_ENCODE_XDR));
+	VERIFY0(nvlist_size(nvl, &xattr_sa_size, NV_ENCODE_XDR));
 
 	char *xattr_sa_data = vmem_alloc(xattr_sa_size, KM_SLEEP);
-	VERIFY0(nvlist_pack(ihp->hp_kvattr_cache, &xattr_sa_data,
+	VERIFY0(nvlist_pack(nvl, &xattr_sa_data,
 	    &xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
 
 	// add high priority kv before normal kv to place it in bonous buffer
@@ -111,6 +111,7 @@ libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
 	VERIFY0(sa_replace_all_by_template(ihp->sa_hdl, sa_attrs, cnt, tx));
 
 	vmem_free(xattr_sa_data, xattr_sa_size);
+	nvlist_free(nvl);
 }
 
 int
@@ -391,8 +392,14 @@ libuzfs_inode_set_kvattr(libuzfs_inode_handle_t *ihp,
 	int err = 0;
 	// try to insert this kv into high priority area
 	if (option & KVSET_HIGH_PRIORITY) {
+		nvlist_t *hp_nvl = NULL;
 		sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
-		boolean_t existed = nvlist_exists(ihp->hp_kvattr_cache, name);
+		err = libuzfs_get_nvlist_from_handle(sa_tbl,
+		    &hp_nvl, sa_hdl, UZFS_XATTR_HIGH);
+		if (err != 0) {
+			return (err);
+		}
+		boolean_t existed = nvlist_exists(hp_nvl, name);
 		// old value not in hp area, we need to check
 		// whether it exists in normal area,
 		// if so, fall back to normal kvattr set
@@ -401,31 +408,32 @@ libuzfs_inode_set_kvattr(libuzfs_inode_handle_t *ihp,
 			    sa_hdl, sa_tbl, name, &err);
 
 			if (err != 0) {
+				nvlist_free(hp_nvl);
 				return (err);
 			}
 
 			if (existed_in_lp) {
+				nvlist_free(hp_nvl);
 				goto set_normal;
 			}
 		}
 
-		// we need to acquire lock here prevent concurrency get hp cache
-		rw_enter(&ihp->hp_kvattr_cache_lock, RW_WRITER);
-		err = libuzfs_kvattr_update_nvlist(ihp->hp_kvattr_cache,
+		// update hp nv list
+		err = libuzfs_kvattr_update_nvlist(hp_nvl,
 		    name, value, size, &hp_xattr_data_size,
 		    libuzfs_get_max_hp_kvs_capacity(sa_hdl));
-		rw_exit(&ihp->hp_kvattr_cache_lock);
 		if (err != 0 && err != EFBIG) {
+			nvlist_free(hp_nvl);
 			return (err);
 		}
 
 		if (existed || err == 0) {
 			hp_xattr_data = umem_alloc(hp_xattr_data_size,
 			    UMEM_NOFAIL);
-			VERIFY0(nvlist_pack(ihp->hp_kvattr_cache,
-			    &hp_xattr_data, &hp_xattr_data_size,
-			    NV_ENCODE_XDR, KM_SLEEP));
+			VERIFY0(nvlist_pack(hp_nvl, &hp_xattr_data,
+			    &hp_xattr_data_size, NV_ENCODE_XDR, KM_SLEEP));
 		}
+		nvlist_free(hp_nvl);
 
 		// hp area has enough space, just put in hp area
 		if (err == 0) {
@@ -647,21 +655,9 @@ libuzfs_inode_get_kvattr(libuzfs_inode_handle_t *ihp,
 {
 	sa_handle_t *sa_hdl = ihp->sa_hdl;
 	libuzfs_dataset_handle_t *dhp = ihp->dhp;
-	uchar_t *nv_value;
-	uint_t nv_size = 0;
-	rw_enter(&ihp->hp_kvattr_cache_lock, RW_READER);
-	int rc = nvlist_lookup_byte_array(ihp->hp_kvattr_cache,
-	    name, &nv_value, &nv_size);
-	rw_exit(&ihp->hp_kvattr_cache_lock);
-	if (rc == 0) {
-		if (nv_size > size) {
-			return (-ERANGE);
-		}
-		memcpy(value, nv_value, nv_size);
-		return (nv_size);
-	}
+	ssize_t rc = libuzfs_inode_get_kvattr_sa(sa_hdl, dhp->uzfs_attr_table,
+	    name, value, size, UZFS_XATTR_HIGH);
 
-	rc = -rc;
 	if (rc == -ENOENT) {
 		rc = libuzfs_inode_get_kvattr_sa(sa_hdl, dhp->uzfs_attr_table,
 		    name, value, size, UZFS_XATTR);
@@ -791,7 +787,7 @@ libuzfs_inode_remove_kvattr(libuzfs_inode_handle_t *ihp,
 	libuzfs_dataset_handle_t *dhp = ihp->dhp;
 	sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
 	int err = libuzfs_inode_remove_kvattr_from_sa(sa_hdl, sa_tbl, name,
-	    txg, UZFS_XATTR_HIGH, ihp->hp_kvattr_cache);
+	    txg, UZFS_XATTR_HIGH, NULL);
 
 	if (err == ENOENT) {
 		err = libuzfs_inode_remove_kvattr_from_sa(sa_hdl, sa_tbl, name,
