@@ -1756,9 +1756,6 @@ libuzfs_object_delete(libuzfs_inode_handle_t *ihp)
 	}
 
 	err = libuzfs_inode_delete(ihp, INODE_DATA_OBJ, NULL);
-	if (err == 0) {
-		zil_submit(dhp->zilog, ihp->ino);
-	}
 
 	return (err);
 }
