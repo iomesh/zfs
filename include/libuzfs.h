@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_H
 #define	_LIBUZFS_H
 
+#include <bits/stdint-uintn.h>
 #include <stddef.h>
 #include <sync_ops.h>
 #include "sys/arc.h"
@@ -207,7 +208,99 @@ extern int libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *count);
 
-// libuzfs_exit should be called after other attrs are set
+typedef struct inode_kv {
+	const char *key;
+	void *value;
+	uint32_t value_size;
+} inode_kv_t;
+
+typedef struct reserved_attr {
+	const char *attr;
+	uint32_t size;
+} reserved_attr_t;
+
+typedef struct inode_link_args {
+	libuzfs_dataset_handle_t *dhp;
+	libuzfs_inode_handle_t *dihp;
+	reserved_attr_t pattr;
+	const char *name;
+
+	libuzfs_inode_handle_t *ihp;
+	reserved_attr_t attr;
+	uint64_t ino_mask;
+} inode_link_args_t;
+
+extern int libuzfs_inode_link_atomic(inode_link_args_t *ila, uint64_t *txg);
+
+/*
+ * @brief Initializes an attribute structure
+ *   based on the provided inode and generation number.
+ *
+ * This function generates attributes and fills them
+ *   into the given `attr` structure. The `ino` value is modified
+ *   to a custom value based on the directory entry's value.
+ *
+ * @param attr Pointer to the attribute structure to be initialized.
+ * @param len The length of the attribute structure.
+ * @param ino Pointer to the inode number,
+ *   which will be modified based on the directory entry's value.
+ * @param gen The generation number associated with the inode.
+ * @param arg is defined by the caller
+ */
+typedef void (*attr_init_func)(void *attr,
+    size_t *len, uint64_t *ino, uint64_t gen, void *arg);
+
+typedef struct inode_create_args {
+	libuzfs_dataset_handle_t *dhp;
+	libuzfs_inode_type_t inode_type;
+	libuzfs_inode_handle_t *dihp;
+	const char *name;
+	reserved_attr_t pattr;
+
+	const inode_kv_t *hp_kvs;
+	uint32_t num_hp_kvs;
+} inode_create_args_t;
+
+extern int libuzfs_inode_create_atomic(inode_create_args_t *ica,
+    libuzfs_inode_handle_t **ihp, attr_init_func aif, void *arg);
+
+typedef struct inode_unlink_args {
+	libuzfs_dataset_handle_t *dhp;
+	libuzfs_inode_handle_t *dihp;
+	reserved_attr_t pattr;
+	const char *name;
+
+	libuzfs_inode_handle_t *ihp;
+	// if attr.attr is NULL, we need to delete this inode
+	reserved_attr_t attr;
+} inode_unlink_args_t;
+
+extern int libuzfs_inode_unlink_atomic(inode_unlink_args_t *iua, uint64_t *txg);
+
+typedef struct inode_rename_args {
+	libuzfs_dataset_handle_t *dhp;
+
+	libuzfs_inode_handle_t *old_parent;
+	reserved_attr_t op_attr;
+	const char *src_name;
+
+	libuzfs_inode_handle_t *src_inode;
+	// kv.key == NULL means no need for set kv
+	inode_kv_t kv;
+	reserved_attr_t src_attr;
+
+	libuzfs_inode_handle_t *new_parent;
+	const char *target_name;
+	uint64_t ino_mask;
+	reserved_attr_t np_attr;
+
+	libuzfs_inode_handle_t *target_inode;
+	// if attr.attr is NULL, we need to delete this inode
+	reserved_attr_t target_attr;
+} inode_rename_args_t;
+
+extern int libuzfs_inode_rename_atomic(inode_rename_args_t *ira, uint64_t *txg);
+
 extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, libuzfs_inode_handle_t **ihpp, uint64_t *gen);
 

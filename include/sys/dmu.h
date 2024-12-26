@@ -439,6 +439,8 @@ int dmu_object_rm_spill(objset_t *os, uint64_t object, dmu_tx_t *tx);
  */
 int dmu_object_free(objset_t *os, uint64_t object, dmu_tx_t *tx);
 
+void dmu_object_free_by_dnode(dnode_t *dn, dmu_tx_t *tx);
+
 /*
  * Find the next allocated or free object.
  *

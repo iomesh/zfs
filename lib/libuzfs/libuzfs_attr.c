@@ -28,22 +28,6 @@ sa_attr_reg_t uzfs_attr_table[UZFS_END+1] = {
 };
 
 static uint32_t
-libuzfs_get_max_reserved_len(sa_handle_t *sa_hdl)
-{
-	ASSERT(sa_hdl->sa_bonus != NULL);
-	switch (sa_hdl->sa_bonus->db_size) {
-		case UZFS_BONUS_LEN_DEFAULT:
-			return (UZFS_MAX_RESERVED_DEFAULT);
-		case UZFS_BONUS_LEN_1K:
-			return (UZFS_MAX_RESERVED_1K);
-		default:
-			panic("unexpected bonus len: %lu",
-			    sa_hdl->sa_bonus->db_size);
-	}
-	return (0);
-}
-
-static uint32_t
 libuzfs_get_max_hp_kvs_capacity(sa_handle_t *sa_hdl)
 {
 	ASSERT(sa_hdl->sa_bonus != NULL);
@@ -69,8 +53,29 @@ libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp)
 	    UZFS_END, &dhp->uzfs_attr_table));
 }
 
+static void
+libuzfs_nvlist_pack(nvlist_t *nvl, char **xattr_sa_data,
+    uint64_t *xattr_sa_size)
+{
+	boolean_t free = nvl == NULL;
+	if (free) {
+		VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+	}
+
+	VERIFY0(nvlist_size(nvl,
+	    xattr_sa_size, NV_ENCODE_XDR));
+	*xattr_sa_data = vmem_alloc(*xattr_sa_size, KM_SLEEP);
+	VERIFY0(nvlist_pack(nvl, xattr_sa_data,
+	    xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
+
+	if (free) {
+		nvlist_free(nvl);
+	}
+}
+
 void
-libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
+libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx,
+    const char *reserved, uint32_t reserved_size, nvlist_t *hp_nvl)
 {
 	sa_bulk_attr_t sa_attrs[UZFS_END];
 	int cnt = 0;
@@ -89,29 +94,25 @@ libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx)
 		    NULL, &mtime, sizeof (mtime));
 	} else {
 		SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_RESERVED],
-		    NULL, NULL, 0);
+		    NULL, (void *)reserved, reserved_size);
 	}
 
-	nvlist_t *nvl = NULL;
-	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
-
-	uint64_t xattr_sa_size;
-	VERIFY0(nvlist_size(nvl, &xattr_sa_size, NV_ENCODE_XDR));
-
-	char *xattr_sa_data = vmem_alloc(xattr_sa_size, KM_SLEEP);
-	VERIFY0(nvlist_pack(nvl, &xattr_sa_data,
-	    &xattr_sa_size, NV_ENCODE_XDR, KM_SLEEP));
-
-	// add high priority kv before normal kv to place it in bonous buffer
+	char *hp_xattr_sa_data = NULL;
+	uint64_t hp_xattr_sa_size;
+	libuzfs_nvlist_pack(hp_nvl, &hp_xattr_sa_data, &hp_xattr_sa_size);
 	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR_HIGH],
-	    NULL, xattr_sa_data, xattr_sa_size);
+	    NULL, hp_xattr_sa_data, hp_xattr_sa_size);
+
+	char *lp_xattr_sa_data = NULL;
+	uint64_t lp_xattr_sa_size;
+	libuzfs_nvlist_pack(NULL, &lp_xattr_sa_data, &lp_xattr_sa_size);
 	SA_ADD_BULK_ATTR(sa_attrs, cnt, attr_tbl[UZFS_XATTR],
-	    NULL, xattr_sa_data, xattr_sa_size);
+	    NULL, lp_xattr_sa_data, lp_xattr_sa_size);
 
 	VERIFY0(sa_replace_all_by_template(ihp->sa_hdl, sa_attrs, cnt, tx));
 
-	vmem_free(xattr_sa_data, xattr_sa_size);
-	nvlist_free(nvl);
+	vmem_free(hp_xattr_sa_data, hp_xattr_sa_size);
+	vmem_free(lp_xattr_sa_data, lp_xattr_sa_size);
 }
 
 int
@@ -185,7 +186,7 @@ libuzfs_inode_setattr(libuzfs_inode_handle_t *ihp,
 {
 	sa_handle_t *sa_hdl = ihp->sa_hdl;
 	objset_t *os = ihp->dhp->os;
-	ASSERT3U(size, <=, libuzfs_get_max_reserved_len(sa_hdl));
+	ASSERT3U(size, <=, UZFS_MAX_RESERVED_1K);
 	dmu_tx_t *tx = dmu_tx_create(os);
 	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
 	int err = 0;
@@ -365,6 +366,56 @@ libuzfs_log_kvattr_set(zilog_t *zilog, dmu_tx_t *tx, uint64_t obj,
 	zil_itx_assign(zilog, itx, tx);
 }
 
+int
+libuzfs_check_hp_kvattr(libuzfs_inode_handle_t *ihp, const inode_kv_t *kv,
+    char **hp_xattr_data, uint64_t *hp_xattr_data_size)
+{
+	nvlist_t *hp_nvl = NULL;
+	sa_attr_type_t *sa_tbl = ihp->dhp->uzfs_attr_table;
+	sa_handle_t *sa_hdl = ihp->sa_hdl;
+	int err = libuzfs_get_nvlist_from_handle(sa_tbl,
+	    &hp_nvl, sa_hdl, UZFS_XATTR_HIGH);
+	if (err != 0) {
+		return (err);
+	}
+	boolean_t existed = nvlist_exists(hp_nvl, kv->key);
+	// old value not in hp area, we need to check
+	// whether it exists in normal area,
+	// if so, fall back to normal kvattr set
+	if (!existed) {
+		boolean_t existed_in_lp = libuzfs_lp_kvattr_exists(
+		    sa_hdl, sa_tbl, kv->key, &err);
+
+		if (err != 0) {
+			nvlist_free(hp_nvl);
+			return (err);
+		}
+
+		if (existed_in_lp) {
+			nvlist_free(hp_nvl);
+			return (-1);
+		}
+	}
+
+	// update hp nv list
+	err = libuzfs_kvattr_update_nvlist(hp_nvl,
+	    kv->key, kv->value, kv->value_size, hp_xattr_data_size,
+	    libuzfs_get_max_hp_kvs_capacity(sa_hdl));
+	if (err != 0 && err != EFBIG) {
+		nvlist_free(hp_nvl);
+		return (err);
+	}
+
+	if (existed || err == 0) {
+		*hp_xattr_data = umem_alloc(*hp_xattr_data_size, UMEM_NOFAIL);
+		VERIFY0(nvlist_pack(hp_nvl, hp_xattr_data,
+		    hp_xattr_data_size, NV_ENCODE_XDR, KM_SLEEP));
+	}
+	nvlist_free(hp_nvl);
+
+	return (err);
+}
+
 // setting high priority kvattr will first check whether
 // the hp area has enough space, if not enough, that kv will
 // be removed from hp area and inserted into normal sa space,
@@ -392,48 +443,12 @@ libuzfs_inode_set_kvattr(libuzfs_inode_handle_t *ihp,
 	int err = 0;
 	// try to insert this kv into high priority area
 	if (option & KVSET_HIGH_PRIORITY) {
-		nvlist_t *hp_nvl = NULL;
-		sa_attr_type_t *sa_tbl = dhp->uzfs_attr_table;
-		err = libuzfs_get_nvlist_from_handle(sa_tbl,
-		    &hp_nvl, sa_hdl, UZFS_XATTR_HIGH);
-		if (err != 0) {
-			return (err);
+		inode_kv_t kv = {name, (void *)value, size};
+		int err = libuzfs_check_hp_kvattr(ihp, &kv,
+		    &hp_xattr_data, &hp_xattr_data_size);
+		if (err < 0) {
+			goto set_normal;
 		}
-		boolean_t existed = nvlist_exists(hp_nvl, name);
-		// old value not in hp area, we need to check
-		// whether it exists in normal area,
-		// if so, fall back to normal kvattr set
-		if (!existed) {
-			boolean_t existed_in_lp = libuzfs_lp_kvattr_exists(
-			    sa_hdl, sa_tbl, name, &err);
-
-			if (err != 0) {
-				nvlist_free(hp_nvl);
-				return (err);
-			}
-
-			if (existed_in_lp) {
-				nvlist_free(hp_nvl);
-				goto set_normal;
-			}
-		}
-
-		// update hp nv list
-		err = libuzfs_kvattr_update_nvlist(hp_nvl,
-		    name, value, size, &hp_xattr_data_size,
-		    libuzfs_get_max_hp_kvs_capacity(sa_hdl));
-		if (err != 0 && err != EFBIG) {
-			nvlist_free(hp_nvl);
-			return (err);
-		}
-
-		if (existed || err == 0) {
-			hp_xattr_data = umem_alloc(hp_xattr_data_size,
-			    UMEM_NOFAIL);
-			VERIFY0(nvlist_pack(hp_nvl, &hp_xattr_data,
-			    &hp_xattr_data_size, NV_ENCODE_XDR, KM_SLEEP));
-		}
-		nvlist_free(hp_nvl);
 
 		// hp area has enough space, just put in hp area
 		if (err == 0) {

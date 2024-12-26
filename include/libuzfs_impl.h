@@ -26,6 +26,7 @@
 #ifndef	_LIBUZFS_IMPL_H
 #define	_LIBUZFS_IMPL_H
 
+#include "sys/nvpair.h"
 #include "sys/stdtypes.h"
 #include <sys/zap.h>
 #include <libuzfs.h>
@@ -124,12 +125,15 @@ struct libuzfs_zap_iterator {
 #define	UZFS_MAX_RESERVED_1K		192
 #define	UZFS_KV_CAPACITY_1K		608
 
-extern void libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx);
+extern void libuzfs_inode_attr_init(libuzfs_inode_handle_t *ihp, dmu_tx_t *tx,
+    const char *reserved, uint32_t size, nvlist_t *hp_nvl);
 extern void libuzfs_setup_dataset_sa(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_get_xattr_zap_obj(libuzfs_inode_handle_t *ihp,
     uint64_t *xattr_zap_obj);
 extern int libuzfs_get_nvlist_from_handle(const sa_attr_type_t *sa_tbl,
     nvlist_t **nvl, sa_handle_t *sa_hdl, sa_attr_type_t xattr);
+extern int libuzfs_check_hp_kvattr(libuzfs_inode_handle_t *ihp,
+    const inode_kv_t *kv, char **hp_xattr_data, uint64_t *hp_xattr_data_size);
 
 
 extern void dump_intent_log(zilog_t *);

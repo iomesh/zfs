@@ -79,8 +79,9 @@
 static boolean_t change_zpool_cache_path = B_FALSE;
 
 static libuzfs_inode_handle_t *libuzfs_create_inode_with_type_impl(
-    libuzfs_dataset_handle_t *, uint64_t *, boolean_t,
-    libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
+    libuzfs_dataset_handle_t *dhp, uint64_t *obj, boolean_t claiming,
+    libuzfs_inode_type_t type, dmu_tx_t *tx, uint64_t gen, nvlist_t *hp_nvl,
+    attr_init_func aif, void *arg);
 
 static inline int libuzfs_object_write_impl(libuzfs_inode_handle_t *,
     uint64_t, struct iovec *, int, boolean_t, uint64_t);
@@ -1388,7 +1389,7 @@ libuzfs_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 	libuzfs_setup_dataset_sa(dhp);
 	uint64_t sb_obj = 0;
 	libuzfs_inode_handle_t *ihp = libuzfs_create_inode_with_type_impl(
-	    dhp, &sb_obj, B_FALSE, INODE_DIR, tx, 0);
+	    dhp, &sb_obj, B_FALSE, INODE_DIR, tx, 0, NULL, NULL, NULL);
 	libuzfs_inode_handle_rele(ihp);
 	VERIFY0(zap_add(os, MASTER_NODE_OBJ, UZFS_SB_OBJ, 8, 1, &sb_obj, tx));
 	sa_tear_down(dhp->os);
@@ -1581,7 +1582,8 @@ libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
 static libuzfs_inode_handle_t *
 libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
     uint64_t *obj, boolean_t claiming, libuzfs_inode_type_t type,
-    dmu_tx_t *tx, uint64_t gen)
+    dmu_tx_t *tx, uint64_t gen, nvlist_t *hp_nvl, attr_init_func aif,
+    void *arg)
 {
 	// create/claim object
 	objset_t *os = dhp->os;
@@ -1643,15 +1645,38 @@ libuzfs_create_inode_with_type_impl(libuzfs_dataset_handle_t *dhp,
 		zfs_rangelock_init(&ihp->rl, libuzfs_rangelock_cb, ihp);
 	}
 
+	char *reserved = NULL;
+	size_t reserved_size = 0;
+	if (aif) {
+		switch (dnodesize) {
+		case 0:
+		case 512:
+			reserved_size = UZFS_MAX_RESERVED_DEFAULT;
+			break;
+		case 1024:
+			reserved_size = UZFS_MAX_RESERVED_1K;
+			break;
+		default:
+			panic("unexpected dnode size: %d", dnodesize);
+		}
+		reserved = umem_alloc(reserved_size, UMEM_NOFAIL);
+		aif(reserved, &reserved_size, obj, gen, arg);
+	}
+
 	uzfs_hold_handle_t *uhh = uzfs_holds_enter(&dhp->holds, *obj);
 	dmu_buf_t *bonus = NULL;
 	VERIFY0(dmu_bonus_hold_by_dnode(dn, ihp,
 	    &bonus, DMU_READ_NO_PREFETCH));
 	VERIFY0(sa_handle_get_from_db(os, bonus,
 	    ihp, SA_HDL_SHARED, &ihp->sa_hdl));
-	libuzfs_inode_attr_init(ihp, tx);
+	libuzfs_inode_attr_init(ihp, tx, reserved,
+	    reserved_size, hp_nvl);
 	dnode_rele(dn, FTAG);
 	uzfs_holds_exit(&dhp->holds, uhh);
+
+	if (aif) {
+		umem_free(reserved, reserved_size);
+	}
 
 	return (ihp);
 }
@@ -1674,7 +1699,7 @@ libuzfs_create_inode_with_type(libuzfs_dataset_handle_t *dhp, uint64_t *obj,
 	}
 
 	*ihpp = libuzfs_create_inode_with_type_impl(dhp, obj,
-	    claiming, type, tx, gen);
+	    claiming, type, tx, gen, NULL, NULL, NULL);
 
 	dmu_tx_commit(tx);
 
@@ -1715,7 +1740,7 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 	for (int i = 0; i < num_objs; ++i) {
 		libuzfs_inode_handle_t *ihp =
 		    libuzfs_create_inode_with_type_impl(dhp, &objs[i],
-		    B_FALSE, INODE_DATA_OBJ, tx, 0);
+		    B_FALSE, INODE_DATA_OBJ, tx, 0, NULL, NULL, NULL);
 		libuzfs_inode_handle_rele(ihp);
 	}
 
@@ -2246,6 +2271,294 @@ libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 }
 
 int
+libuzfs_inode_link_atomic(inode_link_args_t *ila, uint64_t *txg)
+{
+	sa_attr_type_t *attr_tbl = ila->dhp->uzfs_attr_table;
+	sa_handle_t *psa_hdl = ila->dihp->sa_hdl;
+	uint64_t pino = ila->dihp->ino;
+
+	sa_handle_t *sa_hdl = ila->ihp->sa_hdl;
+	objset_t *os = ila->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa(tx, psa_hdl, B_FALSE);
+	dmu_tx_hold_zap(tx, pino, B_TRUE, ila->name);
+	dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+		return (err);
+	}
+
+	uint64_t masked_ino = ila->ihp->ino | ila->ino_mask;
+	VERIFY0(zap_add(os, pino, ila->name, 8, 1, &masked_ino, tx));
+	VERIFY0(sa_update(sa_hdl, attr_tbl[UZFS_RESERVED],
+	    (void *)ila->attr.attr, ila->attr.size, tx));
+	VERIFY0(sa_update(psa_hdl, attr_tbl[UZFS_RESERVED],
+	    (void *)ila->pattr.attr, ila->pattr.size, tx));
+	dmu_tx_commit(tx);
+
+	return (err);
+}
+
+static nvlist_t *
+nvlist_from_inode_kvs(const inode_kv_t *kvs, uint32_t num_kvs)
+{
+	nvlist_t *nvl = NULL;
+	VERIFY0(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP));
+	for (int i = 0; i < num_kvs; ++i) {
+		VERIFY0(nvlist_add_byte_array(nvl, kvs[i].key,
+		    kvs[i].value, kvs[i].value_size));
+	}
+
+	return (nvl);
+}
+
+int
+libuzfs_inode_create_atomic(inode_create_args_t *ica,
+    libuzfs_inode_handle_t **ihpp, attr_init_func aif,
+    void *arg)
+{
+	nvlist_t *hp_nvl = nvlist_from_inode_kvs(ica->hp_kvs, ica->num_hp_kvs);
+
+	sa_attr_type_t *attr_tbl = ica->dhp->uzfs_attr_table;
+	objset_t *os = ica->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+	dmu_tx_hold_sa_create(tx, sizeof (uzfs_inode_attr_t));
+	if (ica->inode_type == INODE_DIR) {
+		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, B_TRUE, NULL);
+	}
+	sa_handle_t *psa_hdl = ica->dihp->sa_hdl;
+	dmu_tx_hold_sa(tx, psa_hdl, B_FALSE);
+
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(psa_hdl);
+	DB_DNODE_ENTER(db);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(db), B_TRUE, ica->name);
+	DB_DNODE_EXIT(db);
+
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+	} else {
+		uint64_t masked_ino;
+		*ihpp = libuzfs_create_inode_with_type_impl(ica->dhp, &masked_ino,
+		    B_FALSE, ica->inode_type, tx, 0,
+		    hp_nvl, aif, arg);
+
+		DB_DNODE_ENTER(db);
+		VERIFY0(zap_add_by_dnode(DB_DNODE(db), ica->name,
+		    8, 1, &masked_ino, tx));
+		DB_DNODE_EXIT(db);
+
+		VERIFY0(sa_update(psa_hdl, attr_tbl[UZFS_RESERVED],
+		    (void *)ica->pattr.attr, ica->pattr.size, tx));
+		dmu_tx_commit(tx);
+	}
+
+	nvlist_free(hp_nvl);
+
+	return (err);
+}
+
+int
+libuzfs_inode_unlink_atomic(inode_unlink_args_t *iua, uint64_t *txg)
+{
+	uint64_t xattr_zap_obj = 0;
+	int err = 0;
+	boolean_t delete = iua->attr.attr == NULL;
+
+	if (delete) {
+		libuzfs_get_xattr_zap_obj(iua->ihp,
+		    &xattr_zap_obj);
+		if (err != 0 && err != ENOENT) {
+			return (err);
+		}
+	}
+
+	objset_t *os = iua->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	sa_handle_t *sa_hdl = iua->ihp->sa_hdl;
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(sa_hdl);
+	if (delete) {
+		DB_DNODE_ENTER(db);
+		dmu_tx_hold_free_by_dnode(tx, DB_DNODE(db), 0, DMU_OBJECT_END);
+		DB_DNODE_EXIT(db);
+	} else {
+		dmu_tx_hold_sa(tx, sa_hdl, B_FALSE);
+	}
+	if (xattr_zap_obj != 0) {
+		dmu_tx_hold_free(tx, xattr_zap_obj, 0, DMU_OBJECT_END);
+	}
+
+	sa_attr_type_t *attr_tbl = iua->dhp->uzfs_attr_table;
+
+	sa_handle_t *psa_hdl = iua->dihp->sa_hdl;
+	dmu_tx_hold_sa(tx, psa_hdl, B_FALSE);
+	dmu_buf_impl_t *pdb = (dmu_buf_impl_t *)sa_get_db(psa_hdl);
+	DB_DNODE_ENTER(pdb);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(pdb), B_FALSE, iua->name);
+	DB_DNODE_EXIT(pdb);
+
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err == 0) {
+		*txg = tx->tx_txg;
+		if (xattr_zap_obj != 0) {
+			VERIFY0(zap_destroy(os, xattr_zap_obj, tx));
+		}
+		if (delete) {
+			DB_DNODE_ENTER(db);
+			dmu_object_free_by_dnode(DB_DNODE(db), tx);
+			DB_DNODE_EXIT(db);
+		} else {
+			VERIFY0(sa_update(sa_hdl, attr_tbl[UZFS_RESERVED],
+			    (void *)iua->attr.attr, iua->attr.size, tx));
+		}
+
+		DB_DNODE_ENTER(pdb);
+		VERIFY0(zap_remove_by_dnode(DB_DNODE(pdb), iua->name, tx));
+		DB_DNODE_EXIT(pdb);
+
+		// update attr of parent
+		VERIFY0(sa_update(psa_hdl, attr_tbl[UZFS_RESERVED],
+		    (void *)iua->pattr.attr, iua->pattr.size, tx));
+		dmu_tx_commit(tx);
+	} else {
+		dmu_tx_abort(tx);
+	}
+
+	return (err);
+}
+
+int
+libuzfs_inode_rename_atomic(inode_rename_args_t *ira, uint64_t *txg)
+{
+	uint64_t xattr_zap_obj = 0;
+	int err = 0;
+	boolean_t delete = ira->target_attr.attr == NULL &&
+	    ira->target_inode != NULL;
+	if (delete) {
+		err = libuzfs_get_xattr_zap_obj(ira->target_inode,
+		    &xattr_zap_obj);
+		if (err != 0 && err != ENOENT) {
+			return (err);
+		}
+	}
+
+	char *hp_xattr_data = NULL;
+	uint64_t hp_xattr_data_size = 0;
+	if (ira->kv.key && ira->kv.value) {
+		err = libuzfs_check_hp_kvattr(ira->src_inode, &ira->kv,
+		    &hp_xattr_data, &hp_xattr_data_size);
+		if (err != 0) {
+			err = SET_ERROR(EAGAIN);
+			goto free_data;
+		}
+	}
+
+	sa_attr_type_t *attr_tbl = ira->dhp->uzfs_attr_table;
+	objset_t *os = ira->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	sa_handle_t *op_hdl = ira->old_parent->sa_hdl;
+	dmu_buf_impl_t *opdb = (dmu_buf_impl_t *)sa_get_db(op_hdl);
+	DB_DNODE_ENTER(opdb);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(opdb), B_FALSE, ira->src_name);
+	DB_DNODE_EXIT(opdb);
+	dmu_tx_hold_sa(tx, op_hdl, B_FALSE);
+
+	sa_handle_t *src_hdl = ira->src_inode->sa_hdl;
+	dmu_tx_hold_sa(tx, src_hdl, B_FALSE);
+
+	dmu_buf_impl_t *npdb = opdb;
+	sa_handle_t *np_hdl = NULL;
+	libuzfs_inode_handle_t *new_parent = ira->old_parent;
+	if (ira->new_parent) {
+		np_hdl = ira->new_parent->sa_hdl;
+		npdb = (dmu_buf_impl_t *)sa_get_db(np_hdl);
+		dmu_tx_hold_sa(tx, np_hdl, B_FALSE);
+		new_parent = ira->new_parent;
+	}
+	boolean_t add = ira->target_inode == NULL;
+	DB_DNODE_ENTER(npdb);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(npdb), add, ira->target_name);
+	DB_DNODE_EXIT(npdb);
+
+	sa_handle_t *target_hdl = NULL;
+	if (ira->target_inode) {
+		target_hdl = ira->target_inode->sa_hdl;
+		if (delete) {
+			dmu_buf_impl_t *target_db =
+			    (dmu_buf_impl_t *)sa_get_db(target_hdl);
+			DB_DNODE_ENTER(target_db);
+			dmu_tx_hold_free_by_dnode(tx, DB_DNODE(target_db),
+			    0, DMU_OBJECT_END);
+			DB_DNODE_EXIT(target_db);
+		} else {
+			dmu_tx_hold_sa(tx, target_hdl, B_FALSE);
+		}
+	}
+	if (xattr_zap_obj != 0) {
+		dmu_tx_hold_free(tx, xattr_zap_obj, 0, DMU_OBJECT_END);
+	}
+
+	err = dmu_tx_assign(tx, B_FALSE);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+		goto free_data;
+	}
+
+	VERIFY0(sa_update(op_hdl, attr_tbl[UZFS_RESERVED],
+	    (void *)ira->op_attr.attr, ira->op_attr.size, tx));
+	DB_DNODE_ENTER(opdb);
+	VERIFY0(zap_remove_by_dnode(DB_DNODE(opdb), ira->src_name, tx));
+	DB_DNODE_EXIT(opdb);
+
+	sa_bulk_attr_t attrs[2];
+	int cnt = 0;
+	SA_ADD_BULK_ATTR(attrs, cnt, attr_tbl[UZFS_RESERVED],
+	    NULL, (void *)ira->src_attr.attr, ira->src_attr.size);
+	if (hp_xattr_data) {
+		SA_ADD_BULK_ATTR(attrs, cnt, attr_tbl[UZFS_XATTR_HIGH],
+		    NULL, hp_xattr_data, hp_xattr_data_size);
+	}
+	VERIFY0(sa_bulk_update(src_hdl, attrs, cnt, tx));
+
+	if (np_hdl) {
+		VERIFY0(sa_update(np_hdl, attr_tbl[UZFS_RESERVED],
+		    (void *)ira->np_attr.attr, ira->np_attr.size, tx));
+	}
+	uint64_t masked_ino = ira->src_inode->ino | ira->ino_mask;
+	VERIFY0(zap_update(os, new_parent->ino,
+	    ira->target_name, 8, 1, &masked_ino, tx));
+
+	if (target_hdl) {
+		if (delete) {
+			dmu_buf_impl_t *target_db =
+			    (dmu_buf_impl_t *)sa_get_db(target_hdl);
+			DB_DNODE_ENTER(target_db);
+			dmu_object_free_by_dnode(DB_DNODE(target_db), tx);
+			DB_DNODE_EXIT(target_db);
+		} else {
+			VERIFY0(sa_update(target_hdl, attr_tbl[UZFS_RESERVED],
+			    (void *)ira->target_attr.attr,
+			    ira->target_attr.size, tx));
+		}
+	}
+	if (xattr_zap_obj) {
+		VERIFY0(dmu_object_free(os, xattr_zap_obj, tx));
+	}
+
+	dmu_tx_commit(tx);
+
+free_data:
+	if (hp_xattr_data) {
+		umem_free(hp_xattr_data, hp_xattr_data_size);
+	}
+	return (err);
+}
+
+int
 libuzfs_inode_claim(libuzfs_dataset_handle_t *dhp, uint64_t ino,
     uint64_t gen, libuzfs_inode_type_t type)
 {
@@ -2283,7 +2596,11 @@ int
 libuzfs_dentry_lookup(libuzfs_inode_handle_t *dihp,
     const char *name, uint64_t *value)
 {
-	return (libuzfs_zap_lookup(dihp->dhp, dihp->ino, name, 8, 1, value));
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	int err = zap_lookup_by_dnode(DB_DNODE(db), name, 8, 1, value);
+	DB_DNODE_EXIT(db);
+	return (err);
 }
 
 int
