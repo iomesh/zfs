@@ -2325,6 +2325,8 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 		done = dir_emit(arg, whence, zap.za_name, zap.za_first_integer);
 		if (done)
 			break;
+		dmu_prefetch(dhp->os, zap.za_first_integer, 0, 0, 0,
+		    ZIO_PRIORITY_SYNC_READ);
 	}
 
 	zap_cursor_fini(&zc);
