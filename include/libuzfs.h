@@ -32,6 +32,7 @@
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/time.h"
+#include "sys/zfs_rlock.h"
 #include <libnvpair.h>
 #include <sys/dmu.h>
 #include <time.h>
@@ -152,6 +153,26 @@ extern uint64_t libuzfs_object_list(libuzfs_dataset_handle_t *dhp);
 
 extern int libuzfs_object_read(libuzfs_inode_handle_t *ihp,
     uint64_t offset, uint64_t size, char *buf);
+
+
+typedef struct libuzfs_read_buf {
+	libuzfs_inode_handle_t *ihp;
+	zfs_locked_range_t *lr;
+	uint64_t offset;
+	size_t nread;
+
+	dmu_buf_t **dbpp;
+	int num_bufs;
+} libuzfs_read_buf_t;
+extern int libuzfs_object_read_zero_copy(libuzfs_inode_handle_t *ihp,
+    uint64_t offset, uint64_t size, libuzfs_read_buf_t *buf);
+typedef struct libuzfs_slices {
+	const char *buf;
+	size_t len;
+} libuzfs_slices_t;
+extern void libuzfs_read_buf_to_slices(const libuzfs_read_buf_t *read_buf,
+    libuzfs_slices_t *slices);
+extern void libuzfs_read_buf_rele(libuzfs_read_buf_t *read_buf);
 
 extern int libuzfs_object_write(libuzfs_inode_handle_t *ihp,
     uint64_t offset, struct iovec *iovs, int iov_cnt, boolean_t sync);

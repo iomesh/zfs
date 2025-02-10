@@ -26,6 +26,7 @@
 #include <bits/stdint-uintn.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <strings.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
@@ -304,6 +305,16 @@ libuzfs_inode_handle_get(libuzfs_dataset_handle_t *dhp,
 	*ihpp = ihp;
 
 	return (0);
+}
+
+static void
+libuzfs_inode_handle_inc_ref(libuzfs_inode_handle_t *ihp)
+{
+	uzfs_holds_t *holds = &ihp->dhp->holds;
+	uzfs_hold_handle_t *uhh = uzfs_holds_enter(holds, ihp->ino);
+	ihp->rc += 1;
+
+	uzfs_holds_exit(holds, uhh);
 }
 
 void
@@ -1930,6 +1941,75 @@ libuzfs_object_write(libuzfs_inode_handle_t *ihp, uint64_t offset,
 {
 	return (libuzfs_object_write_impl(ihp, offset,
 	    iovs, iov_cnt, sync, 0));
+}
+
+int libuzfs_object_read_zero_copy(libuzfs_inode_handle_t *ihp,
+    uint64_t offset, uint64_t size, libuzfs_read_buf_t *buf)
+{
+	ASSERT3U(size, <=, DMU_MAX_ACCESS / 2);
+
+	zfs_locked_range_t *lr = zfs_rangelock_enter(&ihp->rl,
+	    offset, size, RL_READER);
+	ASSERT(lr != NULL);
+	bzero(buf, sizeof (*buf));
+	if (offset >= ihp->u_size) {
+		zfs_rangelock_exit(lr);
+		return (0);
+	}
+
+	uint64_t nread = MIN(ihp->u_size - offset, size);
+
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dnode_t *dn = DB_DNODE(db);
+	int err = dmu_buf_hold_array_by_dnode(dn, offset, nread,
+	    TRUE, NULL, &buf->num_bufs, &buf->dbpp, 0);
+	DB_DNODE_EXIT(db);
+	if (unlikely(err != 0)) {
+		zfs_rangelock_exit(lr);
+	} else {
+		libuzfs_inode_handle_inc_ref(ihp);
+		buf->ihp = ihp;
+		buf->lr = lr;
+		buf->offset = offset;
+		buf->nread = nread;
+	}
+
+	return (err);
+}
+
+void
+libuzfs_read_buf_to_slices(const libuzfs_read_buf_t *read_buf,
+    libuzfs_slices_t *slices)
+{
+	uint64_t offset = read_buf->offset;
+	size_t size = read_buf->nread;
+	for (int i = 0; i < read_buf->num_bufs && size > 0; ++i) {
+		dmu_buf_t *dbp = read_buf->dbpp[i];
+		int64_t bufoff = offset - dbp->db_offset;
+		slices[i].buf = (char *)dbp->db_data + bufoff;
+		slices[i].len = MIN(dbp->db_size - bufoff, size);
+
+		offset += slices[i].len;
+		size -= slices[i].len;
+	}
+}
+
+void
+libuzfs_read_buf_rele(libuzfs_read_buf_t *read_buf)
+{
+	if (read_buf->lr) {
+		zfs_rangelock_exit(read_buf->lr);
+	}
+
+	if (read_buf->dbpp) {
+		dmu_buf_rele_array(read_buf->dbpp, read_buf->num_bufs, NULL);
+	}
+
+	if (read_buf->ihp) {
+		libuzfs_inode_handle_rele(read_buf->ihp);
+	}
+
 }
 
 int
