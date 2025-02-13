@@ -186,12 +186,12 @@ uzfs_holds_exit(uzfs_holds_t *holds, uzfs_hold_handle_t *uhh)
 static void
 libuzfs_rangelock_cb(zfs_locked_range_t *new, void *arg)
 {
-	// no need to modify lock range for truncate
-	if (new->lr_length == UINT64_MAX) {
-		return;
+	libuzfs_inode_handle_t *ihp = arg;
+	if (new->lr_type == RL_APPEND) {
+		new->lr_offset = ihp->u_size;
+		new->lr_type = RL_WRITER;
 	}
 
-	libuzfs_inode_handle_t *ihp = arg;
 	// If we need to grow the block size then lock the whole file range.
 	uint64_t end_size = MAX(ihp->u_size, new->lr_offset + new->lr_length);
 	if (ihp->u_blksz < end_size && (ihp->u_blksz < ihp->dhp->max_blksz ||
@@ -1834,6 +1834,7 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 	return (i);
 }
 
+// offset == UINT64_MAX means append
 static inline int
 libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
     uint64_t offset, struct iovec *iovs, int iov_cnt,
@@ -1844,12 +1845,23 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 		size += iovs[i].iov_len;
 	}
 
+	zfs_locked_range_t *lr = NULL;
+	if (offset == UINT64_MAX) {
+		lr = zfs_rangelock_enter(&ihp->rl,
+		    0, size, RL_APPEND);
+		if (lr->lr_length == UINT64_MAX) {
+			offset = ihp->u_size;
+		} else {
+			offset = lr->lr_offset;
+		}
+	} else {
+		lr = zfs_rangelock_enter(&ihp->rl,
+		    offset, size, RL_WRITER);
+	}
+
 	zfs_uio_t uio;
 	zfs_uio_iovec_init(&uio, iovs, iov_cnt,
 	    offset, UIO_USERSPACE, size, 0);
-
-	zfs_locked_range_t *lr = zfs_rangelock_enter(&ihp->rl,
-	    offset, size, RL_WRITER);
 
 	ASSERT(lr != NULL);
 
