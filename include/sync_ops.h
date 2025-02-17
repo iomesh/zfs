@@ -109,17 +109,17 @@ typedef void aio_done_func_t(void *, int64_t);
 #define	AIO_READ	0
 #define	AIO_WRITE	1
 #define	AIO_FSYNC	2
-typedef int init_io_args_func_t(void *, uint64_t *, char **, size_t *);
+typedef int init_io_args_func_t(void *, uint64_t *, char **, size_t *, int *);
 
-typedef void *register_aio_fd_func_t(int, size_t,
+typedef void *aio_init_func_t(size_t,
     aio_done_func_t, init_io_args_func_t);
-typedef void unregister_aio_fd_func_t(void *);
+typedef void aio_fini_func_t(void *);
 typedef void submit_aio_func_t(const void *, void *);
 
 typedef struct aio_ops {
-	register_aio_fd_func_t		*register_aio_fd;
-	unregister_aio_fd_func_t	*unregister_aio_fd;
-	submit_aio_func_t		*submit_aio;
+	aio_init_func_t		*aio_init;
+	aio_fini_func_t		*aio_fini;
+	submit_aio_func_t	*submit_aio;
 } aio_ops_t;
 
 typedef uint64_t uthread_create_func_t(void (*)(void *), void *, int);

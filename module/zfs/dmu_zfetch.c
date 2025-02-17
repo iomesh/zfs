@@ -50,9 +50,9 @@ unsigned int	zfetch_max_streams = 8;
 /* min time before stream reclaim */
 unsigned int	zfetch_min_sec_reap = 2;
 /* max bytes to prefetch per stream (default 8MB) */
-unsigned int	zfetch_max_distance = 8 * 1024 * 1024;
+unsigned int	zfetch_max_distance = 16 * 1024 * 1024;
 /* max bytes to prefetch indirects for per stream (default 64MB) */
-unsigned int	zfetch_max_idistance = 64 * 1024 * 1024;
+unsigned int	zfetch_max_idistance = 128 * 1024 * 1024;
 /* max number of bytes in an array_read in which we allow prefetching (1MB) */
 unsigned long	zfetch_array_rd_sz = 1024 * 1024;
 

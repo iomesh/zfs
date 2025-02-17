@@ -52,6 +52,8 @@
 
 aio_ops_t aio_ops = {NULL};
 
+static void *aio_handle = NULL;
+
 static void
 vdev_aio_file_hold(vdev_t *vd)
 {
@@ -116,11 +118,12 @@ aio_done(void *arg, int64_t res)
 }
 
 static int
-init_io_args(void *arg, uint64_t *off, char **buf, size_t *len)
+init_io_args(void *arg, uint64_t *off, char **buf, size_t *len, int *fd)
 {
 	zio_t *zio = arg;
 	*off = zio->io_offset;
 	*len = zio->io_size;
+	*fd = ((vdev_file_t *)zio->io_vd->vdev_tsd)->vf_fd;
 	switch (zio->io_type) {
 	case ZIO_TYPE_IOCTL:
 		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
@@ -222,11 +225,6 @@ skip_open:
 	*logical_ashift = UZFS_VDEV_ASHIFT;
 	*physical_ashift = UZFS_VDEV_ASHIFT;
 
-	if (!vd->vdev_reopening) {
-		vf->aio_handle = aio_ops.register_aio_fd(
-		    vf->vf_fd, offsetof(zio_t, next), aio_done, init_io_args);
-	}
-
 	return (0);
 }
 
@@ -239,20 +237,12 @@ vdev_aio_file_close(vdev_t *vd)
 		return;
 
 	if (vf->vf_fd >= 0) {
-		aio_ops.unregister_aio_fd(vf->aio_handle);
 		close(vf->vf_fd);
 	}
 
 	vd->vdev_delayed_close = B_FALSE;
 	kmem_free(vf, sizeof (vdev_file_t));
 	vd->vdev_tsd = NULL;
-}
-
-static void
-submit_zio_task(zio_t *zio)
-{
-	void *aio_handle = ((vdev_file_t *)zio->io_vd->vdev_tsd)->aio_handle;
-	aio_ops.submit_aio(aio_handle, zio);
 }
 
 // not 256K aligned trim will be transformed into zero-out which
@@ -304,7 +294,7 @@ vdev_aio_file_io_start(zio_t *zio)
 				break;
 
 			// make vdev_aio_file_io_start nonblock
-			submit_zio_task(zio);
+			aio_ops.submit_aio(aio_handle, zio);
 			return;
 
 		default:
@@ -321,7 +311,7 @@ vdev_aio_file_io_start(zio_t *zio)
 
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
-	submit_zio_task(zio);
+	aio_ops.submit_aio(aio_handle, zio);
 }
 
 static void
@@ -358,9 +348,13 @@ vdev_ops_t vdev_aio_file_ops = {
 void
 vdev_aio_file_init(void)
 {
+	VERIFY0(aio_handle);
+	aio_handle = aio_ops.aio_init(offsetof(zio_t, next), aio_done, init_io_args);
 }
 
 void
 vdev_aio_file_fini(void)
 {
+	aio_ops.aio_fini(aio_handle);
+	aio_handle = NULL;
 }
