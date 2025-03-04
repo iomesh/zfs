@@ -51,11 +51,6 @@ typedef enum uzfs_attr_type {
 	UZFS_END
 } uzfs_attr_type_t;
 
-struct libuzfs_zpool_handle {
-	char zpool_name[ZFS_MAX_DATASET_NAME_LEN];
-	spa_t *spa;
-};
-
 struct libuzfs_inode_handle {
 	sa_handle_t *sa_hdl;
 	libuzfs_dataset_handle_t *dhp;
@@ -77,13 +72,12 @@ typedef struct uzfs_hold_handle {
 	uint64_t ino;
 } uzfs_hold_handle_t;
 
-#define	NUM_NODE_BUCKETS 997
+#define	NUM_NODE_BUCKETS 59
 
 typedef struct uzfs_holds {
 	kmutex_t locks[NUM_NODE_BUCKETS];
 	avl_tree_t trees[NUM_NODE_BUCKETS];
 } uzfs_holds_t;
-
 
 struct libuzfs_dataset_handle {
 	char name[ZFS_MAX_DATASET_NAME_LEN];
@@ -94,6 +88,11 @@ struct libuzfs_dataset_handle {
 	sa_attr_type_t	*uzfs_attr_table;
 	uzfs_holds_t holds;
 	uint32_t dnodesize;
+};
+
+struct libuzfs_zpool_handle {
+	char name[ZFS_MAX_DATASET_NAME_LEN];
+	spa_t *spa;
 };
 
 struct libuzfs_kvattr_iterator {
