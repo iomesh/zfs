@@ -27,6 +27,8 @@
 
 /* Portions Copyright 2010 Robert Milkowski */
 
+#include "sys/time.h"
+#include <stdio.h>
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
@@ -3038,8 +3040,12 @@ zil_wait_commit(zilog_t *zilog)
 	zil_commit_waiter_t *zcw = zil_alloc_commit_waiter();
 	zil_commit_itx_assign(zilog, zcw);
 
+	hrtime_t before = gethrtime();
 	zil_commit_writer(zilog, zcw);
+	hrtime_t middle = gethrtime();
 	zil_commit_waiter(zilog, zcw);
+	printf("writer: %lldus, waiter: %lldus\n",
+	    (middle - before) / 1000, (gethrtime() - middle) / 1000);
 
 	if (zcw->zcw_zio_error != 0) {
 		/*
