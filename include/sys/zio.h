@@ -527,6 +527,7 @@ struct zio {
 	taskq_ent_t	io_tqent;
 
 	void		*buf;
+	void		*next;
 };
 
 enum blk_verify_flag {

@@ -23,6 +23,7 @@
  */
 
 #include "atomic.h"
+#include "sync_ops.h"
 #include "sys/fs/zfs.h"
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
@@ -115,6 +116,29 @@ aio_done(void *arg, int64_t res)
 }
 
 static int
+init_io_args(void *arg, uint64_t *off, char **buf, size_t *len)
+{
+	zio_t *zio = arg;
+	*off = zio->io_offset;
+	*len = zio->io_size;
+	switch (zio->io_type) {
+	case ZIO_TYPE_IOCTL:
+		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
+		return (AIO_FSYNC);
+	case ZIO_TYPE_READ:
+		zio->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
+		*buf = zio->buf;
+		return (AIO_READ);
+	case ZIO_TYPE_WRITE:
+		zio->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
+		*buf = zio->buf;
+		return (AIO_WRITE);
+	default:
+		panic("zio type not expected: %d", zio->io_type);
+	}
+}
+
+static int
 vdev_aio_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
     uint64_t *logical_ashift, uint64_t *physical_ashift)
 {
@@ -199,7 +223,8 @@ skip_open:
 	*physical_ashift = UZFS_VDEV_ASHIFT;
 
 	if (!vd->vdev_reopening) {
-		vf->aio_handle = aio_ops.register_aio_fd(vf->vf_fd, aio_done);
+		vf->aio_handle = aio_ops.register_aio_fd(
+		    vf->vf_fd, offsetof(zio_t, next), aio_done, init_io_args);
 	}
 
 	return (0);
@@ -227,25 +252,7 @@ static void
 submit_zio_task(zio_t *zio)
 {
 	void *aio_handle = ((vdev_file_t *)zio->io_vd->vdev_tsd)->aio_handle;
-	switch (zio->io_type) {
-	case ZIO_TYPE_IOCTL:
-		VERIFY3U(zio->io_cmd, ==, DKIOCFLUSHWRITECACHE);
-		aio_ops.submit_aio_fsync(aio_handle, zio);
-		break;
-	case ZIO_TYPE_READ:
-		zio->buf = abd_borrow_buf(zio->io_abd, zio->io_size);
-		aio_ops.submit_aio_read(aio_handle, zio->io_offset,
-		    zio->buf, zio->io_size, zio);
-		break;
-	case ZIO_TYPE_WRITE:
-		zio->buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-		aio_ops.submit_aio_write(aio_handle, zio->io_offset,
-		    zio->buf, zio->io_size, zio);
-		break;
-	default:
-		panic("zio type not expected: %d", zio->io_type);
-		break;
-	}
+	aio_ops.submit_aio(aio_handle, zio);
 }
 
 // not 256K aligned trim will be transformed into zero-out which
