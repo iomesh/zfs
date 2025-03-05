@@ -105,20 +105,21 @@ typedef struct co_rwlock_ops {
 	co_rw_lock_exit_func_t		*co_rw_lock_exit;
 } co_rwlock_ops_t;
 
-typedef void *register_aio_fd_func_t(int, void (*)(void *, int64_t));
+typedef void aio_done_func_t(void *, int64_t);
+#define	AIO_READ	0
+#define	AIO_WRITE	1
+#define	AIO_FSYNC	2
+typedef int init_io_args_func_t(void *, uint64_t *, char **, size_t *);
+
+typedef void *register_aio_fd_func_t(int, size_t,
+    aio_done_func_t, init_io_args_func_t);
 typedef void unregister_aio_fd_func_t(void *);
-typedef void submit_aio_read_func_t(const void *, uint64_t,
-    char *, uint64_t, void *);
-typedef void submit_aio_write_func_t(const void *, uint64_t,
-    const char *, uint64_t, void *);
-typedef void submit_aio_fsync_func_t(const void *, void *);
+typedef void submit_aio_func_t(const void *, void *);
 
 typedef struct aio_ops {
 	register_aio_fd_func_t		*register_aio_fd;
 	unregister_aio_fd_func_t	*unregister_aio_fd;
-	submit_aio_read_func_t		*submit_aio_read;
-	submit_aio_write_func_t		*submit_aio_write;
-	submit_aio_fsync_func_t		*submit_aio_fsync;
+	submit_aio_func_t		*submit_aio;
 } aio_ops_t;
 
 typedef uint64_t uthread_create_func_t(void (*)(void *), void *, int);
