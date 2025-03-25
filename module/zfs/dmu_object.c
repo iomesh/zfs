@@ -369,6 +369,15 @@ dmu_object_free(objset_t *os, uint64_t object, dmu_tx_t *tx)
 	if (err)
 		return (err);
 
+	dmu_object_free_by_dnode(dn, tx);
+	dnode_rele(dn, FTAG);
+
+	return (0);
+}
+
+void
+dmu_object_free_by_dnode(dnode_t *dn, dmu_tx_t *tx)
+{
 	ASSERT(dn->dn_type != DMU_OT_NONE);
 	/*
 	 * If we don't create this free range, we'll leak indirect blocks when
@@ -376,9 +385,6 @@ dmu_object_free(objset_t *os, uint64_t object, dmu_tx_t *tx)
 	 */
 	dnode_free_range(dn, 0, DMU_OBJECT_END, tx);
 	dnode_free(dn, tx);
-	dnode_rele(dn, FTAG);
-
-	return (0);
 }
 
 /*

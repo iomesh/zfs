@@ -877,6 +877,12 @@ zap_destroy(objset_t *os, uint64_t zapobj, dmu_tx_t *tx)
 }
 
 void
+zap_destroy_by_dnode(dnode_t *dn, dmu_tx_t *tx)
+{
+	dmu_object_free_by_dnode(dn, tx);
+}
+
+void
 zap_evict_sync(void *dbu)
 {
 	zap_t *zap = dbu;

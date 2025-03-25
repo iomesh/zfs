@@ -1769,7 +1769,11 @@ libuzfs_object_delete(libuzfs_inode_handle_t *ihp)
 	// in much dirty data, which will block the task forever,
 	// dmu_free_long_range will split this delete into many
 	// small transactions,
-	int err = dmu_free_long_range(dhp->os, ihp->ino, 0, DMU_OBJECT_END);
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	int err = dmu_free_long_range_by_dnode(dhp->os,
+	    DB_DNODE(db), 0, DMU_OBJECT_END);
+	DB_DNODE_EXIT(db);
 	if (err != 0) {
 		return (err);
 	}
@@ -2288,7 +2292,10 @@ libuzfs_inode_delete(libuzfs_inode_handle_t *ihp,
 	dmu_tx_t *tx = dmu_tx_create(os);
 	uint64_t ino = ihp->ino;
 
-	dmu_tx_hold_free(tx, ino, 0, DMU_OBJECT_END);
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dmu_tx_hold_free_by_dnode(tx, DB_DNODE(db), 0, DMU_OBJECT_END);
+	DB_DNODE_EXIT(db);
 	if (xattr_zap_obj != 0) {
 		dmu_tx_hold_free(tx, xattr_zap_obj, 0, DMU_OBJECT_END);
 	}
@@ -2298,11 +2305,15 @@ libuzfs_inode_delete(libuzfs_inode_handle_t *ihp,
 			VERIFY0(zap_destroy(os, xattr_zap_obj, tx));
 		}
 
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(ihp->sa_hdl);
+		DB_DNODE_ENTER(db);
+		dnode_t *dn = DB_DNODE(db);
 		if (inode_type == INODE_DIR) {
-			VERIFY0(zap_destroy(os, ino, tx));
+			zap_destroy_by_dnode(dn, tx);
 		} else {
-			VERIFY0(dmu_object_free(os, ino, tx));
+			dmu_object_free_by_dnode(dn, tx);
 		}
+		DB_DNODE_EXIT(db);
 
 		if (txg != NULL) {
 			*txg = tx->tx_txg;
@@ -2357,21 +2368,65 @@ int
 libuzfs_dentry_create(libuzfs_inode_handle_t *dihp,
     const char *name, uint64_t value, uint64_t *txg)
 {
-	return (libuzfs_zap_add(dihp->dhp, dihp->ino, name, 8, 1, &value, txg));
+	objset_t *os = dihp->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(db), B_TRUE, name);
+	DB_DNODE_EXIT(db);
+
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+	} else {
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+		DB_DNODE_ENTER(db);
+		err = zap_add_by_dnode(DB_DNODE(db), name, 8, 1, &value, tx);
+		DB_DNODE_EXIT(db);
+		*txg = tx->tx_txg;
+		dmu_tx_commit(tx);
+	}
+
+	return (err);
 }
 
 int
 libuzfs_dentry_delete(libuzfs_inode_handle_t *dihp,
     const char *name, uint64_t *txg)
 {
-	return (libuzfs_zap_remove(dihp->dhp, dihp->ino, name, txg));
+	objset_t *os = dihp->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(db), B_FALSE, name);
+	DB_DNODE_EXIT(db);
+
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+	} else {
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+		DB_DNODE_ENTER(db);
+		err = zap_remove_by_dnode(DB_DNODE(db), name, tx);
+		DB_DNODE_EXIT(db);
+		*txg = tx->tx_txg;
+		dmu_tx_commit(tx);
+	}
+
+	return (err);
 }
 
 int
 libuzfs_dentry_lookup(libuzfs_inode_handle_t *dihp,
     const char *name, uint64_t *value)
 {
-	return (libuzfs_zap_lookup(dihp->dhp, dihp->ino, name, 8, 1, value));
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	int err = zap_lookup_by_dnode(DB_DNODE(db), name, 8, 1, value);
+	DB_DNODE_EXIT(db);
+	return (err);
 }
 
 int
