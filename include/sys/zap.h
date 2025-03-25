@@ -182,6 +182,7 @@ uint64_t zap_create_impl(objset_t *os, int normflags, zap_flags_t flags,
  * Frees the object number using dmu_object_free.
  */
 int zap_destroy(objset_t *ds, uint64_t zapobj, dmu_tx_t *tx);
+void zap_destroy_by_dnode(dnode_t *dn, dmu_tx_t *tx);
 
 /*
  * Manipulate attributes.
