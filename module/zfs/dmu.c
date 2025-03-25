@@ -942,7 +942,17 @@ dmu_free_long_range(objset_t *os, uint64_t object,
 	err = dnode_hold(os, object, FTAG, &dn);
 	if (err != 0)
 		return (err);
-	err = dmu_free_long_range_impl(os, dn, offset, length);
+	err = dmu_free_long_range_by_dnode(os, dn, offset, length);
+
+	dnode_rele(dn, FTAG);
+	return (err);
+}
+
+int
+dmu_free_long_range_by_dnode(objset_t *os, dnode_t *dn, uint64_t offset,
+    uint64_t length)
+{
+	int err = dmu_free_long_range_impl(os, dn, offset, length);
 
 	/*
 	 * It is important to zero out the maxblkid when freeing the entire
@@ -952,8 +962,6 @@ dmu_free_long_range(objset_t *os, uint64_t object,
 	 */
 	if (err == 0 && offset == 0 && length == DMU_OBJECT_END)
 		dn->dn_maxblkid = 0;
-
-	dnode_rele(dn, FTAG);
 	return (err);
 }
 
