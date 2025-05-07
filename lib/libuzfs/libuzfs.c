@@ -1107,16 +1107,10 @@ extern unsigned long zfs_arc_min;
 extern unsigned long zfs_arc_meta_limit_percent;
 extern unsigned long zfs_arc_sys_free;
 extern unsigned long zfs_dirty_data_max;
-extern int zfs_sync_pass_dont_compress;
 
 void
-libuzfs_config(size_t arc_max, size_t meta_percent,
-    boolean_t enable_txg_compress)
+libuzfs_config(size_t arc_max, size_t meta_percent)
 {
-	if (!enable_txg_compress) {
-		zfs_sync_pass_dont_compress = 0;
-	}
-
 	zfs_arc_meta_limit_percent = meta_percent;
 
 	zfs_arc_min = arc_max >> 2;

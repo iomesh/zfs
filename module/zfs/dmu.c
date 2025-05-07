@@ -1974,12 +1974,17 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 	 *	 3. all other level 0 blocks
 	 */
 	if (ismd) {
+#ifndef UZFS_COROUTINE
 		/*
 		 * XXX -- we should design a compression algorithm
 		 * that specializes in arrays of bps.
 		 */
 		compress = zio_compress_select(os->os_spa,
 		    ZIO_COMPRESS_ON, ZIO_COMPRESS_ON);
+#else
+		// turn off compression of metadata in uzfs for better meta performance
+		compress = ZIO_COMPRESS_OFF;
+#endif
 
 		/*
 		 * Metadata always gets checksummed.  If the data
@@ -1994,12 +1999,15 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 		    ZCHECKSUM_FLAG_EMBEDDED))
 			checksum = ZIO_CHECKSUM_FLETCHER_4;
 
+		// skip copies when using uzfs_coroutine because uzfs runs on high availabi
+#ifndef UZFS_COROUTINE
 		if (os->os_redundant_metadata == ZFS_REDUNDANT_METADATA_ALL ||
 		    (os->os_redundant_metadata ==
 		    ZFS_REDUNDANT_METADATA_MOST &&
 		    (level >= zfs_redundant_metadata_most_ditto_level ||
 		    DMU_OT_IS_METADATA(type) || (wp & WP_SPILL))))
 			copies++;
+#endif
 	} else if (wp & WP_NOFILL) {
 		ASSERT(level == 0);
 
