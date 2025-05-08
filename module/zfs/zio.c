@@ -2183,14 +2183,12 @@ zio_execute_stack_check(zio_t *zio)
 	return (B_FALSE);
 }
 
-extern stat_ops_t stat_ops;
-
 __attribute__((always_inline))
 static inline void
 __zio_execute(zio_t *zio)
 {
 	ASSERT3U(zio->io_queued_timestamp, >, 0);
-	stat_ops.backtrace();
+	panic("aha");
 	while (zio->io_stage < ZIO_STAGE_DONE) {
 		enum zio_stage pipeline = zio->io_pipeline;
 		enum zio_stage stage = zio->io_stage;
