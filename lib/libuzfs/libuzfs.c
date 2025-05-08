@@ -1211,9 +1211,12 @@ libuzfs_set_fail_percent(int fp)
 #endif
 }
 
+extern stat_ops_t stat_ops;
+
 int
 libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 {
+	stat_ops.backtrace();
 	/*
 	 * Preferentially open using O_DIRECT to bypass the block device
 	 * cache which may be stale for multipath devices.  An EINVAL errno
