@@ -1727,6 +1727,8 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 		zil_submit(dhp->zilog, objs[i]);
 	}
 
+	zil_wait_commit(dhp->zilog);
+
 	return (0);
 }
 
@@ -1734,6 +1736,12 @@ void
 libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp)
 {
 	zil_wait_commit(dhp->zilog);
+}
+
+void
+libuzfs_log_submit(libuzfs_dataset_handle_t *dhp, uint64_t ino)
+{
+	zil_submit(dhp->zilog, ino);
 }
 
 /*
