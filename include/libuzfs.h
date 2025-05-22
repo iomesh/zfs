@@ -289,6 +289,7 @@ extern void libuzfs_dataset_space(libuzfs_dataset_handle_t *dhp,
     uint64_t *availobjs);
 extern int libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
+extern void libuzfs_log_submit(libuzfs_dataset_handle_t *dhp, uint64_t ino);
 
 extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
 
