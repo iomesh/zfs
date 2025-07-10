@@ -1601,6 +1601,9 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
 #if defined(WITH_DF_BLOCK_ALLOCATOR) || \
     defined(WITH_CF_BLOCK_ALLOCATOR)
 
+// 256K, 16K, 8K
+static const uint64_t alignments[] = { 1 << 18, 1 << 14, 1 << 13 };
+
 /*
  * This is a helper function that can be used by the allocator to find a
  * suitable block to allocate. This will search the specified B-tree looking
@@ -1623,10 +1626,24 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 
 	while (rs != NULL && (rs_get_start(rs, rt) - first_found <=
 	    max_search || count_searched < metaslab_min_search_count)) {
-		uint64_t offset = rs_get_start(rs, rt);
-		if (offset + size <= rs_get_end(rs, rt)) {
-			*cursor = offset + size;
-			return (offset);
+		uint64_t start = rs_get_start(rs, rt);
+		uint64_t end = rs_get_end(rs, rt);
+
+		int len = sizeof (alignments) / sizeof (alignments[0]);
+		for (int i = 0; i < len; ++i) {
+			uint64_t align = alignments[i];
+			if (P2PHASE(size, align) == 0) {
+				uint64_t aligned = P2ROUNDUP(start, align);
+				if (aligned + size <= end) {
+					*cursor = start + size;
+					return (aligned);
+				}
+			}
+		}
+
+		if (start + size <= end) {
+			*cursor = start + size;
+			return (start);
 		}
 		rs = zfs_btree_next(bt, &where, &where);
 		count_searched++;
