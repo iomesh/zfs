@@ -1974,12 +1974,22 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 	 *	 3. all other level 0 blocks
 	 */
 	if (ismd) {
+		#ifndef UZFS_COROUTINE
 		/*
 		 * XXX -- we should design a compression algorithm
 		 * that specializes in arrays of bps.
 		 */
 		compress = zio_compress_select(os->os_spa,
 		    ZIO_COMPRESS_ON, ZIO_COMPRESS_ON);
+		#else
+		// we only compress spill block and indirect block in uzfs
+		if (level > 0 || (wp & WP_SPILL)) {
+			compress = zio_compress_select(os->os_spa,
+			    ZIO_COMPRESS_ON, ZIO_COMPRESS_ON);
+		} else {
+			compress = ZIO_COMPRESS_OFF;
+		}
+		#endif
 
 		/*
 		 * Metadata always gets checksummed.  If the data
