@@ -1552,9 +1552,6 @@ libuzfs_object_truncate(libuzfs_inode_handle_t *ihp,
 	    0, UINT64_MAX, RL_WRITER);
 	int err = libuzfs_object_truncate_impl(ihp, offset, size);
 	zfs_rangelock_exit(lr);
-	if (err == 0) {
-		zil_commit(ihp->dhp->zilog, ihp->ino);
-	}
 
 	return (err);
 }
@@ -1700,9 +1697,6 @@ libuzfs_disable_debug_msg(void)
 	zfs_flags ^= ZFS_DEBUG_DPRINTF;
 }
 
-/*
- * object creation is always SYNC, recorded in zil
- */
 int
 libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
     int num_objs, uint64_t *gen)
@@ -1731,8 +1725,6 @@ libuzfs_objects_create(libuzfs_dataset_handle_t *dhp, uint64_t *objs,
 	for (int i = 0; i < num_objs; ++i) {
 		zil_submit(dhp->zilog, objs[i]);
 	}
-
-	zil_wait_commit(dhp->zilog);
 
 	return (0);
 }
