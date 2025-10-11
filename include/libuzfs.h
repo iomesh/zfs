@@ -241,6 +241,9 @@ extern int libuzfs_inode_get_kvobj(libuzfs_dataset_handle_t *dhp,
 extern int libuzfs_dentry_create(libuzfs_inode_handle_t *ihp,
     const char *name, uint64_t value, uint64_t *txg);
 
+extern int libuzfs_dentry_update(libuzfs_inode_handle_t *ihp,
+    const char *name, uint64_t value, uint64_t *txg);
+
 extern int libuzfs_dentry_delete(libuzfs_inode_handle_t *ihp,
     const char *name, uint64_t *txg);
 
