@@ -1552,9 +1552,6 @@ libuzfs_object_truncate(libuzfs_inode_handle_t *ihp,
 	    0, UINT64_MAX, RL_WRITER);
 	int err = libuzfs_object_truncate_impl(ihp, offset, size);
 	zfs_rangelock_exit(lr);
-	if (err == 0) {
-		zil_commit(ihp->dhp->zilog, ihp->ino);
-	}
 
 	return (err);
 }
