@@ -1320,17 +1320,44 @@ zap_add_uint64(objset_t *os, uint64_t zapobj, const uint64_t *key,
 	return (err);
 }
 
+static int
+zap_update_impl(zap_t *zap, const char *name,
+    int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx);
+
 int
 zap_update(objset_t *os, uint64_t zapobj, const char *name,
     int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx)
 {
 	zap_t *zap;
-	const uint64_t *intval = val;
 
 	int err =
 	    zap_lockdir(os, zapobj, tx, RW_WRITER, TRUE, TRUE, FTAG, &zap);
 	if (err != 0)
 		return (err);
+
+	return (zap_update_impl(zap, name, integer_size, num_integers, val, tx));
+}
+
+int
+zap_update_by_dnode(dnode_t *dn, const char *name,
+    int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx)
+{
+	zap_t *zap;
+
+	int err =
+	    zap_lockdir_by_dnode(dn, tx, RW_WRITER, TRUE, TRUE, FTAG, &zap);
+	if (err != 0)
+		return (err);
+
+	return (zap_update_impl(zap, name, integer_size, num_integers, val, tx));
+}
+
+static int
+zap_update_impl(zap_t *zap, const char *name,
+    int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx)
+{
+	int err = 0;
+	const uint64_t *intval = val;
 	zap_name_t *zn = zap_name_alloc(zap, name, 0);
 	if (zn == NULL) {
 		zap_unlockdir(zap, FTAG);
@@ -1343,7 +1370,7 @@ zap_update(objset_t *os, uint64_t zapobj, const char *name,
 	} else if (integer_size != 8 || num_integers != 1 ||
 	    strlen(name) >= MZAP_NAME_LEN) {
 		dprintf("upgrading obj %llu: intsz=%u numint=%llu name=%s\n",
-		    (u_longlong_t)zapobj, integer_size,
+		    (u_longlong_t)zap->zap_object, integer_size,
 		    (u_longlong_t)num_integers, name);
 		err = mzap_upgrade(&zn->zn_zap, FTAG, tx, 0);
 		if (err == 0) {

@@ -269,6 +269,8 @@ int zap_add_uint64(objset_t *ds, uint64_t zapobj, const uint64_t *key,
  */
 int zap_update(objset_t *ds, uint64_t zapobj, const char *name,
     int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx);
+int zap_update_by_dnode(dnode_t *dn, const char *name,
+    int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx);
 int zap_update_uint64(objset_t *os, uint64_t zapobj, const uint64_t *key,
     int key_numints,
     int integer_size, uint64_t num_integers, const void *val, dmu_tx_t *tx);

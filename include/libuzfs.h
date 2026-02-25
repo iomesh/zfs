@@ -325,6 +325,8 @@ extern void libuzfs_debug_main(int argc, char **argv);
 extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
 extern void libuzfs_config(size_t arc_max, size_t meta_percent);
 void libuzfs_wakeup_arc_evictor(void);
+extern int libuzfs_dentry_update(libuzfs_inode_handle_t *dihp,
+    const char *name, uint64_t value, uint64_t *txg);
 #ifdef	__cplusplus
 }
 #endif

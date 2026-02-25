@@ -2383,6 +2383,33 @@ libuzfs_dentry_create(libuzfs_inode_handle_t *dihp,
 }
 
 int
+libuzfs_dentry_update(libuzfs_inode_handle_t *dihp,
+    const char *name, uint64_t value, uint64_t *txg)
+{
+	objset_t *os = dihp->dhp->os;
+	dmu_tx_t *tx = dmu_tx_create(os);
+
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+	DB_DNODE_ENTER(db);
+	dmu_tx_hold_zap_by_dnode(tx, DB_DNODE(db), B_TRUE, name);
+	DB_DNODE_EXIT(db);
+
+	int err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err) {
+		dmu_tx_abort(tx);
+	} else {
+		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(dihp->sa_hdl);
+		DB_DNODE_ENTER(db);
+		err = zap_update_by_dnode(DB_DNODE(db), name, 8, 1, &value, tx);
+		DB_DNODE_EXIT(db);
+		*txg = tx->tx_txg;
+		dmu_tx_commit(tx);
+	}
+
+	return (err);
+}
+
+int
 libuzfs_dentry_delete(libuzfs_inode_handle_t *dihp,
     const char *name, uint64_t *txg)
 {
