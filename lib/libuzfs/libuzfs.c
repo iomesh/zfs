@@ -26,6 +26,7 @@
 #include "sys/dsl_dir.h"
 #include "sys/dsl_pool.h"
 #include "sys/nvpair.h"
+#include "sys/param.h"
 #include "sys/spa.h"
 #include "sys/stdtypes.h"
 #include "sys/time.h"
@@ -35,6 +36,7 @@
 #include "sys/zfs_refcount.h"
 #include "umem.h"
 #include <asm-generic/errno-base.h>
+#include <stdio.h>
 #include <sys/dbuf.h>
 #include <sys/zil_impl.h>
 #include <sys/vdev_impl.h>
@@ -1525,6 +1527,68 @@ void
 libuzfs_wait_synced(libuzfs_dataset_handle_t *dhp)
 {
 	txg_wait_synced(spa_get_dsl(dhp->os->os_spa), 0);
+}
+
+int
+libuzfs_snapshot_create(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name)
+{
+	char ds_full[MAXNAMELEN];
+	int nwrite = snprintf(ds_full, MAXNAMELEN, "%s/%s",
+	    zhp->name, ds_name);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	return (dmu_objset_snapshot_one(ds_full, snap_name));
+}
+
+int
+libuzfs_snapshot_destroy(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name)
+{
+	char snap_full[MAXNAMELEN];
+	int nwrite = snprintf(snap_full, MAXNAMELEN, "%s/%s@%s",
+	    zhp->name, ds_name, snap_name);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	return (dsl_destroy_snapshot(snap_full, B_FALSE));
+}
+
+int
+libuzfs_snapshot_rollback(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name)
+{
+	char snap_full[MAXNAMELEN];
+	int nwrite = snprintf(snap_full, MAXNAMELEN, "%s/%s@%s",
+	    zhp->name, ds_name, snap_name);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	char ds_full[MAXNAMELEN];
+	nwrite = snprintf(ds_full, MAXNAMELEN, "%s/%s",
+	    zhp->name, ds_name);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	nvlist_t *outnvl = fnvlist_alloc();
+	int err = dsl_dataset_rollback(ds_full, snap_full, NULL, outnvl);
+	fnvlist_free(outnvl);
+
+	return (err);
+}
+
+int
+libuzfs_snapshot_clone(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name, const char *clone)
+{
+	char snap_full[MAXNAMELEN];
+	int nwrite = snprintf(snap_full, MAXNAMELEN, "%s/%s@%s",
+	    zhp->name, ds_name, snap_name);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	char clone_full[MAXNAMELEN];
+	nwrite = snprintf(clone_full, MAXNAMELEN, "%s/%s",
+	    zhp->name, clone);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	return (dmu_objset_clone(clone_full, snap_full));
 }
 
 static libuzfs_inode_handle_t *

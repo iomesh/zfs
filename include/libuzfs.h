@@ -136,6 +136,15 @@ extern int libuzfs_dataset_destroy(libuzfs_zpool_handle_t *zhp,
 extern uint64_t libuzfs_dataset_get_superblock_ino(
     libuzfs_dataset_handle_t *dhp);
 
+extern int libuzfs_snapshot_create(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_destroy(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_rollback(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_clone(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name, const char *clone);
+
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
 
