@@ -23,6 +23,8 @@
  */
 
 #include "libuzfs.h"
+#include "sys/dmu_send.h"
+#include "sys/dsl_dataset.h"
 #include "sys/dsl_dir.h"
 #include "sys/dsl_pool.h"
 #include "sys/nvpair.h"
@@ -33,10 +35,13 @@
 #include "sys/zap.h"
 #include "sys/zfs_context.h"
 #include "sys/zfs_debug.h"
+#include "sys/zfs_ioctl.h"
+#include "sys/dmu_recv.h"
 #include "sys/zfs_refcount.h"
 #include "umem.h"
 #include <asm-generic/errno-base.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/dbuf.h>
 #include <sys/zil_impl.h>
 #include <sys/vdev_impl.h>
@@ -1589,6 +1594,201 @@ libuzfs_snapshot_clone(libuzfs_zpool_handle_t *zhp,
 	VERIFY3U(nwrite, <, MAXNAMELEN);
 
 	return (dmu_objset_clone(clone_full, snap_full));
+}
+
+int libuzfs_snapshot_list(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, snap_emit_t snap_emit, void *arg)
+{
+	dsl_pool_t *dp = spa_get_dsl(zhp->spa);
+	char ds_full[MAXNAMELEN];
+	int nwrite = snprintf(ds_full, MAXNAMELEN, "%s/%s",
+	    zhp->name, dsname);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	dsl_pool_config_enter(dp, FTAG);
+	dsl_dataset_t *ds = NULL;
+	int err = dsl_dataset_hold(dp, ds_full, FTAG, &ds);
+	if (err != 0) {
+		dsl_pool_config_exit(dp, FTAG);
+		return (err);
+	}
+
+	zap_cursor_t cursor;
+	zap_cursor_init_serialized(&cursor,
+	    ds->ds_dir->dd_pool->dp_meta_objset,
+	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, 0);
+
+	while (1) {
+		zap_attribute_t attr;
+		err = zap_cursor_retrieve(&cursor, &attr);
+		if (err != 0) {
+			break;
+		}
+
+		snap_emit(arg, attr.za_name);
+		zap_cursor_advance(&cursor);
+	}
+
+	zap_cursor_fini(&cursor);
+	dsl_dataset_rele(ds, FTAG);
+	dsl_pool_config_exit(dp, FTAG);
+	if (err == ENOENT) {
+		err = 0;
+	}
+	return (err);
+}
+
+typedef struct libuzfs_send_cb_arg {
+	libuzfs_send_data_func_t cb;
+	const void *cb_arg;
+} libuzfs_send_cb_arg_t;
+
+static int
+libuzfs_send_out(objset_t *os, void *buf, int len, void *arg)
+{
+	libuzfs_send_cb_arg_t *send_arg = arg;
+	(void) os;
+	return (send_arg->cb(send_arg->cb_arg, buf, (size_t)len));
+}
+
+int
+libuzfs_send_snapshot(libuzfs_zpool_handle_t *zhp, const char *fsname,
+    const char *to_snap, const char *from_snap, const libuzfs_send_args_t *args)
+{
+	char to_snap_full[ZFS_MAX_DATASET_NAME_LEN];
+	int nwrite = snprintf(to_snap_full, MAXNAMELEN, "%s/%s@%s",
+	    zhp->name, fsname, to_snap);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	char from_snap_full[ZFS_MAX_DATASET_NAME_LEN];
+	const char *from = NULL;
+	if (from_snap != NULL) {
+		nwrite = snprintf(from_snap_full, MAXNAMELEN, "%s/%s@%s",
+		    zhp->name, fsname, from_snap);
+		VERIFY3U(nwrite, <, MAXNAMELEN);
+		from = from_snap_full;
+	}
+
+	libuzfs_send_cb_arg_t send_arg;
+	send_arg.cb = args->send_cb;
+	send_arg.cb_arg = args->arg;
+
+	dmu_send_outparams_t dsop;
+	dsop.dso_outfunc = libuzfs_send_out;
+	dsop.dso_arg = &send_arg;
+	dsop.dso_dryrun = B_FALSE;
+
+	offset_t off;
+
+	int err = dmu_send(to_snap_full, from, B_TRUE, B_TRUE,
+	    B_TRUE, B_TRUE, B_FALSE, args->resume_object,
+	    args->resume_offset, NULL, -1, &off, &dsop);
+
+	return (err);
+}
+
+static int
+libuzfs_read_exact_cb(libuzfs_receive_read_func_t read_cb, void *read_cb_arg,
+    void *buf, size_t len)
+{
+	size_t done = 0;
+	char *dst = buf;
+	while (done < len) {
+		size_t nread = 0;
+		int err = read_cb(read_cb_arg, dst + done, len - done, &nread);
+		if (err != 0) {
+			return (err);
+		}
+		if (nread == 0) {
+			return (SET_ERROR(ZFS_ERR_STREAM_TRUNCATED));
+		}
+		done += nread;
+	}
+	return (0);
+}
+
+int
+libuzfs_receive_snapshot(libuzfs_zpool_handle_t *zhp, const char *fsname,
+    const char *to_snap, libuzfs_receive_read_func_t read_cb, void *read_cb_arg)
+{
+	zfs_file_t input_fp = { 0 };
+	input_fp.f_fd = -1;
+	input_fp.f_dump_fd = -1;
+	input_fp.f_ops_arg = read_cb_arg;
+	input_fp.f_read_fn = read_cb;
+
+	dmu_replay_record_t begin_record;
+	int err = libuzfs_read_exact_cb(read_cb, read_cb_arg, &begin_record,
+	    sizeof (begin_record));
+	if (err != 0) {
+		return (err);
+	}
+
+	char tofs[ZFS_MAX_DATASET_NAME_LEN];
+	int nwrite = snprintf(tofs, MAXNAMELEN, "%s/%s",
+	    zhp->name, fsname);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	offset_t off = sizeof (dmu_replay_record_t);
+	dmu_recv_cookie_t drc = { 0 };
+	err = dmu_recv_begin(tofs, (char *)to_snap, &begin_record, B_FALSE, B_TRUE,
+	    NULL, NULL, NULL, &drc, &input_fp, &off);
+	if (err != 0) {
+		return (err);
+	}
+
+	err = dmu_recv_stream(&drc, &off);
+	if (err == 0) {
+		err = dmu_recv_end(&drc, NULL);
+	}
+
+	return (err);
+}
+
+int
+libuzfs_get_receive_resume_info(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, libuzfs_receive_resume_info_t *info)
+{
+	bzero(info, sizeof (*info));
+	dsl_pool_t *dp = spa_get_dsl(zhp->spa);
+
+	char ds_full[MAXNAMELEN];
+	int nwrite = snprintf(ds_full, MAXNAMELEN, "%s/%s",
+	    zhp->name, dsname);
+	VERIFY3U(nwrite, <, MAXNAMELEN);
+
+	dsl_pool_config_enter(dp, FTAG);
+	dsl_dataset_t *ds = NULL;
+	int err = dsl_dataset_hold(dp, ds_full, FTAG, &ds);
+	if (err != 0) {
+		dsl_pool_config_exit(dp, FTAG);
+		return (err);
+	}
+
+	info->has_resume = dsl_dataset_has_resume_receive_state(ds);
+	if (!info->has_resume) {
+		goto out;
+	}
+
+	uint64_t val = 0;
+	err = zap_lookup(dp->dp_meta_objset, ds->ds_object,
+	    DS_FIELD_RESUME_OBJECT, sizeof (val), 1, &val);
+	if (err != 0) {
+		goto out;
+	}
+	info->object = val;
+
+	err = zap_lookup(dp->dp_meta_objset, ds->ds_object,
+	    DS_FIELD_RESUME_OFFSET, sizeof (val), 1, &val);
+	if (err != 0) {
+		goto out;
+	}
+	info->offset = val;
+
+out:
+	dsl_dataset_rele(ds, FTAG);
+	dsl_pool_config_exit(dp, FTAG);
+	return (err);
 }
 
 static libuzfs_inode_handle_t *

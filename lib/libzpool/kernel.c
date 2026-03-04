@@ -1416,6 +1416,10 @@ zfs_file_open(const char *path, int flags, int mode, zfs_file_t **fpp)
 	fp = umem_zalloc(sizeof (zfs_file_t), UMEM_NOFAIL);
 	fp->f_fd = fd;
 	fp->f_dump_fd = dump_fd;
+	fp->f_ops_arg = NULL;
+	fp->f_read_fn = NULL;
+	fp->f_write_fn = NULL;
+	fp->f_seek_fn = NULL;
 	*fpp = fp;
 
 	return (0);
@@ -1445,11 +1449,19 @@ zfs_file_close(zfs_file_t *fp)
 int
 zfs_file_write(zfs_file_t *fp, const void *buf, size_t count, ssize_t *resid)
 {
-	ssize_t rc;
+	ssize_t rc = 0;
 
-	rc = write(fp->f_fd, buf, count);
-	if (rc < 0)
-		return (errno);
+	if (fp->f_write_fn != NULL) {
+		size_t nwrite = 0;
+		int err = fp->f_write_fn(fp->f_ops_arg, buf, count, &nwrite);
+		if (err != 0)
+			return (err);
+		rc = nwrite;
+	} else {
+		rc = write(fp->f_fd, buf, count);
+		if (rc < 0)
+			return (errno);
+	}
 
 	if (resid) {
 		*resid = count - rc;
@@ -1530,11 +1542,19 @@ zfs_file_pwrite(zfs_file_t *fp, const void *buf,
 int
 zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
 {
-	int rc;
+	ssize_t rc = 0;
 
-	rc = read(fp->f_fd, buf, count);
-	if (rc < 0)
-		return (errno);
+	if (fp->f_read_fn != NULL) {
+		size_t nread = 0;
+		int err = fp->f_read_fn(fp->f_ops_arg, buf, count, &nread);
+		if (err != 0)
+			return (err);
+		rc = nread;
+	} else {
+		rc = read(fp->f_fd, buf, count);
+		if (rc < 0)
+			return (errno);
+	}
 
 	if (resid) {
 		*resid = count - rc;
@@ -1604,13 +1624,17 @@ zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
 int
 zfs_file_seek(zfs_file_t *fp, loff_t *offp, int whence)
 {
-	loff_t rc;
+	if (fp->f_seek_fn != NULL) {
+		return (fp->f_seek_fn(fp->f_ops_arg, offp, whence));
+	} else {
+		loff_t rc;
 
-	rc = lseek(fp->f_fd, *offp, whence);
-	if (rc < 0)
-		return (errno);
+		rc = lseek(fp->f_fd, *offp, whence);
+		if (rc < 0)
+			return (errno);
 
-	*offp = rc;
+		*offp = rc;
+	}
 
 	return (0);
 }
@@ -1689,6 +1713,13 @@ zfs_file_fallocate(zfs_file_t *fp, int mode, loff_t offset, loff_t len)
 loff_t
 zfs_file_off(zfs_file_t *fp)
 {
+	if (fp->f_seek_fn != NULL) {
+		loff_t off = 0;
+		if (fp->f_seek_fn(fp->f_ops_arg, &off, SEEK_CUR) != 0)
+			return (-1);
+		return (off);
+	}
+
 	return (lseek(fp->f_fd, SEEK_CUR, 0));
 }
 

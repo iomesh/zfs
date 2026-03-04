@@ -90,6 +90,21 @@ typedef struct uzfs_object_attr uzfs_object_attr_t;
 typedef struct libuzfs_kvattr_iterator libuzfs_kvattr_iterator_t;
 typedef struct libuzfs_zap_iterator libuzfs_zap_iterator_t;
 typedef struct libuzfs_inode_handle libuzfs_inode_handle_t;
+typedef int (*libuzfs_send_data_func_t)(const void *arg, const void *buf,
+    size_t len);
+typedef int (*libuzfs_receive_read_func_t)(void *arg, void *buf, size_t len,
+    size_t *nread);
+typedef struct libuzfs_send_args {
+	uint64_t resume_object;
+	uint64_t resume_offset;
+	libuzfs_send_data_func_t send_cb;
+	const void *arg;
+} libuzfs_send_args_t;
+typedef struct libuzfs_receive_resume_info {
+	boolean_t has_resume;
+	uint64_t object;
+	uint64_t offset;
+} libuzfs_receive_resume_info_t;
 
 extern int libuzfs_inode_handle_get(
     libuzfs_dataset_handle_t *dhp, boolean_t is_data_inode,
@@ -144,6 +159,18 @@ extern int libuzfs_snapshot_rollback(libuzfs_zpool_handle_t *zhp,
     const char *ds_name, const char *snap_name);
 extern int libuzfs_snapshot_clone(libuzfs_zpool_handle_t *zhp,
     const char *ds_name, const char *snap_name, const char *clone);
+typedef void (*snap_emit_t)(void *, const char *);
+extern int libuzfs_snapshot_list(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, snap_emit_t snap_emit, void *arg);
+
+extern int libuzfs_send_snapshot(libuzfs_zpool_handle_t *zhp,
+    const char *fsname, const char *to_snap, const char *from_snap,
+    const libuzfs_send_args_t *);
+extern int libuzfs_receive_snapshot(libuzfs_zpool_handle_t *zhp,
+    const char *fsname, const char *to_snap,
+    libuzfs_receive_read_func_t read_cb, void *read_cb_arg);
+extern int libuzfs_get_receive_resume_info(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, libuzfs_receive_resume_info_t *info);
 
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);

@@ -25,9 +25,19 @@
 #include <sys/zfs_context.h>
 
 #ifndef _KERNEL
+typedef int (*zfs_file_read_fn_t)(void *arg, void *buf, size_t len,
+    size_t *nread);
+typedef int (*zfs_file_write_fn_t)(const void *arg, const void *buf, size_t len,
+    size_t *nwrite);
+typedef int (*zfs_file_seek_fn_t)(const void *arg, loff_t *offp, int whence);
+
 typedef struct zfs_file {
 	int f_fd;
 	int f_dump_fd;
+	void *f_ops_arg;
+	zfs_file_read_fn_t f_read_fn;
+	zfs_file_write_fn_t f_write_fn;
+	zfs_file_seek_fn_t f_seek_fn;
 } zfs_file_t;
 #elif defined(__linux__) || defined(__FreeBSD__)
 typedef struct file zfs_file_t;
