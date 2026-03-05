@@ -84,13 +84,27 @@ struct uzfs_dentry {
 	char name[0];
 };
 
-typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 typedef struct libuzfs_dataset_handle libuzfs_dataset_handle_t;
 typedef struct uzfs_inode_attr uzfs_inode_attr_t;
 typedef struct uzfs_object_attr uzfs_object_attr_t;
 typedef struct libuzfs_kvattr_iterator libuzfs_kvattr_iterator_t;
 typedef struct libuzfs_zap_iterator libuzfs_zap_iterator_t;
 typedef struct libuzfs_inode_handle libuzfs_inode_handle_t;
+typedef int (*libuzfs_send_data_func_t)(const void *arg, const void *buf,
+    size_t len);
+typedef int (*libuzfs_receive_read_func_t)(void *arg, void *buf, size_t len,
+    size_t *nread);
+typedef struct libuzfs_send_args {
+	uint64_t resume_object;
+	uint64_t resume_offset;
+	libuzfs_send_data_func_t send_cb;
+	const void *arg;
+} libuzfs_send_args_t;
+typedef struct libuzfs_receive_resume_info {
+	boolean_t has_resume;
+	uint64_t object;
+	uint64_t offset;
+} libuzfs_receive_resume_info_t;
 
 extern int libuzfs_inode_handle_get(
     libuzfs_dataset_handle_t *dhp, boolean_t is_data_inode,
@@ -115,31 +129,48 @@ extern void libuzfs_init(void);
 extern void libuzfs_fini(void);
 extern void libuzfs_set_zpool_cache_path(const char *zpool_cache);
 
-extern int libuzfs_zpool_create(const char *zpool, const char *path);
+typedef struct libuzfs_zpool_handle libuzfs_zpool_handle_t;
 
-extern int libuzfs_zpool_destroy(const char *zpool);
-extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool,
-    int *err, boolean_t autotrim);
+extern int libuzfs_zpool_open(const char *const dev_paths[], uint32_t ndevs,
+    const char *pool_name, libuzfs_zpool_handle_t **zhpp,
+    boolean_t create, boolean_t autotrim, const void *metrics);
 extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
+extern int libuzfs_zpool_dev_add(libuzfs_zpool_handle_t *zhp,
+    const char *dev_path);
+extern int libuzfs_zpool_start_trim(libuzfs_zpool_handle_t *zhp);
+extern int libuzfs_zpool_expand_vdev(libuzfs_zpool_handle_t *zhp,
+    const char *dev_path);
 
-extern int libuzfs_zpool_import(const char *dev_path,
-    char *pool_name, int size);
-extern int libuzfs_zpool_export(const char *pool_name);
-
-extern void libuzfs_zpool_prop_set(libuzfs_zpool_handle_t *zhp,
-    zpool_prop_t prop, uint64_t value);
-
-extern int libuzfs_zpool_prop_get(libuzfs_zpool_handle_t *zhp,
-    zpool_prop_t prop, uint64_t *value);
-
-extern int libuzfs_dataset_create(const char *dsname);
-extern void libuzfs_dataset_destroy(const char *dsname);
-extern libuzfs_dataset_handle_t *libuzfs_dataset_open(const char *dsname,
-    int *err, uint32_t dnodesize, uint32_t max_blksz, const void *metrics);
+extern libuzfs_dataset_handle_t *libuzfs_dataset_open(
+    libuzfs_zpool_handle_t *zhp, const char *dsname, int *err,
+    uint32_t dnodesize, uint32_t max_blksz, boolean_t create);
 extern void libuzfs_dataset_close(libuzfs_dataset_handle_t *dhp);
+extern int libuzfs_dataset_destroy(libuzfs_zpool_handle_t *zhp,
+    const char *dsname);
 
 extern uint64_t libuzfs_dataset_get_superblock_ino(
     libuzfs_dataset_handle_t *dhp);
+
+extern int libuzfs_snapshot_create(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_destroy(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_rollback(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name);
+extern int libuzfs_snapshot_clone(libuzfs_zpool_handle_t *zhp,
+    const char *ds_name, const char *snap_name, const char *clone);
+typedef void (*snap_emit_t)(void *, const char *);
+extern int libuzfs_snapshot_list(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, snap_emit_t snap_emit, void *arg);
+
+extern int libuzfs_send_snapshot(libuzfs_zpool_handle_t *zhp,
+    const char *fsname, const char *to_snap, const char *from_snap,
+    const libuzfs_send_args_t *);
+extern int libuzfs_receive_snapshot(libuzfs_zpool_handle_t *zhp,
+    const char *fsname, const char *to_snap,
+    libuzfs_receive_read_func_t read_cb, void *read_cb_arg);
+extern int libuzfs_get_receive_resume_info(libuzfs_zpool_handle_t *zhp,
+    const char *dsname, libuzfs_receive_resume_info_t *info);
 
 extern int libuzfs_object_stat(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     dmu_object_info_t *doi);
@@ -252,6 +283,10 @@ typedef int (*dir_emit_func_t)(void *arg, uint64_t whence,
 extern int libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
     uint64_t whence, void *arg, dir_emit_func_t dir_emit);
 
+typedef void (*ds_emit_func_t)(void *arg, const char *name);
+int libuzfs_dataset_iterate(libuzfs_zpool_handle_t *zhp, void *arg,
+    ds_emit_func_t ds_emit);
+
 extern int libuzfs_fs_create(const char *fsname);
 extern void libuzfs_fs_destroy(const char *fsname);
 extern int libuzfs_fs_init(const char *fsname, uint64_t *fsid);
@@ -312,11 +347,8 @@ extern int libuzfs_object_next_hole(libuzfs_inode_handle_t *ihp, uint64_t *off);
 extern void libuzfs_wait_log_commit(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_log_submit(libuzfs_dataset_handle_t *dhp, uint64_t ino);
 
-extern int libuzfs_dataset_expand(libuzfs_dataset_handle_t *dhp);
-
 extern void libuzfs_set_fail_percent(int fail_percent);
 
-extern int libuzfs_start_manual_trim(libuzfs_dataset_handle_t *dhp);
 extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
     uint64_t *offset, uint64_t *size);
 
