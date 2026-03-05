@@ -2633,7 +2633,8 @@ libuzfs_dentry_lookup(libuzfs_inode_handle_t *dihp,
 
 int
 libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
-    uint64_t whence, void *arg, dir_emit_func_t dir_emit)
+    uint64_t whence, void *arg, dir_emit_func_t dir_emit,
+    boolean_t prefetch, uint64_t mask)
 {
 	int		error = 0;
 	zap_cursor_t	zc;
@@ -2643,6 +2644,7 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 	libuzfs_dataset_handle_t *dhp = dihp->dhp;
 	uint64_t dino = dihp->ino;
 	zap_cursor_init_serialized(&zc, dhp->os, dino, whence);
+	objset_t *os = dihp->dhp->os;
 
 	while (!done) {
 		if ((error = zap_cursor_retrieve(&zc, &zap)))
@@ -2666,6 +2668,12 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 
 		zap_cursor_advance(&zc);
 		whence = zap_cursor_serialize(&zc);
+
+		if (prefetch) {
+			uint64_t object = zap.za_first_integer & mask;
+			dmu_prefetch(os, object, 0, 0, 0,
+			    ZIO_PRIORITY_SYNC_READ);
+		}
 
 		done = dir_emit(arg, whence, zap.za_name, zap.za_first_integer);
 		if (done)

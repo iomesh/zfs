@@ -281,7 +281,8 @@ extern int libuzfs_dentry_lookup(libuzfs_inode_handle_t *ihp,
 typedef int (*dir_emit_func_t)(void *arg, uint64_t whence,
     const char *name, uint64_t value);
 extern int libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
-    uint64_t whence, void *arg, dir_emit_func_t dir_emit);
+    uint64_t whence, void *arg, dir_emit_func_t dir_emit,
+    boolean_t prefetch, uint64_t mask);
 
 typedef void (*ds_emit_func_t)(void *arg, const char *name);
 int libuzfs_dataset_iterate(libuzfs_zpool_handle_t *zhp, void *arg,
