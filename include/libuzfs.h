@@ -119,7 +119,7 @@ extern int libuzfs_zpool_create(const char *zpool, const char *path);
 
 extern int libuzfs_zpool_destroy(const char *zpool);
 extern libuzfs_zpool_handle_t *libuzfs_zpool_open(const char *zpool,
-    int *err, boolean_t autotrim);
+    int *err, boolean_t autotrim, boolean_t ha_disk);
 extern void libuzfs_zpool_close(libuzfs_zpool_handle_t *zhp);
 
 extern int libuzfs_zpool_import(const char *dev_path,

@@ -441,6 +441,8 @@ struct spa {
 
 	taskq_t		*spa_upgrade_taskq;	/* taskq for upgrade jobs */
 	const void	*metrics;		/* pointers point to metrics */
+
+	boolean_t	spa_ha_disk;	/* multi-replica pool */
 };
 
 extern char *spa_config_path;

@@ -886,6 +886,8 @@ extern void spa_close(spa_t *spa, void *tag);
 extern void spa_async_close(spa_t *spa, void *tag);
 extern boolean_t spa_refcount_zero(spa_t *spa);
 
+extern boolean_t spa_is_ha_disk(spa_t *spa);
+
 #define	SCL_NONE	0x00
 #define	SCL_CONFIG	0x01
 #define	SCL_STATE	0x02

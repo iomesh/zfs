@@ -1974,14 +1974,14 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 	 *	 3. all other level 0 blocks
 	 */
 	if (ismd) {
-		#ifndef UZFS_COROUTINE
+#ifndef UZFS_COROUTINE
 		/*
 		 * XXX -- we should design a compression algorithm
 		 * that specializes in arrays of bps.
 		 */
 		compress = zio_compress_select(os->os_spa,
 		    ZIO_COMPRESS_ON, ZIO_COMPRESS_ON);
-		#else
+#else
 		// we only compress spill block and indirect block in uzfs
 		if (level > 0 || (wp & WP_SPILL)) {
 			compress = zio_compress_select(os->os_spa,
@@ -1989,7 +1989,7 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 		} else {
 			compress = ZIO_COMPRESS_OFF;
 		}
-		#endif
+#endif
 
 		/*
 		 * Metadata always gets checksummed.  If the data
@@ -2004,11 +2004,12 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 		    ZCHECKSUM_FLAG_EMBEDDED))
 			checksum = ZIO_CHECKSUM_FLETCHER_4;
 
-		if (os->os_redundant_metadata == ZFS_REDUNDANT_METADATA_ALL ||
+		if (!spa_is_ha_disk(os->os_spa) &&
+		    (os->os_redundant_metadata == ZFS_REDUNDANT_METADATA_ALL ||
 		    (os->os_redundant_metadata ==
 		    ZFS_REDUNDANT_METADATA_MOST &&
 		    (level >= zfs_redundant_metadata_most_ditto_level ||
-		    DMU_OT_IS_METADATA(type) || (wp & WP_SPILL))))
+		    DMU_OT_IS_METADATA(type) || (wp & WP_SPILL)))))
 			copies++;
 	} else if (wp & WP_NOFILL) {
 		ASSERT(level == 0);

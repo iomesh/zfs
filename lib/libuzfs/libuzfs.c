@@ -1179,7 +1179,8 @@ libuzfs_zpool_destroy(const char *zpool)
 }
 
 libuzfs_zpool_handle_t *
-libuzfs_zpool_open(const char *zpool, int *err, boolean_t autotrim)
+libuzfs_zpool_open(const char *zpool, int *err,
+    boolean_t autotrim, boolean_t ha_disk)
 {
 	spa_t *spa = NULL;
 
@@ -1190,6 +1191,7 @@ libuzfs_zpool_open(const char *zpool, int *err, boolean_t autotrim)
 	libuzfs_zpool_handle_t *zhp;
 	zhp = umem_alloc(sizeof (libuzfs_zpool_handle_t), UMEM_NOFAIL);
 	zhp->spa = spa;
+	spa->spa_ha_disk = ha_disk;
 	spa->spa_autotrim = autotrim ? SPA_AUTOTRIM_ON : SPA_AUTOTRIM_OFF;
 	vdev_autotrim(spa);
 	(void) strlcpy(zhp->zpool_name, zpool, sizeof (zhp->zpool_name));

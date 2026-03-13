@@ -58,6 +58,7 @@
 #include <sys/arc.h>
 #include <sys/ddt.h>
 #include <sys/kstat.h>
+#include "sys/stdtypes.h"
 #include "zfs_prop.h"
 #include <sys/btree.h>
 #include <sys/zfeature.h>
@@ -689,6 +690,7 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa->spa_proc_state = SPA_PROC_NONE;
 	spa->spa_trust_config = B_TRUE;
 	spa->spa_hostid = zone_get_hostid(NULL);
+	spa->spa_ha_disk = B_FALSE;
 
 	spa->spa_deadman_synctime = MSEC2NSEC(zfs_deadman_synctime_ms);
 	spa->spa_deadman_ziotime = MSEC2NSEC(zfs_deadman_ziotime_ms);
@@ -928,6 +930,12 @@ spa_refcount_zero(spa_t *spa)
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
 	return (zfs_refcount_count(&spa->spa_refcount) == spa->spa_minref);
+}
+
+boolean_t
+spa_is_ha_disk(spa_t *spa)
+{
+	return (spa->spa_ha_disk);
 }
 
 /*
