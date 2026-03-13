@@ -2424,7 +2424,8 @@ libuzfs_dentry_lookup(libuzfs_inode_handle_t *dihp,
 
 int
 libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
-    uint64_t whence, void *arg, dir_emit_func_t dir_emit)
+    uint64_t whence, void *arg, dir_emit_func_t dir_emit,
+    boolean_t prefetch, uint64_t mask)
 {
 	int		error = 0;
 	zap_cursor_t	zc;
@@ -2461,6 +2462,11 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 		done = dir_emit(arg, whence, zap.za_name, zap.za_first_integer);
 		if (done)
 			break;
+
+		if (prefetch) {
+			dmu_prefetch(dhp->os, zap.za_first_integer & mask, 0, 0, 0,
+			    ZIO_PRIORITY_SYNC_READ);
+		}
 	}
 
 	zap_cursor_fini(&zc);
