@@ -173,6 +173,12 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		 */
 		object = atomic_add_64_nv(cpuobj, dn_slots) - dn_slots;
 
+#ifdef UZFS_COROUTINE
+		if (object % 2 != 0 && dn_slots % 2 == 0) {
+			object++;
+		}
+#endif
+
 		/*
 		 * XXX We should check for an i/o error here and return
 		 * up to our caller.  Actually we should pre-read it in
