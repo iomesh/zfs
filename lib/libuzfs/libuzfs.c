@@ -49,8 +49,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <umem.h>
-#include <ctype.h>
-#include <math.h>
 #include <sys/fs/zfs.h>
 #include <libnvpair.h>
 #include <libzutil.h>
@@ -2246,11 +2244,24 @@ libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
 {
 	int err = libuzfs_create_inode_with_type(dhp, ino,
 	    B_FALSE, type, 0, ihpp);
-	if (err == 0) {
-		*gen = (*ihpp)->gen;
+	if (err != 0) {
+		return (err);
 	}
 
-	return (err);
+	*gen = (*ihpp)->gen;
+	int dn_slots = dhp->dnodesize >> DNODE_SHIFT;
+	if (dn_slots % 2 == 0 && (*ihpp)->ino % 2 != 0) {
+		uint64_t txg = 0;
+		int err = libuzfs_inode_delete(*ihpp, type, &txg);
+		if (err == 0) {
+			txg_wait_synced(spa_get_dsl(dhp->os->os_spa), txg);
+		}
+		panic("ino for meta_shard is odd, but dnode slots is even, "
+		    "this is not allowed, ino: %lu, dn_slots: %d, "
+		    "delete error: %d", (*ihpp)->ino, dn_slots, err);
+	}
+
+	return (0);
 }
 
 int
