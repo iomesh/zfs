@@ -205,6 +205,12 @@ libuzfs_sa_handle_get(libuzfs_dataset_handle_t *dhp,
 	dmu_buf_t *db;
 	objset_t *os = dhp->os;
 	int err = sa_buf_hold(os, ino, NULL, &db);
+	// EEXIST means we are trying to hold an interior dnode,
+	// which also means the ino we want to hold is already deleted
+	if (err == EEXIST) {
+		err = ENOENT;
+	}
+
 	if (err != 0) {
 		return (err);
 	}
@@ -1767,28 +1773,104 @@ libuzfs_object_delete(libuzfs_inode_handle_t *ihp)
 }
 
 static int
+libuzfs_check_object_claim_gen(libuzfs_dataset_handle_t *dhp,
+    uint64_t obj, uint64_t gen)
+{
+	libuzfs_inode_handle_t *ihp = NULL;
+	int err = libuzfs_inode_handle_get(dhp, B_FALSE, obj, -1ul, &ihp);
+	if (err == EIO) {
+		return (EIO);
+	}
+
+	if (err != 0) {
+		zfs_dbgmsg("failed to get inode handle"
+		    " for object %lu, err: %d", obj, err);
+		return (0);
+	}
+
+	if (ihp->gen <= gen) {
+		zfs_dbgmsg("object %lu gen %lu <= claim gen %lu",
+		    obj, ihp->gen, gen);
+		return (EIO);
+	}
+
+	libuzfs_inode_handle_rele(ihp);
+	return (0);
+}
+
+static int
 libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t gen, libuzfs_inode_type_t type)
 {
 	objset_t *os = dhp->os;
-	int dnodesize = dhp->dnodesize;
-	int err = dnode_try_claim(os, obj, dnodesize >> DNODE_SHIFT);
+	int slots = dhp->dnodesize >> DNODE_SHIFT;
+	int err = dnode_try_claim(os, obj, slots);
 	libuzfs_inode_handle_t *ihp = NULL;
 
-	// FIXME(hping): double comfirm the waived error codes
+	// if err is ENOSPC or EEXIST, the following 3 cases need to be checked
+	// 1. the object is already created.
+	// 2. one or more slots we are trying to claim is being freed,
+	//      wait synced to ensure the freeing object will free the slots.
+	// 3. we want 2 slots, but only 1 is free.
 	if (err == ENOSPC || err == EEXIST) {
 		dnode_t *dn;
-		err = dnode_hold(dhp->os, obj, FTAG, &dn);
+		// if hold returns 0, obj is an allocated dnode. its generation might not be gen,
+		// but operations after this claim will check generation by inode_handle_get.
+		int hold_err = dnode_hold(dhp->os, obj, FTAG, &dn);
+		if (hold_err == 0) {
+			zfs_dbgmsg("object %lu is an allocated dnode", obj);
+			dnode_rele(dn, FTAG);
+			return (0);
+		}
+
+		// wait synced to ensure the freeing object is synced,
+		// such that the slots will be free
+		libuzfs_wait_synced(dhp);
+		hold_err = dnode_hold(dhp->os, obj, FTAG, &dn);
+		zfs_dbgmsg("try claim object %lu failed, err: %d, hold_err: %d,"
+		    " type: %d, gen: %lu", obj, err, hold_err, type, gen);
+
+		err = hold_err;
+		// if hold returns ENOENT, the object slot is free,
+		// but we also need to check the other slots
 		if (err == ENOENT) {
 			ASSERT(type != INODE_DATA_OBJ);
-			zfs_dbgmsg("object %lu is being deleted, "
-			    "wait txg sync..", obj);
-			libuzfs_wait_synced(dhp);
+			for (int i = 1; i < slots; ++i) {
+				int hold_err = dnode_hold(dhp->os,
+				    obj + i, FTAG, &dn);
+				// if hold returns 0, obj + i is already created.
+				// so cannot claim this object
+				if (hold_err == 0) {
+					dnode_rele(dn, FTAG);
+					// obj + i must be created after obj
+					// is deleted and synced, so we can
+					// check the gen of obj + i
+					// to ensure it is greater than gen.
+					err = libuzfs_check_object_claim_gen(
+					    dhp, obj + i, gen);
+					return (err);
+				} else if (hold_err != ENOENT) {
+					VERIFY(hold_err != EEXIST);
+					return (hold_err);
+				}
+			}
+
 			goto do_claim;
 		} else if (err == 0) {
-			dprintf("object %lu already created, type: %d",
-			    obj, dn->dn_type);
+			// if hold returns 0, obj is an allocated dnode. its generation might not be gen,
+			// but operations after this claim will check generation by inode_handle_get.
+			zfs_dbgmsg("object %lu is an allocated dnode", obj);
 			dnode_rele(dn, FTAG);
+		} else if (err == EEXIST) {
+			// we were trying to claim an interior dnode,
+			// obj - 1 must be created after obj
+			// is deleted and synced,
+			// so we can check the gen of obj - 1 to ensure
+			// it is greater than gen.
+			err = libuzfs_check_object_claim_gen(dhp, obj - 1, gen);
+			if (err != 0) {
+				return (err);
+			}
 		}
 		return (err);
 	} else if (err != 0) {
