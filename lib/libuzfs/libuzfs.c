@@ -2558,6 +2558,12 @@ libuzfs_dentry_iterate(libuzfs_inode_handle_t *dihp,
 	return (error);
 }
 
+void
+libuzfs_inode_prefetch(libuzfs_dataset_handle_t *dhp, uint64_t ino)
+{
+	dmu_prefetch(dhp->os, ino, 0, 0, 0, ZIO_PRIORITY_SYNC_READ);
+}
+
 // FIXME(hping)
 #define	MAX_NUM_FS (100)
 static zfsvfs_t *zfsvfs_array[MAX_NUM_FS];
