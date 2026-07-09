@@ -549,7 +549,7 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 
 	zap->zap_objset = os;
 
-	if (lt == RW_WRITER)
+	if (lt == RW_WRITER && tx != NULL)
 		dmu_buf_will_dirty(db, tx);
 
 	ASSERT3P(zap->zap_dbuf, ==, db);
