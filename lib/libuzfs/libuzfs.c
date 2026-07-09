@@ -2123,7 +2123,7 @@ libuzfs_new_zap_iterator(libuzfs_dataset_handle_t *dhp, uint64_t obj, int *err)
 {
 	libuzfs_zap_iterator_t *iter =
 	    umem_alloc(sizeof (libuzfs_zap_iterator_t), UMEM_NOFAIL);
-	zap_cursor_init(&iter->zc, dhp->os, obj);
+	zap_cursor_init_noprefetch(&iter->zc, dhp->os, obj);
 
 	if ((*err = zap_cursor_retrieve(&iter->zc, &iter->za)) != 0) {
 		zap_cursor_fini(&iter->zc);
@@ -2346,6 +2346,13 @@ int
 libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj, uint64_t *count)
 {
 	return (zap_count(dhp->os, obj, count));
+}
+
+int
+libuzfs_zap_compact(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint32_t max_free, boolean_t *done)
+{
+	return (zap_compact(dhp->os, obj, max_free, done));
 }
 
 int

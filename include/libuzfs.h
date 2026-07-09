@@ -228,6 +228,9 @@ extern int libuzfs_zap_lookup(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 extern int libuzfs_zap_count(libuzfs_dataset_handle_t *dhp, uint64_t obj,
     uint64_t *count);
 
+extern int libuzfs_zap_compact(libuzfs_dataset_handle_t *dhp, uint64_t obj,
+    uint32_t max_free, boolean_t *done);
+
 // libuzfs_exit should be called after other attrs are set
 extern int libuzfs_inode_create(libuzfs_dataset_handle_t *dhp, uint64_t *ino,
     libuzfs_inode_type_t type, libuzfs_inode_handle_t **ihpp, uint64_t *gen);

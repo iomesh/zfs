@@ -172,6 +172,14 @@ uint64_t zap_create_impl(objset_t *os, int normflags, zap_flags_t flags,
     dnode_t **allocated_dnode, void *tag, dmu_tx_t *tx);
 
 /*
+ * Bounded fzap compaction.  At most max_free empty leaves are freed per call.
+ * done is set when this low-to-high scan has reached live data or there is no
+ * further progress to make; the operation does not search for and release every
+ * unreferenced hole in the object.
+ */
+int zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done);
+
+/*
  * The zapobj passed in must be a valid ZAP object for all of the
  * following routines.
  */

@@ -81,6 +81,8 @@ int zap_iterate_prefetch = B_TRUE;
 int fzap_default_block_shift = 14; /* 16k blocksize */
 
 static uint64_t zap_allocate_blocks(zap_t *zap, int nblocks);
+static int zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt,
+    zap_leaf_t **lp);
 
 void
 fzap_byteswap(void *vbuf, size_t size)
@@ -555,7 +557,7 @@ zap_get_leaf_byblk(zap_t *zap, uint64_t blkid, dmu_tx_t *tx, krw_t lt,
 	 * Must lock before dirtying, otherwise zap_leaf_phys(l) could change,
 	 * causing ASSERT below to fail.
 	 */
-	if (lt == RW_WRITER)
+	if (lt == RW_WRITER && tx != NULL)
 		dmu_buf_will_dirty(db, tx);
 	ASSERT3U(l->l_blkid, ==, blkid);
 	ASSERT3P(l->l_dbuf, ==, db);
@@ -598,6 +600,33 @@ zap_set_idx_to_blk(zap_t *zap, uint64_t idx, uint64_t blk, dmu_tx_t *tx)
 }
 
 static int
+zap_set_idx_range_to_blk(zap_t *zap, uint64_t idx, uint64_t nptrs,
+    uint64_t expected_blk, uint64_t blk, dmu_tx_t *tx)
+{
+	int err;
+
+	/*
+	 * Check the full range first so an I/O error or inconsistent pointer
+	 * table is reported before the pointer table is partially rewritten.
+	 */
+	for (uint64_t i = 0; i < nptrs; i++) {
+		uint64_t oldblk;
+		err = zap_idx_to_blk(zap, idx + i, &oldblk);
+		if (err != 0)
+			return (err);
+		if (oldblk != expected_blk)
+			return (SET_ERROR(EIO));
+	}
+
+	for (uint64_t i = 0; i < nptrs; i++) {
+		err = zap_set_idx_to_blk(zap, idx + i, blk, tx);
+		VERIFY0(err); /* we checked for i/o errors above */
+	}
+
+	return (0);
+}
+
+static int
 zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 {
 	uint64_t blk;
@@ -621,6 +650,153 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 	ASSERT(err ||
 	    ZAP_HASH_IDX(h, zap_leaf_phys(*lp)->l_hdr.lh_prefix_len) ==
 	    zap_leaf_phys(*lp)->l_hdr.lh_prefix);
+	return (err);
+}
+
+/*
+ * Try to compact the leaf block reached while zap_compact() scans the pointer
+ * table.
+ *
+ * The caller holds zap_rwlock as writer and passes a leaf blkid obtained from
+ * the current pointer-table index.  This routine locks that leaf as writer and
+ * either:
+ *
+ *   - reports that the bounded low-to-high scan is done,
+ *   - reports the next pointer-table index to scan, or
+ *   - collapses one empty sibling pair and frees exactly one leaf block.
+ *
+ * Compaction is intentionally conservative.  It only considers empty leaves,
+ * stops when the scan reaches a non-empty leaf or the root leaf, and only
+ * initiates a merge from the even/left prefix of a sibling pair.  The odd/right
+ * sibling is compactable only when it is also empty, has the same prefix length,
+ * and the pointer table still maps the sibling's full range to that block.
+ *
+ * On a successful merge, the sibling's pointer-table range is redirected to the
+ * kept leaf first.  The sibling is then marked non-leaf before its block is
+ * freed, so a cursor that cached the old zap_leaf_t across calls can detect the
+ * stale dbuf and re-dereference through the current pointer table.  The kept
+ * leaf's prefix is then shortened by one bit so it covers the parent prefix.
+ *
+ * Output parameters:
+ *
+ *   next_idx  next pointer-table index for the caller when no leaf was freed;
+ *             it skips the whole range covered by the current leaf so the same
+ *             leaf is not visited once per table entry.
+ *   freed     set when this call freed one sibling leaf; zap_compact() restarts
+ *             its scan because the kept leaf moved up one prefix level and may
+ *             now be mergeable again.
+ *   done      set when the bounded scan should stop because it reached live data
+ *             or the root leaf.
+ */
+static int
+zap_compact_leaf(zap_t *zap, uint64_t blk, dmu_tx_t *tx,
+    uint64_t *next_idx, boolean_t *freed, boolean_t *done)
+{
+	zap_leaf_t *l;
+	int err;
+
+	ASSERT(RW_WRITE_HELD(&zap->zap_rwlock));
+	ASSERT3P(next_idx, !=, NULL);
+	ASSERT3P(freed, !=, NULL);
+	ASSERT3P(done, !=, NULL);
+
+	*next_idx = 0;
+	*freed = B_FALSE;
+	*done = B_FALSE;
+
+	err = zap_get_leaf_byblk(zap, blk, NULL, RW_WRITER, &l);
+	if (err != 0)
+		return (err);
+
+	ASSERT(RW_WRITE_HELD(&l->l_rwlock));
+
+	uint64_t prefix = zap_leaf_phys(l)->l_hdr.lh_prefix;
+	uint64_t prefix_len = zap_leaf_phys(l)->l_hdr.lh_prefix_len;
+	/*
+	 * zap_compact() scans pointer-table indexes from low to high and only
+	 * compacts empty leaves.  Stop when the scan reaches live data, or the
+	 * root leaf, because this bounded pass only trims the empty prefix of
+	 * the table instead of searching the whole ZAP for every possible pair.
+	 */
+	if (zap_leaf_phys(l)->l_hdr.lh_nentries != 0 || prefix_len == 0) {
+		*done = B_TRUE;
+		goto out;
+	}
+
+	uint64_t prefix_diff =
+	    zap_f_phys(zap)->zap_ptrtbl.zt_shift - prefix_len;
+
+	/*
+	 * Skip the full pointer-table range covered by this leaf.  Otherwise a
+	 * leaf with several table entries would be visited once per entry.
+	 */
+	*next_idx = (prefix + 1) << prefix_diff;
+
+	/*
+	 * Only compact from the even/left side of a sibling pair.  Odd prefixes
+	 * are considered when their even sibling is reached.
+	 */
+	if (prefix & 1)
+		goto out;
+
+	uint64_t sibling_prefix = prefix | 1;
+	uint64_t sibling_idx = sibling_prefix << prefix_diff;
+	uint64_t nptrs = (1ULL << prefix_diff);
+	uint64_t sibling_blkid;
+
+	err = zap_idx_to_blk(zap, sibling_idx, &sibling_blkid);
+	if (err != 0 || sibling_blkid == l->l_blkid)
+		goto out;
+
+	zap_leaf_t *sl;
+	err = zap_get_leaf_byblk(zap, sibling_blkid, NULL, RW_WRITER, &sl);
+	if (err != 0)
+		goto out;
+
+	/*
+	 * A leaf block cannot be freed while the pointer table still
+	 * references its prefix.  Collapse only empty sibling leaves with
+	 * matching prefix lengths.
+	 */
+	boolean_t can_compact =
+	    zap_leaf_phys(sl)->l_hdr.lh_prefix_len == prefix_len &&
+	    zap_leaf_phys(sl)->l_hdr.lh_prefix == sibling_prefix &&
+	    zap_leaf_phys(sl)->l_hdr.lh_nentries == 0;
+	if (!can_compact) {
+		zap_put_leaf(sl);
+		goto out;
+	}
+
+	dmu_buf_will_dirty(zap->zap_dbuf, tx);
+	err = zap_set_idx_range_to_blk(zap, sibling_idx, nptrs, sibling_blkid,
+	    l->l_blkid, tx);
+	if (err != 0) {
+		zap_put_leaf(sl);
+		goto out;
+	}
+
+	int bs = FZAP_BLOCK_SHIFT(zap);
+
+	/*
+	 * Mark the leaf invalid for cached cursors before freeing its block.
+	 * The pointer table has already been redirected.
+	 */
+	dmu_buf_will_dirty(sl->l_dbuf, tx);
+	zap_leaf_phys(sl)->l_hdr.lh_block_type = 0;
+	VERIFY0(dmu_free_range(zap->zap_objset, zap->zap_object,
+	    sibling_blkid << bs, 1 << bs, tx));
+	zap_put_leaf(sl);
+
+	zap_f_phys(zap)->zap_num_leafs--;
+	*freed = B_TRUE;
+
+	/* The kept leaf now covers the parent prefix. */
+	dmu_buf_will_dirty(l->l_dbuf, tx);
+	zap_leaf_phys(l)->l_hdr.lh_prefix >>= 1;
+	zap_leaf_phys(l)->l_hdr.lh_prefix_len--;
+
+out:
+	zap_put_leaf(l);
 	return (err);
 }
 
@@ -989,6 +1165,121 @@ fzap_prefetch(zap_name_t *zn)
 	    ZIO_PRIORITY_SYNC_READ);
 }
 
+int
+zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done)
+{
+	zap_t *zap;
+	uint64_t total_freed = 0;
+	dmu_tx_t *tx;
+
+	ASSERT3P(done, !=, NULL);
+
+	*done = B_FALSE;
+
+	int err = zap_lockdir(os, zapobj, NULL, RW_READER, FALSE, FALSE, FTAG, &zap);
+
+	if (err != 0) {
+		return (err);
+	}
+
+	bool is_micro = zap->zap_ismicro;
+	zap_unlockdir(zap, FTAG);
+	if (is_micro) {
+		*done = B_TRUE;
+		return (0);
+	}
+
+	tx = dmu_tx_create(os);
+	dmu_tx_hold_zap(tx, zapobj, B_FALSE, NULL);
+	dmu_tx_hold_free(tx, zapobj, 0, DMU_OBJECT_END);
+	err = dmu_tx_assign(tx, TXG_WAIT);
+	if (err != 0) {
+		dmu_tx_abort(tx);
+		return (err);
+	}
+
+	err = zap_lockdir(os, zapobj, NULL, RW_WRITER, FALSE, FALSE, FTAG, &zap);
+	if (err != 0)
+		goto out_tx;
+
+	if (zap->zap_ismicro) {
+		*done = B_TRUE;
+		goto out;
+	}
+
+	if (zap_f_phys(zap)->zap_ptrtbl.zt_nextblk != 0) {
+		/*
+		 * Compaction rewrites pointer-table ranges, so avoid running
+		 * while a grow has a second in-flight copy of the table.
+		 */
+		err = SET_ERROR(EBUSY);
+		goto out;
+	}
+
+	int bs = FZAP_BLOCK_SHIFT(zap);
+	if (zap_f_phys(zap)->zap_ptrtbl.zt_blk != 0) {
+		dmu_prefetch(zap->zap_objset, zap->zap_object, 0,
+		    zap_f_phys(zap)->zap_ptrtbl.zt_blk << bs,
+		    zap_f_phys(zap)->zap_ptrtbl.zt_numblks << bs,
+		    ZIO_PRIORITY_ASYNC_READ);
+	}
+
+	/*
+	 * Each pass scans pointer-table indexes from low to high and frees at
+	 * most one leaf.  After a merge, the kept leaf moves up one prefix
+	 * level and may immediately become mergeable with its new sibling, so
+	 * restart from the beginning until max_free is reached or no progress
+	 * is possible.
+	 */
+	while (total_freed < max_free) {
+		uint64_t ptrtbl_len =
+		    1ULL << zap_f_phys(zap)->zap_ptrtbl.zt_shift;
+		boolean_t progress = B_FALSE;
+
+		for (uint64_t idx = 0; idx < ptrtbl_len &&
+		    total_freed < max_free; ) {
+			uint64_t blk;
+
+			err = zap_idx_to_blk(zap, idx, &blk);
+			if (err != 0)
+				goto out;
+
+			uint64_t next_idx;
+			boolean_t compact_done;
+			boolean_t leaf_freed;
+
+			err = zap_compact_leaf(zap, blk, tx, &next_idx,
+			    &leaf_freed, &compact_done);
+			if (err != 0)
+				goto out;
+
+			if (compact_done) {
+				*done = B_TRUE;
+				goto out;
+			}
+
+			if (leaf_freed) {
+				total_freed++;
+				progress = B_TRUE;
+				break;
+			}
+
+			idx = next_idx;
+		}
+
+		if (!progress) {
+			*done = B_TRUE;
+			break;
+		}
+	}
+
+out:
+	zap_unlockdir(zap, FTAG);
+out_tx:
+	dmu_tx_commit(tx);
+	return (err);
+}
+
 /*
  * Helper functions for consumers.
  */
@@ -1233,13 +1524,18 @@ fzap_cursor_retrieve(zap_t *zap, zap_cursor_t *zc, zap_attribute_t *za)
 		    ZIO_PRIORITY_ASYNC_READ);
 	}
 
-	if (zc->zc_leaf &&
-	    (ZAP_HASH_IDX(zc->zc_hash,
-	    zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_prefix_len) !=
-	    zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_prefix)) {
+	if (zc->zc_leaf) {
 		rw_enter(&zc->zc_leaf->l_rwlock, RW_READER);
-		zap_put_leaf(zc->zc_leaf);
-		zc->zc_leaf = NULL;
+		if (zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_block_type !=
+		    ZBT_LEAF ||
+		    zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_magic !=
+		    ZAP_LEAF_MAGIC ||
+		    ZAP_HASH_IDX(zc->zc_hash,
+		    zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_prefix_len) !=
+		    zap_leaf_phys(zc->zc_leaf)->l_hdr.lh_prefix) {
+			zap_put_leaf(zc->zc_leaf);
+			zc->zc_leaf = NULL;
+		}
 	}
 
 again:
@@ -1248,8 +1544,6 @@ again:
 		    &zc->zc_leaf);
 		if (err != 0)
 			return (err);
-	} else {
-		rw_enter(&zc->zc_leaf->l_rwlock, RW_READER);
 	}
 	l = zc->zc_leaf;
 
