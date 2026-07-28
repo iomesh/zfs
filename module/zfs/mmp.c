@@ -156,7 +156,7 @@
  * vary with the I/O load and this observed value is the ub_mmp_delay which is
  * stored in the uberblock.  The minimum allowed value is 100 ms.
  */
-ulong_t zfs_multihost_interval = MMP_DEFAULT_INTERVAL;
+ulong_t zfs_multihost_interval = 200;
 
 /*
  * Used to control the duration of the activity test on import.  Smaller values
@@ -165,7 +165,7 @@ ulong_t zfs_multihost_interval = MMP_DEFAULT_INTERVAL;
  * is never allowed to drop below one second.  A value of 0 is ignored and
  * treated as if it was set to 1.
  */
-uint_t zfs_multihost_import_intervals = MMP_DEFAULT_IMPORT_INTERVALS;
+uint_t zfs_multihost_import_intervals = 32;
 
 /*
  * Controls the behavior of the pool when mmp write failures or delays are
@@ -184,7 +184,7 @@ uint_t zfs_multihost_import_intervals = MMP_DEFAULT_IMPORT_INTERVALS;
  * per multihost_interval and thus any variation in latency would cause the
  * pool to be suspended.
  */
-uint_t zfs_multihost_fail_intervals = MMP_DEFAULT_FAIL_INTERVALS;
+uint_t zfs_multihost_fail_intervals = 24;
 
 char *mmp_tag = "mmp_write_uberblock";
 static void mmp_thread(void *arg);

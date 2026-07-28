@@ -1221,7 +1221,8 @@ libuzfs_set_fail_percent(int fp)
 }
 
 int
-libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
+libuzfs_zpool_import(const char *dev_path, char *pool_name, int size,
+    boolean_t multihost)
 {
 	/*
 	 * Preferentially open using O_DIRECT to bypass the block device
@@ -1247,6 +1248,7 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 
 	nvlist_t *leaf_config = NULL;
 	nvlist_t *pools = NULL;
+	nvlist_t *props = NULL;
 	int num_labels = 0;
 	int err = zpool_read_label_secure(fd, &leaf_config, &num_labels);
 	if (err != 0) {
@@ -1283,11 +1285,18 @@ libuzfs_zpool_import(const char *dev_path, char *pool_name, int size)
 	strncpy(pool_name, stored_pool_name, name_len);
 	pool_name[name_len] = '\0';
 
-	err = spa_import(pool_name, root_config, NULL, ZFS_IMPORT_NORMAL);
+	if (multihost) {
+		props = fnvlist_alloc();
+		fnvlist_add_uint64(props,
+		    zpool_prop_to_name(ZPOOL_PROP_MULTIHOST), B_TRUE);
+	}
+
+	err = spa_import(pool_name, root_config, props, ZFS_IMPORT_NORMAL);
 	VERIFY(err != ENOENT);
 
 out:
 	close(fd);
+	nvlist_free(props);
 	nvlist_free(leaf_config);
 	nvlist_free(pools);
 

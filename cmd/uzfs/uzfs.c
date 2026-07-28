@@ -658,7 +658,8 @@ uzfs_zpool_import(int argc, char **argv)
 	const int max_pool_name_len = 256;
 	char pool_name[max_pool_name_len];
 	pool_name[0] = 0;
-	int err = libuzfs_zpool_import(dev_path, pool_name, max_pool_name_len);
+	int err = libuzfs_zpool_import(dev_path, pool_name, max_pool_name_len,
+	    B_TRUE);
 
 	printf("import zpool, dev_path: %s, result: %d, pool_name: %s\n",
 	    dev_path, err, pool_name);
@@ -1941,7 +1942,8 @@ uzfs_io_bench(int argc, char **argv)
 		sprintf(dev_path, "/dev/%s", argv[i]);
 		char pool_name[64];
 		memset(pool_name, 0, 64);
-		int err = libuzfs_zpool_import(dev_path, pool_name, 64);
+		int err = libuzfs_zpool_import(dev_path, pool_name, 64,
+		    B_FALSE);
 		printf("zpool import, err: %d, pool_name: %s\n",
 		    err, pool_name);
 		VERIFY(err == 0 || err == ENOENT || err == EEXIST);
