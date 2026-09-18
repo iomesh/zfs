@@ -129,12 +129,13 @@ libuzfs_get_object_size(sa_handle_t *sa_hdl, sa_attr_type_t zxattr,
 	uint64_t zxattr_obj;
 	sa_object_size(sa_hdl, blksize, (u_longlong_t *)nblks);
 	if (sa_lookup(sa_hdl, zxattr, &zxattr_obj, sizeof (zxattr_obj)) == 0) {
-		dnode_t *dn;
 		uint64_t nblks_zxattr;
 		uint32_t blksize_zxattr;
-		if (dnode_hold(sa_hdl->sa_os, zxattr_obj, FTAG, &dn) == 0) {
-			dmu_object_size_from_db((dmu_buf_t *)dn->dn_dbuf,
-			    &blksize_zxattr, (u_longlong_t *)&nblks_zxattr);
+		dmu_buf_t *db;
+		if (dmu_bonus_hold(sa_hdl->sa_os, zxattr_obj, FTAG, &db) == 0) {
+			dmu_object_size_from_db(db, &blksize_zxattr,
+			    (u_longlong_t *)&nblks_zxattr);
+			dmu_buf_rele(db, FTAG);
 			*nblks += nblks_zxattr;
 		}
 	}
@@ -330,13 +331,18 @@ libuzfs_lp_kvattr_exists(sa_handle_t *sa_hdl, sa_attr_type_t *sa_tbl,
 	*err = sa_lookup(sa_hdl, sa_tbl[UZFS_ZXATTR],
 	    &zap_obj, sizeof (zap_obj));
 	if (*err == 0) {
-		return (zap_contains(sa_hdl->sa_os, zap_obj, name) == 0);
-	} else if (*err == ENOENT) {
-		*err = 0;
-		return (B_FALSE);
-	} else {
-		return (B_FALSE);
+		*err = zap_contains(sa_hdl->sa_os, zap_obj, name);
 	}
+
+	if (*err == 0) {
+		return (B_TRUE);
+	}
+
+	if (*err == ENOENT) {
+		*err = 0;
+	}
+
+	return (B_FALSE);
 }
 
 static void
