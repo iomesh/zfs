@@ -721,9 +721,8 @@ libuzfs_replay_remove(void *arg1, void *arg2, boolean_t byteswap)
 	    lr->lr_doid, -1ul, &ihp);
 	if (err == 0) {
 		err = libuzfs_inode_delete(ihp, INODE_DATA_OBJ, NULL);
+		libuzfs_inode_handle_rele(ihp);
 	}
-
-	libuzfs_inode_handle_rele(ihp);
 
 	return (err);
 }
@@ -821,9 +820,8 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	    obj, -1ul, &ihp);
 	if (err == 0) {
 		err = libuzfs_object_truncate_impl(ihp, offset, size);
+		libuzfs_inode_handle_rele(ihp);
 	}
-
-	libuzfs_inode_handle_rele(ihp);
 
 	return (err);
 }
@@ -876,9 +874,8 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	if (err == 0) {
 		err = libuzfs_object_write_impl(ihp, offset,
 		    &iov, 1, FALSE, replay_eof);
+		libuzfs_inode_handle_rele(ihp);
 	}
-
-	libuzfs_inode_handle_rele(ihp);
 
 	return (err);
 }
@@ -902,9 +899,8 @@ libuzfs_replay_kvattr_set(void *arg1, void *arg2, boolean_t byteswap)
 	if (err == 0) {
 		err = libuzfs_inode_set_kvattr(ihp, name, value,
 		    lr->lr_value_size, NULL, lr->option);
+		libuzfs_inode_handle_rele(ihp);
 	}
-
-	libuzfs_inode_handle_rele(ihp);
 
 	return (err);
 }
@@ -968,9 +964,9 @@ libuzfs_replay_setmtime(void *arg1, void *arg2, boolean_t byteswap)
 	if (err == 0) {
 		err = libuzfs_object_setmtime(ihp,
 		    (const struct timespec *)lr->mtime, B_FALSE);
+		libuzfs_inode_handle_rele(ihp);
 	}
 
-	libuzfs_inode_handle_rele(ihp);
 	return (err);
 }
 
@@ -1797,11 +1793,12 @@ libuzfs_check_object_claim_gen(libuzfs_dataset_handle_t *dhp,
 	if (ihp->gen <= gen) {
 		zfs_dbgmsg("object %lu gen %lu <= claim gen %lu",
 		    obj, ihp->gen, gen);
-		return (EIO);
+		err = EIO;
 	}
 
 	libuzfs_inode_handle_rele(ihp);
-	return (0);
+
+	return (err);
 }
 
 static int
