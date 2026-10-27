@@ -175,7 +175,8 @@ extern void libuzfs_read_buf_to_slices(const libuzfs_read_buf_t *read_buf,
 extern void libuzfs_read_buf_rele(libuzfs_read_buf_t *read_buf);
 
 extern int libuzfs_object_write(libuzfs_inode_handle_t *ihp,
-    uint64_t offset, struct iovec *iovs, int iov_cnt, boolean_t sync);
+    uint64_t offset, struct iovec *iovs, int iov_cnt, boolean_t sync,
+    boolean_t preserve_mtime);
 
 extern int libuzfs_object_get_attr(libuzfs_inode_handle_t *ihp,
     uzfs_object_attr_t *attr);
@@ -183,7 +184,7 @@ extern int libuzfs_object_get_attr(libuzfs_inode_handle_t *ihp,
 extern void libuzfs_object_sync(libuzfs_inode_handle_t *ihp);
 
 extern int libuzfs_object_truncate(libuzfs_inode_handle_t *ihp,
-    uint64_t offset, uint64_t size);
+    uint64_t offset, uint64_t size, boolean_t preserve_mtime);
 
 extern uint64_t libuzfs_get_max_synced_opid(libuzfs_dataset_handle_t *dhp);
 extern void libuzfs_dump_txg_opids(libuzfs_dataset_handle_t *dhp);

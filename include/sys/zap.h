@@ -177,7 +177,8 @@ uint64_t zap_create_impl(objset_t *os, int normflags, zap_flags_t flags,
  * further progress to make; the operation does not search for and release every
  * unreferenced hole in the object.
  */
-int zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done);
+int zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free,
+    boolean_t *done);
 
 /*
  * The zapobj passed in must be a valid ZAP object for all of the

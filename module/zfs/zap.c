@@ -668,8 +668,9 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
  * Compaction is intentionally conservative.  It only considers empty leaves,
  * stops when the scan reaches a non-empty leaf or the root leaf, and only
  * initiates a merge from the even/left prefix of a sibling pair.  The odd/right
- * sibling is compactable only when it is also empty, has the same prefix length,
- * and the pointer table still maps the sibling's full range to that block.
+ * sibling is compactable only when it is also empty, has the same prefix
+ * length, and the pointer table still maps the sibling's full range to that
+ * block.
  *
  * On a successful merge, the sibling's pointer-table range is redirected to the
  * kept leaf first.  The sibling is then marked non-leaf before its block is
@@ -685,8 +686,8 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
  *   freed     set when this call freed one sibling leaf; zap_compact() restarts
  *             its scan because the kept leaf moved up one prefix level and may
  *             now be mergeable again.
- *   done      set when the bounded scan should stop because it reached live data
- *             or the root leaf.
+ *   done      set when the bounded scan should stop because it reached live
+ *             data or the root leaf.
  */
 static int
 zap_compact_leaf(zap_t *zap, uint64_t blk, dmu_tx_t *tx,
@@ -1176,7 +1177,8 @@ zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done)
 
 	*done = B_FALSE;
 
-	int err = zap_lockdir(os, zapobj, NULL, RW_READER, FALSE, FALSE, FTAG, &zap);
+	int err = zap_lockdir(os, zapobj, NULL, RW_READER, FALSE, FALSE,
+	    FTAG, &zap);
 
 	if (err != 0) {
 		return (err);
@@ -1198,7 +1200,8 @@ zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done)
 		return (err);
 	}
 
-	err = zap_lockdir(os, zapobj, NULL, RW_WRITER, FALSE, FALSE, FTAG, &zap);
+	err = zap_lockdir(os, zapobj, NULL, RW_WRITER, FALSE, FALSE,
+	    FTAG, &zap);
 	if (err != 0)
 		goto out_tx;
 
@@ -1234,10 +1237,10 @@ zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done)
 	while (total_freed < max_free) {
 		uint64_t ptrtbl_len =
 		    1ULL << zap_f_phys(zap)->zap_ptrtbl.zt_shift;
+		uint64_t idx = 0;
 		boolean_t progress = B_FALSE;
 
-		for (uint64_t idx = 0; idx < ptrtbl_len &&
-		    total_freed < max_free; ) {
+		while (idx < ptrtbl_len && total_freed < max_free) {
 			uint64_t blk;
 
 			err = zap_idx_to_blk(zap, idx, &blk);

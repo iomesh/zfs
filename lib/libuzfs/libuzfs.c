@@ -82,7 +82,8 @@ static libuzfs_inode_handle_t *libuzfs_create_inode_with_type_impl(
     libuzfs_inode_type_t, dmu_tx_t *, uint64_t);
 
 static inline int libuzfs_object_write_impl(libuzfs_inode_handle_t *,
-    uint64_t, struct iovec *, int, boolean_t, uint64_t);
+    uint64_t, struct iovec *, int, boolean_t, uint64_t,
+    boolean_t preserve_mtime);
 
 static int
 hold_compare(const void *h1, const void *h2)
@@ -749,7 +750,7 @@ libuzfs_grow_blocksize(libuzfs_inode_handle_t *ihp,
 
 static int
 libuzfs_object_truncate_impl(libuzfs_inode_handle_t *ihp,
-    uint64_t offset, uint64_t size)
+    uint64_t offset, uint64_t size, boolean_t preserve_mtime)
 {
 	libuzfs_dataset_handle_t *dhp = ihp->dhp;
 	objset_t *os = dhp->os;
@@ -785,9 +786,13 @@ libuzfs_object_truncate_impl(libuzfs_inode_handle_t *ihp,
 		ihp->u_size = size;
 		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE],
 		    NULL, &ihp->u_size, sizeof (ihp->u_size));
-		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
-		    NULL, &mtime, sizeof (mtime));
-		gethrestime(&mtime);
+
+		if (!preserve_mtime) {
+			SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
+			    NULL, &mtime, sizeof (mtime));
+			gethrestime(&mtime);
+		}
+
 		if (newblksz > 0) {
 			libuzfs_grow_blocksize(ihp, newblksz, tx);
 		}
@@ -819,7 +824,7 @@ libuzfs_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	int err = libuzfs_inode_handle_get(dhp, B_TRUE,
 	    obj, -1ul, &ihp);
 	if (err == 0) {
-		err = libuzfs_object_truncate_impl(ihp, offset, size);
+		err = libuzfs_object_truncate_impl(ihp, offset, size, B_FALSE);
 		libuzfs_inode_handle_rele(ihp);
 	}
 
@@ -873,7 +878,7 @@ libuzfs_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	    obj, -1ul, &ihp);
 	if (err == 0) {
 		err = libuzfs_object_write_impl(ihp, offset,
-		    &iov, 1, FALSE, replay_eof);
+		    &iov, 1, FALSE, replay_eof, B_FALSE);
 		libuzfs_inode_handle_rele(ihp);
 	}
 
@@ -1541,7 +1546,7 @@ libuzfs_object_sync(libuzfs_inode_handle_t *ihp)
 
 int
 libuzfs_object_truncate(libuzfs_inode_handle_t *ihp,
-    uint64_t offset, uint64_t size)
+    uint64_t offset, uint64_t size, boolean_t preserve_mtime)
 {
 	// FIXME(hping): only support truncate now, thus offset is always 0,
 	// support fallocate in future, in which case offset could be non-zero
@@ -1550,7 +1555,8 @@ libuzfs_object_truncate(libuzfs_inode_handle_t *ihp,
 
 	zfs_locked_range_t *lr = zfs_rangelock_enter(&ihp->rl,
 	    0, UINT64_MAX, RL_WRITER);
-	int err = libuzfs_object_truncate_impl(ihp, offset, size);
+	int err = libuzfs_object_truncate_impl(ihp, offset, size,
+	    preserve_mtime);
 	zfs_rangelock_exit(lr);
 
 	return (err);
@@ -1813,12 +1819,13 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 	// if err is ENOSPC or EEXIST, the following 3 cases need to be checked
 	// 1. the object is already created.
 	// 2. one or more slots we are trying to claim is being freed,
-	//      wait synced to ensure the freeing object will free the slots.
+	//    wait synced to ensure the freeing object will free the slots.
 	// 3. we want 2 slots, but only 1 is free.
 	if (err == ENOSPC || err == EEXIST) {
 		dnode_t *dn;
-		// if hold returns 0, obj is an allocated dnode. its generation might not be gen,
-		// but operations after this claim will check generation by inode_handle_get.
+		// if hold returns 0, obj is an allocated dnode. its generation
+		// might not be gen, but operations after this claim will check
+		// generation by inode_handle_get.
 		int hold_err = dnode_hold(dhp->os, obj, FTAG, &dn);
 		if (hold_err == 0) {
 			zfs_dbgmsg("object %lu is an allocated dnode", obj);
@@ -1841,7 +1848,8 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 			for (int i = 1; i < slots; ++i) {
 				int hold_err = dnode_hold(dhp->os,
 				    obj + i, FTAG, &dn);
-				// if hold returns 0, obj + i is already created.
+				// if hold returns 0, obj + i is already
+				// created.
 				// so cannot claim this object
 				if (hold_err == 0) {
 					dnode_rele(dn, FTAG);
@@ -1860,8 +1868,9 @@ libuzfs_object_claim(libuzfs_dataset_handle_t *dhp, uint64_t obj,
 
 			goto do_claim;
 		} else if (err == 0) {
-			// if hold returns 0, obj is an allocated dnode. its generation might not be gen,
-			// but operations after this claim will check generation by inode_handle_get.
+			// if hold returns 0, obj is an allocated dnode. its
+			// generation might not be gen, but operations after
+			// this claim will check generation by inode_handle_get.
 			zfs_dbgmsg("object %lu is an allocated dnode", obj);
 			dnode_rele(dn, FTAG);
 		} else if (err == EEXIST) {
@@ -1917,7 +1926,7 @@ libuzfs_object_list(libuzfs_dataset_handle_t *dhp)
 static inline int
 libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
     uint64_t offset, struct iovec *iovs, int iov_cnt,
-    boolean_t sync, uint64_t replay_eof)
+    boolean_t sync, uint64_t replay_eof, boolean_t preserve_mtime)
 {
 	uint64_t size = 0;
 	for (int i = 0; i < iov_cnt; ++i) {
@@ -1942,8 +1951,11 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 	struct timespec mtime;
 	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_SIZE],
 	    NULL, &ihp->u_size, sizeof (ihp->u_size));
-	SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
-	    NULL, &mtime, sizeof (mtime));
+	if (!preserve_mtime) {
+		SA_ADD_BULK_ATTR(bulk, count, sa_tbl[UZFS_MTIME],
+		    NULL, &mtime, sizeof (mtime));
+	}
+
 	objset_t *os = dhp->os;
 	int err = 0;
 	while ((size = zfs_uio_resid(&uio)) > 0) {
@@ -1992,7 +2004,7 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 		}
 
 		gethrestime(&mtime);
-		VERIFY0(sa_bulk_update(ihp->sa_hdl, bulk, 2, tx));
+		VERIFY0(sa_bulk_update(ihp->sa_hdl, bulk, count, tx));
 
 		libuzfs_log_write(ihp, offset, nwrite, sync, tx);
 		dmu_tx_commit(tx);
@@ -2009,10 +2021,10 @@ libuzfs_object_write_impl(libuzfs_inode_handle_t *ihp,
 
 int
 libuzfs_object_write(libuzfs_inode_handle_t *ihp, uint64_t offset,
-    struct iovec *iovs, int iov_cnt, boolean_t sync)
+    struct iovec *iovs, int iov_cnt, boolean_t sync, boolean_t preserve_mtime)
 {
 	return (libuzfs_object_write_impl(ihp, offset,
-	    iovs, iov_cnt, sync, 0));
+	    iovs, iov_cnt, sync, 0, preserve_mtime));
 }
 
 int libuzfs_object_read_zero_copy(libuzfs_inode_handle_t *ihp,
