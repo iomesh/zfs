@@ -1216,13 +1216,9 @@ zap_compact(objset_t *os, uint64_t zapobj, uint32_t max_free, boolean_t *done)
 		goto out;
 	}
 
-	int bs = FZAP_BLOCK_SHIFT(zap);
-	if (zap_f_phys(zap)->zap_ptrtbl.zt_blk != 0) {
-		dmu_prefetch(zap->zap_objset, zap->zap_object, 0,
-		    zap_f_phys(zap)->zap_ptrtbl.zt_blk << bs,
-		    zap_f_phys(zap)->zap_ptrtbl.zt_numblks << bs,
-		    ZIO_PRIORITY_ASYNC_READ);
-	}
+	dmu_prefetch(os, zapobj, 0, 0,
+	    zap_f_phys(zap)->zap_freeblk << FZAP_BLOCK_SHIFT(zap),
+	    ZIO_PRIORITY_ASYNC_READ);
 
 	/*
 	 * Each pass scans pointer-table indexes from low to high and frees at
