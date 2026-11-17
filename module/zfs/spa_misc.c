@@ -442,6 +442,9 @@ spa_config_lock_init(spa_t *spa)
 {
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		rw_init(&scl->scl_lock, NULL, RW_DEFAULT, NULL);
+#else
 		mutex_init(&scl->scl_lock, NULL, MUTEX_DEFAULT, NULL);
 		cv_init(&scl->scl_cv, NULL, CV_DEFAULT, NULL);
 #ifdef ZFS_DEBUG
@@ -451,6 +454,7 @@ spa_config_lock_init(spa_t *spa)
 #endif
 		scl->scl_writer = NULL;
 		scl->scl_write_wanted = 0;
+#endif
 	}
 }
 
@@ -459,17 +463,33 @@ spa_config_lock_destroy(spa_t *spa)
 {
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		rw_destroy(&scl->scl_lock);
+#else
 		mutex_destroy(&scl->scl_lock);
 		cv_destroy(&scl->scl_cv);
 		zfs_refcount_destroy(&scl->scl_count);
 		ASSERT(scl->scl_writer == NULL);
 		ASSERT(scl->scl_write_wanted == 0);
+#endif
 	}
 }
 
 int
 spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 {
+#ifdef UZFS_COROUTINE
+	for (int i = 0; i < SCL_LOCKS; i++) {
+		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+		if (!(locks & (1 << i)))
+			continue;
+		if (!rw_tryenter(&scl->scl_lock, rw)) {
+			spa_config_exit(spa, locks & ((1 << i) - 1), tag);
+			return (0);
+		}
+	}
+	return (1);
+#else
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
@@ -496,6 +516,7 @@ spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 		mutex_exit(&scl->scl_lock);
 	}
 	return (1);
+#endif
 }
 
 void
@@ -508,10 +529,18 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		if (RW_WRITE_HELD(&scl->scl_lock))
+			wlocks_held |= (1 << i);
+#else
 		if (scl->scl_writer == curthread)
 			wlocks_held |= (1 << i);
+#endif
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		rw_enter(&scl->scl_lock, rw);
+#else
 		mutex_enter(&scl->scl_lock);
 		if (rw == RW_READER) {
 			while (scl->scl_writer || scl->scl_write_wanted) {
@@ -528,6 +557,7 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 		}
 		(void) zfs_refcount_add(&scl->scl_count, tag);
 		mutex_exit(&scl->scl_lock);
+#endif
 	}
 	ASSERT3U(wlocks_held, <=, locks);
 }
@@ -540,6 +570,9 @@ spa_config_exit(spa_t *spa, int locks, const void *tag)
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		rw_exit(&scl->scl_lock);
+#else
 		mutex_enter(&scl->scl_lock);
 		ASSERT(!zfs_refcount_is_zero(&scl->scl_count));
 		if (zfs_refcount_remove(&scl->scl_count, tag) == 0) {
@@ -549,6 +582,7 @@ spa_config_exit(spa_t *spa, int locks, const void *tag)
 			cv_broadcast(&scl->scl_cv);
 		}
 		mutex_exit(&scl->scl_lock);
+#endif
 	}
 }
 
@@ -561,10 +595,16 @@ spa_config_held(spa_t *spa, int locks, krw_t rw)
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		if ((rw == RW_READER && RW_READ_HELD(&scl->scl_lock)) ||
+		    (rw == RW_WRITER && RW_WRITE_HELD(&scl->scl_lock)))
+			locks_held |= 1 << i;
+#else
 		if ((rw == RW_READER &&
 		    !zfs_refcount_is_zero(&scl->scl_count)) ||
 		    (rw == RW_WRITER && scl->scl_writer == curthread))
 			locks_held |= 1 << i;
+#endif
 	}
 
 	return (locks_held);

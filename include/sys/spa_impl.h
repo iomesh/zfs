@@ -143,11 +143,15 @@ struct spa_aux_vdev {
 };
 
 typedef struct spa_config_lock {
+#ifdef UZFS_COROUTINE
+	krwlock_t	scl_lock;
+#else
 	kmutex_t	scl_lock;
 	kthread_t	*scl_writer;
 	int		scl_write_wanted;
 	kcondvar_t	scl_cv;
 	zfs_refcount_t	scl_count;
+#endif
 } spa_config_lock_t;
 
 typedef struct spa_config_dirent {
