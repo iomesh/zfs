@@ -20,13 +20,14 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2019 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2024 by Delphix. All rights reserved.
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2017 Datto Inc.
  * Copyright (c) 2017, Intel Corporation.
  * Copyright (c) 2019, loli10K <ezomori.nozomu@gmail.com>. All rights reserved.
+ * Copyright (c) 2023, 2024, Klara Inc.
  */
 
 #include <sys/zfs_context.h>
@@ -79,7 +80,8 @@
  *		- Check if spa_refcount is zero
  *		- Rename a spa_t
  *		- add/remove/attach/detach devices
- *		- Held for the duration of create/destroy/import/export
+ *		- Held for the duration of create/destroy
+ *		- Held at the start and end of import and export
  *
  *	It does not need to handle recursion.  A create or destroy may
  *	reference objects (files or zvols) in other pools, but by
@@ -232,10 +234,10 @@
  * locking is, always, based on spa_namespace_lock and spa_config_lock[].
  */
 
-static avl_tree_t spa_namespace_avl;
+avl_tree_t spa_namespace_avl;
 kmutex_t spa_namespace_lock;
-static kcondvar_t spa_namespace_cv;
-int spa_max_replication_override = SPA_DVAS_PER_BP;
+kcondvar_t spa_namespace_cv;
+static const int spa_max_replication_override = SPA_DVAS_PER_BP;
 
 static kmutex_t spa_spare_lock;
 static avl_tree_t spa_spare_avl;
@@ -442,6 +444,9 @@ spa_config_lock_init(spa_t *spa)
 {
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		rw_init(&scl->scl_lock, NULL, RW_DEFAULT, NULL);
+#else
 		mutex_init(&scl->scl_lock, NULL, MUTEX_DEFAULT, NULL);
 		cv_init(&scl->scl_cv, NULL, CV_DEFAULT, NULL);
 #ifdef ZFS_DEBUG
@@ -451,6 +456,7 @@ spa_config_lock_init(spa_t *spa)
 #endif
 		scl->scl_writer = NULL;
 		scl->scl_write_wanted = 0;
+#endif
 	}
 }
 
@@ -459,17 +465,33 @@ spa_config_lock_destroy(spa_t *spa)
 {
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		rw_destroy(&scl->scl_lock);
+#else
 		mutex_destroy(&scl->scl_lock);
 		cv_destroy(&scl->scl_cv);
 		zfs_refcount_destroy(&scl->scl_count);
 		ASSERT(scl->scl_writer == NULL);
 		ASSERT(scl->scl_write_wanted == 0);
+#endif
 	}
 }
 
 int
 spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 {
+#ifdef UZFS_COROUTINE
+	for (int i = 0; i < SCL_LOCKS; i++) {
+		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+		if (!(locks & (1 << i)))
+			continue;
+		if (!rw_tryenter(&scl->scl_lock, rw)) {
+			spa_config_exit(spa, locks & ((1 << i) - 1), tag);
+			return (0);
+		}
+	}
+	return (1);
+#else
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
@@ -496,6 +518,7 @@ spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 		mutex_exit(&scl->scl_lock);
 	}
 	return (1);
+#endif
 }
 
 void
@@ -508,10 +531,18 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
+#ifdef UZFS_COROUTINE
+		if (RW_WRITE_HELD(&scl->scl_lock))
+			wlocks_held |= (1 << i);
+#else
 		if (scl->scl_writer == curthread)
 			wlocks_held |= (1 << i);
+#endif
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		rw_enter(&scl->scl_lock, rw);
+#else
 		mutex_enter(&scl->scl_lock);
 		if (rw == RW_READER) {
 			while (scl->scl_writer || scl->scl_write_wanted) {
@@ -528,6 +559,7 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 		}
 		(void) zfs_refcount_add(&scl->scl_count, tag);
 		mutex_exit(&scl->scl_lock);
+#endif
 	}
 	ASSERT3U(wlocks_held, <=, locks);
 }
@@ -540,6 +572,9 @@ spa_config_exit(spa_t *spa, int locks, const void *tag)
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		rw_exit(&scl->scl_lock);
+#else
 		mutex_enter(&scl->scl_lock);
 		ASSERT(!zfs_refcount_is_zero(&scl->scl_count));
 		if (zfs_refcount_remove(&scl->scl_count, tag) == 0) {
@@ -549,6 +584,7 @@ spa_config_exit(spa_t *spa, int locks, const void *tag)
 			cv_broadcast(&scl->scl_cv);
 		}
 		mutex_exit(&scl->scl_lock);
+#endif
 	}
 }
 
@@ -561,10 +597,16 @@ spa_config_held(spa_t *spa, int locks, krw_t rw)
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
 		if (!(locks & (1 << i)))
 			continue;
+#ifdef UZFS_COROUTINE
+		if ((rw == RW_READER && RW_READ_HELD(&scl->scl_lock)) ||
+		    (rw == RW_WRITER && RW_WRITE_HELD(&scl->scl_lock)))
+			locks_held |= 1 << i;
+#else
 		if ((rw == RW_READER &&
 		    !zfs_refcount_is_zero(&scl->scl_count)) ||
 		    (rw == RW_WRITER && scl->scl_writer == curthread))
 			locks_held |= 1 << i;
+#endif
 	}
 
 	return (locks_held);
@@ -590,6 +632,7 @@ spa_lookup(const char *name)
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
+retry:
 	(void) strlcpy(search.spa_name, name, sizeof (search.spa_name));
 
 	/*
@@ -601,6 +644,20 @@ spa_lookup(const char *name)
 		*cp = '\0';
 
 	spa = avl_find(&spa_namespace_avl, &search, &where);
+	if (spa == NULL)
+		return (NULL);
+
+	/*
+	 * Avoid racing with import/export, which don't hold the namespace
+	 * lock for their entire duration.
+	 */
+	if ((spa->spa_load_thread != NULL &&
+	    spa->spa_load_thread != curthread) ||
+	    (spa->spa_export_thread != NULL &&
+	    spa->spa_export_thread != curthread)) {
+		cv_wait(&spa_namespace_cv, &spa_namespace_lock);
+		goto retry;
+	}
 
 	return (spa);
 }
@@ -698,6 +755,7 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa_config_lock_init(spa);
 	spa_stats_init(spa);
 
+	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 	avl_add(&spa_namespace_avl, spa);
 
 	/*
@@ -792,7 +850,6 @@ spa_remove(spa_t *spa)
 	nvlist_free(spa->spa_config_splitting);
 
 	avl_remove(&spa_namespace_avl, spa);
-	cv_broadcast(&spa_namespace_cv);
 
 	if (spa->spa_root)
 		spa_strfree(spa->spa_root);
@@ -887,19 +944,22 @@ void
 spa_open_ref(spa_t *spa, void *tag)
 {
 	ASSERT(zfs_refcount_count(&spa->spa_refcount) >= spa->spa_minref ||
-	    MUTEX_HELD(&spa_namespace_lock));
+	    MUTEX_HELD(&spa_namespace_lock) ||
+	    spa->spa_load_thread == curthread);
 	(void) zfs_refcount_add(&spa->spa_refcount, tag);
 }
 
 /*
  * Remove a reference to the given spa_t.  Must have at least one reference, or
- * have the namespace lock held.
+ * have the namespace lock held or be part of a pool import/export.
  */
 void
 spa_close(spa_t *spa, void *tag)
 {
 	ASSERT(zfs_refcount_count(&spa->spa_refcount) > spa->spa_minref ||
-	    MUTEX_HELD(&spa_namespace_lock));
+	    MUTEX_HELD(&spa_namespace_lock) ||
+	    spa->spa_load_thread == curthread ||
+	    spa->spa_export_thread == curthread);
 	(void) zfs_refcount_remove(&spa->spa_refcount, tag);
 }
 
@@ -919,13 +979,15 @@ spa_async_close(spa_t *spa, void *tag)
 
 /*
  * Check to see if the spa refcount is zero.  Must be called with
- * spa_namespace_lock held.  We really compare against spa_minref, which is the
- * number of references acquired when opening a pool
+ * spa_namespace_lock held or be the spa export thread.  We really
+ * compare against spa_minref, which is the  number of references
+ * acquired when opening a pool
  */
 boolean_t
 spa_refcount_zero(spa_t *spa)
 {
-	ASSERT(MUTEX_HELD(&spa_namespace_lock));
+	ASSERT(MUTEX_HELD(&spa_namespace_lock) ||
+	    spa->spa_export_thread == curthread);
 
 	return (zfs_refcount_count(&spa->spa_refcount) == spa->spa_minref);
 }
@@ -1173,6 +1235,8 @@ spa_vdev_enter(spa_t *spa)
 	mutex_enter(&spa->spa_vdev_top_lock);
 	mutex_enter(&spa_namespace_lock);
 
+	ASSERT0(spa->spa_export_thread);
+
 	vdev_autotrim_stop_all(spa);
 
 	return (spa_vdev_config_enter(spa));
@@ -1189,6 +1253,8 @@ spa_vdev_detach_enter(spa_t *spa, uint64_t guid)
 {
 	mutex_enter(&spa->spa_vdev_top_lock);
 	mutex_enter(&spa_namespace_lock);
+
+	ASSERT0(spa->spa_export_thread);
 
 	vdev_autotrim_stop_all(spa);
 

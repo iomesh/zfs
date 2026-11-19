@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <thread_pool.h>
 #include <time.h>
 #include <unistd.h>
 #include <pwd.h>
@@ -1858,9 +1859,18 @@ zpool_do_destroy(int argc, char **argv)
 }
 
 typedef struct export_cbdata {
+	tpool_t *tpool;
+	pthread_mutex_t mnttab_lock;
 	boolean_t force;
 	boolean_t hardforce;
+	int retval;
 } export_cbdata_t;
+
+
+typedef struct {
+	char *aea_poolname;
+	export_cbdata_t	*aea_cbdata;
+} async_export_args_t;
 
 /*
  * Export one pool
@@ -1870,11 +1880,20 @@ zpool_export_one(zpool_handle_t *zhp, void *data)
 {
 	export_cbdata_t *cb = data;
 
-	if (zpool_disable_datasets(zhp, cb->force) != 0)
-		return (1);
+	/*
+	 * zpool_disable_datasets() is not thread-safe for mnttab access.
+	 * So we serialize access here for 'zpool export -a' parallel case.
+	 */
+	if (cb->tpool != NULL)
+		pthread_mutex_lock(&cb->mnttab_lock);
 
-	/* The history must be logged as part of the export */
-	log_history = B_FALSE;
+	int retval = zpool_disable_datasets(zhp, cb->force);
+
+	if (cb->tpool != NULL)
+		pthread_mutex_unlock(&cb->mnttab_lock);
+
+	if (retval)
+		return (1);
 
 	if (cb->hardforce) {
 		if (zpool_export_force(zhp, history_str) != 0)
@@ -1884,6 +1903,48 @@ zpool_export_one(zpool_handle_t *zhp, void *data)
 	}
 
 	return (0);
+}
+
+/*
+ * Asynchronous export request
+ */
+static void
+zpool_export_task(void *arg)
+{
+	async_export_args_t *aea = arg;
+
+	zpool_handle_t *zhp = zpool_open(g_zfs, aea->aea_poolname);
+	if (zhp != NULL) {
+		int ret = zpool_export_one(zhp, aea->aea_cbdata);
+		if (ret != 0)
+			aea->aea_cbdata->retval = ret;
+		zpool_close(zhp);
+	} else {
+		aea->aea_cbdata->retval = 1;
+	}
+
+	free(aea->aea_poolname);
+	free(aea);
+}
+
+/*
+ * Process an export request in parallel
+ */
+static int
+zpool_export_one_async(zpool_handle_t *zhp, void *data)
+{
+	tpool_t *tpool = ((export_cbdata_t *)data)->tpool;
+	async_export_args_t *aea = safe_malloc(sizeof (async_export_args_t));
+
+	/* save pool name since zhp will go out of scope */
+	aea->aea_poolname = strdup(zpool_get_name(zhp));
+	aea->aea_cbdata = data;
+
+	/* ship off actual export to another thread */
+	if (tpool_dispatch(tpool, zpool_export_task, (void *)aea) != 0)
+		return (errno);	/* unlikely */
+	else
+		return (0);
 }
 
 /*
@@ -1926,8 +1987,13 @@ zpool_do_export(int argc, char **argv)
 
 	cb.force = force;
 	cb.hardforce = hardforce;
+	cb.tpool = NULL;
+	cb.retval = 0;
 	argc -= optind;
 	argv += optind;
+
+	/* The history will be logged as part of the export itself */
+	log_history = B_FALSE;
 
 	if (do_all) {
 		if (argc != 0) {
@@ -1935,8 +2001,19 @@ zpool_do_export(int argc, char **argv)
 			usage(B_FALSE);
 		}
 
-		return (for_each_pool(argc, argv, B_TRUE, NULL,
-		    B_FALSE, zpool_export_one, &cb));
+		cb.tpool = tpool_create(1, 5 * sysconf(_SC_NPROCESSORS_ONLN),
+		    0, NULL);
+		pthread_mutex_init(&cb.mnttab_lock, NULL);
+
+		/* Asynchronously call zpool_export_one using thread pool */
+		ret = for_each_pool(argc, argv, B_TRUE, NULL, ZFS_TYPE_POOL,
+		    B_FALSE, zpool_export_one_async, &cb);
+
+		tpool_wait(cb.tpool);
+		tpool_destroy(cb.tpool);
+		(void) pthread_mutex_destroy(&cb.mnttab_lock);
+
+		return (ret | cb.retval);
 	}
 
 	/* check arguments */
@@ -3203,15 +3280,40 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	return (ret);
 }
 
+typedef struct import_parameters {
+	nvlist_t *ip_config;
+	const char *ip_mntopts;
+	nvlist_t *ip_props;
+	int ip_flags;
+	int *ip_err;
+} import_parameters_t;
+
+static void
+do_import_task(void *arg)
+{
+	import_parameters_t *ip = arg;
+	*ip->ip_err |= do_import(ip->ip_config, NULL, ip->ip_mntopts,
+	    ip->ip_props, ip->ip_flags);
+	free(ip);
+}
+
+
 static int
 import_pools(nvlist_t *pools, nvlist_t *props, char *mntopts, int flags,
-    char *orig_name, char *new_name,
-    boolean_t do_destroyed, boolean_t pool_specified, boolean_t do_all,
-    importargs_t *import)
+    char *orig_name, char *new_name, importargs_t *import)
 {
 	nvlist_t *config = NULL;
 	nvlist_t *found_config = NULL;
 	uint64_t pool_state;
+	boolean_t pool_specified = (import->poolname != NULL ||
+	    import->guid != 0);
+
+
+	tpool_t *tp = NULL;
+	if (import->do_all) {
+		tp = tpool_create(1, 5 * sysconf(_SC_NPROCESSORS_ONLN),
+		    0, NULL);
+	}
 
 	/*
 	 * At this point we have a list of import candidate configs. Even if
@@ -3228,9 +3330,11 @@ import_pools(nvlist_t *pools, nvlist_t *props, char *mntopts, int flags,
 
 		verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE,
 		    &pool_state) == 0);
-		if (!do_destroyed && pool_state == POOL_STATE_DESTROYED)
+		if (!import->do_destroyed &&
+		    pool_state == POOL_STATE_DESTROYED)
 			continue;
-		if (do_destroyed && pool_state != POOL_STATE_DESTROYED)
+		if (import->do_destroyed &&
+		    pool_state != POOL_STATE_DESTROYED)
 			continue;
 
 		verify(nvlist_add_nvlist(config, ZPOOL_LOAD_POLICY,
@@ -3239,12 +3343,21 @@ import_pools(nvlist_t *pools, nvlist_t *props, char *mntopts, int flags,
 		if (!pool_specified) {
 			if (first)
 				first = B_FALSE;
-			else if (!do_all)
-				(void) printf("\n");
+			else if (!import->do_all)
+				(void) fputc('\n', stdout);
 
-			if (do_all) {
-				err |= do_import(config, NULL, mntopts,
-				    props, flags);
+			if (import->do_all) {
+				import_parameters_t *ip = safe_malloc(
+				    sizeof (import_parameters_t));
+
+				ip->ip_config = config;
+				ip->ip_mntopts = mntopts;
+				ip->ip_props = props;
+				ip->ip_flags = flags;
+				ip->ip_err = &err;
+
+				(void) tpool_dispatch(tp, do_import_task,
+				    (void *)ip);
 			} else {
 				/*
 				 * If we're importing from cachefile, then
@@ -3291,6 +3404,10 @@ import_pools(nvlist_t *pools, nvlist_t *props, char *mntopts, int flags,
 			if (guid == import->guid)
 				found_config = config;
 		}
+	}
+	if (import->do_all) {
+		tpool_wait(tp);
+		tpool_destroy(tp);
 	}
 
 	/*
@@ -3521,7 +3638,6 @@ zpool_do_import(int argc, char **argv)
 	boolean_t xtreme_rewind = B_FALSE;
 	boolean_t do_scan = B_FALSE;
 	boolean_t pool_exists = B_FALSE;
-	boolean_t pool_specified = B_FALSE;
 	uint64_t txg = -1ULL;
 	char *cachefile = NULL;
 	importargs_t idata = { 0 };
@@ -3729,7 +3845,6 @@ zpool_do_import(int argc, char **argv)
 			searchname = argv[0];
 			searchguid = 0;
 		}
-		pool_specified = B_TRUE;
 
 		/*
 		 * User specified a name or guid.  Ensure it's unique.
@@ -3770,6 +3885,8 @@ zpool_do_import(int argc, char **argv)
 	idata.cachefile = cachefile;
 	idata.scan = do_scan;
 	idata.policy = policy;
+	idata.do_destroyed = do_destroyed;
+	idata.do_all = do_all;
 
 	pools = zpool_search_import(g_zfs, &idata, &libzfs_config_ops);
 
@@ -3809,9 +3926,7 @@ zpool_do_import(int argc, char **argv)
 	}
 
 	err = import_pools(pools, props, mntopts, flags,
-	    argc >= 1 ? argv[0] : NULL,
-	    argc >= 2 ? argv[1] : NULL,
-	    do_destroyed, pool_specified, do_all, &idata);
+	    argc >= 1 ? argv[0] : NULL, argc >= 2 ? argv[1] : NULL, &idata);
 
 	/*
 	 * If we're using the cachefile and we failed to import, then
@@ -3832,9 +3947,8 @@ zpool_do_import(int argc, char **argv)
 		pools = zpool_search_import(g_zfs, &idata, &libzfs_config_ops);
 
 		err = import_pools(pools, props, mntopts, flags,
-		    argc >= 1 ? argv[0] : NULL,
-		    argc >= 2 ? argv[1] : NULL,
-		    do_destroyed, pool_specified, do_all, &idata);
+		    argc >= 1 ? argv[0] : NULL, argc >= 2 ? argv[1] : NULL,
+		    &idata);
 	}
 
 error:

@@ -596,10 +596,10 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 	return (0);
 #else
 	if (rw == RW_READER) {
-		return (co_rwlock_ops.co_rw_lock_try_read(rwlp));
+		return (co_rwlock_ops.co_rw_lock_try_read(rwlp) == 0);
 	}
 
-	return (co_rwlock_ops.co_rw_lock_try_write(rwlp));
+	return (co_rwlock_ops.co_rw_lock_try_write(rwlp) == 0);
 #endif
 }
 

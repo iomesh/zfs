@@ -33,6 +33,8 @@
  * Copyright 2017 Joyent, Inc.
  * Copyright (c) 2017, Intel Corporation.
  * Copyright (c) 2021, Colm Buckley <colm@tuatha.org>
+ * Copyright (c) 2023 Hewlett Packard Enterprise Development LP.
+ * Copyright (c) 2024, Klara Inc.
  */
 
 /*
@@ -1586,7 +1588,8 @@ spa_destroy_aux_threads(spa_t *spa)
 static void
 spa_unload(spa_t *spa)
 {
-	ASSERT(MUTEX_HELD(&spa_namespace_lock));
+	ASSERT(MUTEX_HELD(&spa_namespace_lock) ||
+	    spa->spa_export_thread == curthread);
 	ASSERT(spa_state(spa) != POOL_STATE_UNINITIALIZED);
 
 	spa_import_progress_remove(spa_guid(spa));
@@ -2843,8 +2846,6 @@ static void
 spa_spawn_aux_threads(spa_t *spa)
 {
 	ASSERT(spa_writeable(spa));
-
-	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
 	spa_start_indirect_condensing_thread(spa);
 	spa_start_livelist_destroy_thread(spa);
@@ -4493,7 +4494,8 @@ spa_ld_read_checkpoint_txg(spa_t *spa)
 	int error = 0;
 
 	ASSERT0(spa->spa_checkpoint_txg);
-	ASSERT(MUTEX_HELD(&spa_namespace_lock));
+	ASSERT(MUTEX_HELD(&spa_namespace_lock) ||
+	    spa->spa_load_thread == curthread);
 
 	error = zap_lookup(spa->spa_meta_objset, DMU_POOL_DIRECTORY_OBJECT,
 	    DMU_POOL_ZPOOL_CHECKPOINT, sizeof (uint64_t),
@@ -4740,6 +4742,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	boolean_t checkpoint_rewind =
 	    (spa->spa_import_flags & ZFS_IMPORT_CHECKPOINT);
 	boolean_t update_config_cache = B_FALSE;
+	hrtime_t load_start = gethrtime();
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 	ASSERT(spa->spa_config_source != SPA_CONFIG_SRC_NONE);
@@ -4785,11 +4788,17 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	}
 
 	/*
+	 * Drop the namespace lock for the rest of the function.
+	 */
+	spa->spa_load_thread = curthread;
+	mutex_exit(&spa_namespace_lock);
+
+	/*
 	 * Retrieve the checkpoint txg if the pool has a checkpoint.
 	 */
 	error = spa_ld_read_checkpoint_txg(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Retrieve the mapping of indirect vdevs. Those vdevs were removed
@@ -4801,7 +4810,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_open_indirect_vdev_metadata(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Retrieve the full list of active features from the MOS and check if
@@ -4809,7 +4818,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_check_features(spa, &missing_feat_write);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Load several special directories from the MOS needed by the dsl_pool
@@ -4817,14 +4826,14 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_load_special_directories(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Retrieve pool properties from the MOS.
 	 */
 	error = spa_ld_get_props(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Retrieve the list of auxiliary devices - cache devices and spares -
@@ -4832,7 +4841,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_open_aux_vdevs(spa, type);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Load the metadata for all vdevs. Also check if unopenable devices
@@ -4840,11 +4849,11 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_load_vdev_metadata(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	error = spa_ld_load_dedup_tables(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Verify the logs now to make sure we don't have any unexpected errors
@@ -4852,7 +4861,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_verify_logs(spa, type, ereport);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	if (missing_feat_write) {
 		ASSERT(spa->spa_load_state == SPA_LOAD_TRYIMPORT);
@@ -4862,8 +4871,9 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 		 * read-only mode but not read-write mode. We now have enough
 		 * information and can return to userland.
 		 */
-		return (spa_vdev_err(spa->spa_root_vdev, VDEV_AUX_UNSUP_FEAT,
-		    ENOTSUP));
+		error = spa_vdev_err(spa->spa_root_vdev, VDEV_AUX_UNSUP_FEAT,
+		    ENOTSUP);
+		goto fail;
 	}
 
 	/*
@@ -4873,7 +4883,7 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 	 */
 	error = spa_ld_verify_pool_data(spa);
 	if (error != 0)
-		return (error);
+		goto fail;
 
 	/*
 	 * Calculate the deflated space for the pool. This must be done before
@@ -4976,13 +4986,19 @@ spa_load_impl(spa_t *spa, spa_import_type_t type, char **ereport)
 		vdev_autotrim_restart(spa);
 		spa_config_exit(spa, SCL_CONFIG, FTAG);
 	}
+	zio_handle_import_delay(spa, gethrtime() - load_start);
 
 	spa_import_progress_remove(spa_guid(spa));
 	spa_async_request(spa, SPA_ASYNC_L2CACHE_REBUILD);
 
 	spa_load_note(spa, "LOADED");
+fail:
+	mutex_enter(&spa_namespace_lock);
+	spa->spa_load_thread = NULL;
+	cv_broadcast(&spa_namespace_cv);
 
-	return (0);
+	return (error);
+
 }
 
 static int
@@ -6230,9 +6246,14 @@ spa_tryimport(nvlist_t *tryconfig)
 	/*
 	 * Create and initialize the spa structure.
 	 */
+	char *name = kmem_alloc(MAXPATHLEN, KM_SLEEP);
+	(void) snprintf(name, MAXPATHLEN, "%s-%llx-%s",
+	    TRYIMPORT_NAME, (u_longlong_t)curthread, poolname);
+
 	mutex_enter(&spa_namespace_lock);
-	spa = spa_add(TRYIMPORT_NAME, tryconfig, NULL);
+	spa = spa_add(name, tryconfig, NULL);
 	spa_activate(spa, SPA_MODE_READ);
+	kmem_free(name, MAXPATHLEN);
 
 	/*
 	 * Rewind pool if a max txg was provided.
@@ -6337,8 +6358,9 @@ static int
 spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
     boolean_t force, boolean_t hardforce)
 {
-	int error;
+	int error = 0;
 	spa_t *spa;
+	hrtime_t export_start = gethrtime();
 
 	if (oldconfig)
 		*oldconfig = NULL;
@@ -6360,8 +6382,8 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 	spa->spa_is_exporting = B_TRUE;
 
 	/*
-	 * Put a hold on the pool, drop the namespace lock, stop async tasks,
-	 * reacquire the namespace lock, and see if we can export.
+	 * Put a hold on the pool, drop the namespace lock, stop async tasks
+	 * and see if we can export.
 	 */
 	spa_open_ref(spa, FTAG);
 	mutex_exit(&spa_namespace_lock);
@@ -6371,10 +6393,14 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 		taskq_wait(spa->spa_zvol_taskq);
 	}
 	mutex_enter(&spa_namespace_lock);
+	spa->spa_export_thread = curthread;
 	spa_close(spa, FTAG);
 
-	if (spa->spa_state == POOL_STATE_UNINITIALIZED)
+	if (spa->spa_state == POOL_STATE_UNINITIALIZED) {
+		mutex_exit(&spa_namespace_lock);
 		goto export_spa;
+	}
+
 	/*
 	 * The pool will be in core if it's openable, in which case we can
 	 * modify its state.  Objsets may be open only because they're dirty,
@@ -6395,6 +6421,14 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 		goto fail;
 	}
 
+	mutex_exit(&spa_namespace_lock);
+	/*
+	 * At this point we no longer hold the spa_namespace_lock and
+	 * there were no references on the spa. Future spa_lookups will
+	 * notice the spa->spa_export_thread and wait until we signal
+	 * that we are finshed.
+	 */
+
 	if (spa->spa_sync_on) {
 		/*
 		 * A pool cannot be exported if it has an active shared spare.
@@ -6405,6 +6439,7 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 		if (!force && new_state == POOL_STATE_EXPORTED &&
 		    spa_has_active_shared_spare(spa)) {
 			error = SET_ERROR(EXDEV);
+			mutex_enter(&spa_namespace_lock);
 			goto fail;
 		}
 
@@ -6470,6 +6505,13 @@ export_spa:
 	if (oldconfig && spa->spa_config)
 		VERIFY(nvlist_dup(spa->spa_config, oldconfig, 0) == 0);
 
+	if (new_state == POOL_STATE_EXPORTED)
+		zio_handle_export_delay(spa, gethrtime() - export_start);
+
+	/*
+	 * Take the namespace lock for the actual spa_t removal
+	 */
+	mutex_enter(&spa_namespace_lock);
 	if (new_state != POOL_STATE_UNINITIALIZED) {
 		if (!hardforce)
 			spa_write_cachefile(spa, B_TRUE, B_TRUE);
@@ -6481,14 +6523,25 @@ export_spa:
 		 * we make sure to reset the exporting flag.
 		 */
 		spa->spa_is_exporting = B_FALSE;
+		spa->spa_export_thread = NULL;
 	}
 
+	/*
+	 * Wake up any waiters in spa_lookup()
+	 */
+	cv_broadcast(&spa_namespace_cv);
 	mutex_exit(&spa_namespace_lock);
 	return (0);
 
 fail:
 	spa->spa_is_exporting = B_FALSE;
+	spa->spa_export_thread = NULL;
+
 	spa_async_resume(spa);
+	/*
+	 * Wake up any waiters in spa_lookup()
+	 */
+	cv_broadcast(&spa_namespace_cv);
 	mutex_exit(&spa_namespace_lock);
 	return (error);
 }
