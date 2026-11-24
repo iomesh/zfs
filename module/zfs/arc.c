@@ -4385,7 +4385,7 @@ arc_evict_impl(arc_state_t *state, uint64_t spa, int64_t bytes,
  * available for reclaim.
  */
 static uint64_t
-arc_evict_meta_balanced(uint64_t meta_used)
+arc_evict_meta_balanced(void)
 {
 	int64_t delta, prune = 0, adjustmnt;
 	uint64_t total_evicted = 0;
@@ -4401,7 +4401,7 @@ restart:
 	 * metadata from the MFU. I think we probably need to implement a
 	 * "metadata arc_p" value to do this properly.
 	 */
-	adjustmnt = meta_used - arc_meta_limit;
+	adjustmnt = aggsum_value(&arc_sums.arcstat_meta_used) - arc_meta_limit;
 
 	if (adjustmnt > 0 &&
 	    zfs_refcount_count(&arc_mru->arcs_esize[type]) > 0) {
@@ -4428,7 +4428,7 @@ restart:
 		total_evicted += arc_evict_impl(arc_mfu, 0, delta, type);
 	}
 
-	adjustmnt = meta_used - arc_meta_limit;
+	adjustmnt = aggsum_value(&arc_sums.arcstat_meta_used) - arc_meta_limit;
 
 	if (adjustmnt > 0 &&
 	    zfs_refcount_count(&arc_mru_ghost->arcs_esize[type]) > 0) {
@@ -4452,7 +4452,7 @@ restart:
 	 * meta buffers.  Requests to the upper layers will be made with
 	 * increasingly large scan sizes until the ARC is below the limit.
 	 */
-	if (meta_used > arc_meta_limit) {
+	if (aggsum_value(&arc_sums.arcstat_meta_used) > arc_meta_limit) {
 		if (type == ARC_BUFC_DATA) {
 			type = ARC_BUFC_METADATA;
 		} else {
@@ -4477,9 +4477,10 @@ restart:
  * capped by the arc_meta_limit tunable.
  */
 static uint64_t
-arc_evict_meta_only(uint64_t meta_used)
+arc_evict_meta_only(void)
 {
 	uint64_t total_evicted = 0;
+	uint64_t meta_used = aggsum_value(&arc_sums.arcstat_meta_used);
 	int64_t target;
 
 	/*
@@ -4510,12 +4511,12 @@ arc_evict_meta_only(uint64_t meta_used)
 }
 
 static uint64_t
-arc_evict_meta(uint64_t meta_used)
+arc_evict_meta(void)
 {
 	if (zfs_arc_meta_strategy == ARC_STRATEGY_META_ONLY)
-		return (arc_evict_meta_only(meta_used));
+		return (arc_evict_meta_only());
 	else
-		return (arc_evict_meta_balanced(meta_used));
+		return (arc_evict_meta_balanced());
 }
 
 /*
@@ -4609,7 +4610,7 @@ arc_evict(void)
 	 * If we're over arc_meta_limit, we want to correct that before
 	 * potentially evicting data buffers below.
 	 */
-	total_evicted += arc_evict_meta(ameta);
+	total_evicted += arc_evict_meta();
 
 	/*
 	 * Adjust MRU size
