@@ -1330,6 +1330,7 @@ dbuf_read_bonus(dmu_buf_impl_t *db, dnode_t *dn, uint32_t flags)
 	ASSERT(DB_DNODE_HELD(db));
 	ASSERT3U(bonuslen, <=, db->db.db_size);
 	db->db.db_data = kmem_alloc(max_bonuslen, KM_SLEEP);
+	db->db_bonus_alloc_size = max_bonuslen;
 	arc_space_consume(max_bonuslen, ARC_SPACE_BONUS);
 	if (bonuslen < max_bonuslen)
 		bzero(db->db.db_data, max_bonuslen);
@@ -2789,11 +2790,11 @@ dbuf_destroy(dmu_buf_impl_t *db)
 	}
 
 	if (db->db_blkid == DMU_BONUS_BLKID) {
-		int slots = DB_DNODE(db)->dn_num_slots;
-		int bonuslen = DN_SLOTS_TO_BONUSLEN(slots);
+		uint64_t bonuslen = db->db_bonus_alloc_size;
 		if (db->db.db_data != NULL) {
 			kmem_free(db->db.db_data, bonuslen);
 			arc_space_return(bonuslen, ARC_SPACE_BONUS);
+			db->db_bonus_alloc_size = 0;
 			db->db_state = DB_UNCACHED;
 			DTRACE_SET_STATE(db, "buffer cleared");
 		}
@@ -3008,6 +3009,7 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	db->db_level = level;
 	db->db_blkid = blkid;
 	db->db_dirtycnt = 0;
+	db->db_bonus_alloc_size = 0;
 	db->db_dnode_handle = dn->dn_handle;
 	db->db_parent = parent;
 	db->db_blkptr = blkptr;
