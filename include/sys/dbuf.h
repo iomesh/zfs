@@ -270,6 +270,9 @@ typedef struct dmu_buf_impl {
 	/* db_mtx protects the members below */
 	kmutex_t db_mtx;
 
+	/* Original capacity of the current bonus allocation, under db_mtx. */
+	uint64_t db_bonus_alloc_size;
+
 	/*
 	 * Current state of the buffer
 	 */
