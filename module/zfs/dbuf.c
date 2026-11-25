@@ -813,6 +813,19 @@ dbuf_kstat_update(kstat_t *ksp, int rw)
 	return (0);
 }
 
+#ifdef UZFS_COROUTINE
+#include <libuzfs.h>
+
+void
+uzfs_snapshot_dbuf(libuzfs_process_stats_t *stats)
+{
+	stats->dbuf_cache_size_bytes =
+	    zfs_refcount_count(&dbuf_caches[DB_DBUF_CACHE].size);
+	stats->dbuf_cache_total_evicts =
+	    wmsum_value(&dbuf_sums.cache_total_evicts);
+}
+#endif
+
 void
 dbuf_init(void)
 {

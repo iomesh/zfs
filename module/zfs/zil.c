@@ -110,6 +110,19 @@ zil_stats_t zil_stats = {
 	{ "zil_itx_metaslab_slog_bytes",	KSTAT_DATA_UINT64 },
 };
 
+#ifdef UZFS_COROUTINE
+#include <libuzfs.h>
+
+void
+uzfs_snapshot_zil(libuzfs_process_stats_t *stats)
+{
+	stats->zil_commit_count =
+	    atomic_load_64(&zil_stats.zil_commit_count.value.ui64);
+	stats->zil_commit_writer_count =
+	    atomic_load_64(&zil_stats.zil_commit_writer_count.value.ui64);
+}
+#endif
+
 static kstat_t *zil_ksp;
 
 /*

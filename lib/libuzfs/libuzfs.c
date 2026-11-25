@@ -1109,6 +1109,14 @@ extern unsigned long zfs_arc_sys_free;
 extern unsigned long zfs_dirty_data_max;
 
 void
+libuzfs_get_process_stats(libuzfs_process_stats_t *stats)
+{
+	uzfs_snapshot_arc(stats);
+	uzfs_snapshot_zil(stats);
+	uzfs_snapshot_dbuf(stats);
+}
+
+void
 libuzfs_config(size_t arc_max, size_t meta_percent)
 {
 	zfs_arc_meta_limit_percent = meta_percent;
