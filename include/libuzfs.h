@@ -302,6 +302,30 @@ extern int libuzfs_object_next_block(libuzfs_inode_handle_t *ihp,
 extern void libuzfs_debug_main(int argc, char **argv);
 
 extern void libuzfs_show_stats(void *, int, const seq_file_generator_t *);
+
+typedef struct libuzfs_process_stats {
+	uint64_t arc_hits;
+	uint64_t arc_misses;
+	uint64_t arc_size;
+	uint64_t arc_data_size;
+	uint64_t arc_bonus_size;
+	uint64_t arc_dnode_size;
+	uint64_t arc_metadata_used;
+	uint64_t dbuf_cache_size_bytes;
+	uint64_t dbuf_cache_total_evicts;
+	uint64_t zil_commit_count;
+	uint64_t zil_commit_writer_count;
+} libuzfs_process_stats_t;
+
+/* Call while libuzfs is initialized. */
+extern void libuzfs_get_process_stats(libuzfs_process_stats_t *);
+
+#ifdef UZFS_COROUTINE
+void uzfs_snapshot_arc(libuzfs_process_stats_t *);
+void uzfs_snapshot_zil(libuzfs_process_stats_t *);
+void uzfs_snapshot_dbuf(libuzfs_process_stats_t *);
+#endif
+
 extern void libuzfs_config(size_t arc_max, size_t meta_percent,
     boolean_t enable_txg_compress);
 void libuzfs_wakeup_arc_evictor(void);
