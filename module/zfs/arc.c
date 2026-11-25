@@ -7484,6 +7484,22 @@ arc_kstat_update(kstat_t *ksp, int rw)
 	return (0);
 }
 
+#ifdef UZFS_COROUTINE
+#include <libuzfs.h>
+
+void
+uzfs_snapshot_arc(libuzfs_process_stats_t *stats)
+{
+	stats->arc_hits = wmsum_value(&arc_sums.arcstat_hits);
+	stats->arc_misses = wmsum_value(&arc_sums.arcstat_misses);
+	stats->arc_size = aggsum_value(&arc_sums.arcstat_size);
+	stats->arc_data_size = wmsum_value(&arc_sums.arcstat_data_size);
+	stats->arc_bonus_size = wmsum_value(&arc_sums.arcstat_bonus_size);
+	stats->arc_dnode_size = aggsum_value(&arc_sums.arcstat_dnode_size);
+	stats->arc_metadata_used = aggsum_value(&arc_sums.arcstat_meta_used);
+}
+#endif
+
 /*
  * This function *must* return indices evenly distributed between all
  * sublists of the multilist. This is needed due to how the ARC eviction
